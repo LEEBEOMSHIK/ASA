@@ -50,9 +50,10 @@ class ScheduleInput(BaseModel):
 
 
 class RunRepository(RegistryRepository):
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, requested_by: str | None = None):
         super().__init__(settings.database_url, settings.workspace_id)
         self.settings = settings
+        self.requested_by = requested_by
 
     def ai_ready(self, model: str | None = None, provider: str = "openai") -> bool:
         return bool(self.settings.automation_ai_enabled
@@ -143,9 +144,10 @@ class RunRepository(RegistryRepository):
             if count and count["n"] >= 100:
                 raise RegistryError(409, "runtime_queue_full")
             conn.execute("INSERT INTO automation_runs(workspace_id,id,automation_id,revision,"
-                         "definition,manifest,prompt) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                         "definition,manifest,prompt,requested_by) "
+                         "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
                          (self.workspace_id, body.id, automation_id, body.revision,
-                          Jsonb(definition), Jsonb(manifest), body.prompt))
+                          Jsonb(definition), Jsonb(manifest), body.prompt, self.requested_by))
         return {"id": str(body.id), "status": "queued"}
 
     def runs(self, automation_id: UUID) -> list[dict[str, Any]]:
@@ -204,15 +206,17 @@ class RunRepository(RegistryRepository):
             if (old["revision"] if old else 0) != body.schedule_revision:
                 raise RegistryError(409, "revision_conflict")
             conn.execute("INSERT INTO automation_schedules(workspace_id,automation_id,enabled,"
-                         "kind,time,next_at,prompt,definition,manifest,definition_revision) "
-                         "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT "
+                         "kind,time,next_at,prompt,definition,manifest,definition_revision,"
+                         "requested_by) "
+                         "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT "
                          "(workspace_id,automation_id) DO UPDATE SET revision=automation_schedules."
                          "revision+1,enabled=EXCLUDED.enabled,kind=EXCLUDED.kind,time=EXCLUDED.time,"
                          "next_at=EXCLUDED.next_at,prompt=EXCLUDED.prompt,definition=EXCLUDED.definition,"
                          "manifest=EXCLUDED.manifest,definition_revision=EXCLUDED.definition_revision,"
-                         "note=''", (self.workspace_id, automation_id, body.enabled, body.kind,
+                         "note='',requested_by=EXCLUDED.requested_by",
+                         (self.workspace_id, automation_id, body.enabled, body.kind,
                                      body.time, target, body.prompt, Jsonb(definition),
-                                     Jsonb(manifest), body.revision))
+                                     Jsonb(manifest), body.revision, self.requested_by))
         return self.schedule(automation_id) or {}
 
     def disable_schedule(self, automation_id: UUID) -> None:
@@ -248,12 +252,13 @@ class RunRepository(RegistryRepository):
                     note = "AI 설정을 확인한 뒤 예약을 다시 켜 주세요."
                 if not active and not ai_blocked:
                     conn.execute("INSERT INTO automation_runs(workspace_id,id,automation_id,"
-                                 "revision,definition,manifest,prompt,schedule_id,occurrence) "
-                                 "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
+                                 "revision,definition,manifest,prompt,schedule_id,occurrence,"
+                                 "requested_by) "
+                                 "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
                                  (self.workspace_id, uuid4(), row["automation_id"],
                                   row["definition_revision"], Jsonb(row["definition"]),
                                   Jsonb(row["manifest"]), row["prompt"], row["automation_id"],
-                                  row["next_at"]))
+                                  row["next_at"], row.get("requested_by")))
                     dispatched += 1
                 conn.execute("UPDATE automation_schedules SET revision=revision+1,"
                              "enabled=%s,next_at=%s,note=%s "
@@ -277,7 +282,8 @@ def runtime_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
     router = APIRouter(prefix="/api/v1")
 
     def repo(principal: Principal = Depends(sessions.principal)) -> RunRepository:
-        return RunRepository(settings.model_copy(update={"workspace_id": principal.workspace_id}))
+        return RunRepository(settings.model_copy(update={"workspace_id": principal.workspace_id}),
+                             principal.user_id)
 
     @router.get("/automation-runtime")
     def status(repository: RunRepository = Depends(repo)) -> dict[str, Any]:

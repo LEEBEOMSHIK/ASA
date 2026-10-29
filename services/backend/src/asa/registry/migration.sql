@@ -122,3 +122,22 @@ CREATE TABLE IF NOT EXISTS automation_ai_calls (
 );
 
 ALTER TABLE automation_runs ADD COLUMN IF NOT EXISTS graph_state jsonb;
+ALTER TABLE automation_runs ADD COLUMN IF NOT EXISTS requested_by text;
+ALTER TABLE automation_runs ADD COLUMN IF NOT EXISTS started_at timestamptz;
+ALTER TABLE automation_schedules ADD COLUMN IF NOT EXISTS requested_by text;
+ALTER TABLE customer_requests ADD COLUMN IF NOT EXISTS requested_by text;
+
+CREATE TABLE IF NOT EXISTS ai_usage_events (
+    workspace_id uuid NOT NULL REFERENCES registry_workspaces(id), id uuid NOT NULL,
+    run_id text NOT NULL, request_id text NOT NULL, source text NOT NULL,
+    requested_by text, automation_id text, name text NOT NULL, revision integer,
+    step_id text NOT NULL, step_name text NOT NULL, provider text NOT NULL, model text NOT NULL,
+    status text NOT NULL DEFAULT 'incomplete', created_at timestamptz NOT NULL DEFAULT now(),
+    finished_at timestamptz, duration_ms integer, original_request jsonb,
+    messages jsonb, response jsonb, usage jsonb, pricing jsonb,
+    estimated_usd numeric, cost_state text NOT NULL DEFAULT 'unknown', error_code text,
+    PRIMARY KEY(workspace_id,id)
+);
+CREATE INDEX IF NOT EXISTS ai_usage_events_time ON ai_usage_events(workspace_id,created_at DESC,id);
+CREATE INDEX IF NOT EXISTS ai_usage_events_run ON ai_usage_events(workspace_id,run_id);
+ALTER TABLE ai_usage_events ADD COLUMN IF NOT EXISTS requested_at timestamptz;

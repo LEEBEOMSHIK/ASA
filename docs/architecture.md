@@ -1,5 +1,7 @@
 # AI Shorts Studio 아키텍처
 
+ASA-054: [관리자 AI 모니터링](ai-monitoring.md)은 workspace별 호출 이벤트를 PostgreSQL에 기록한다. LangChain callback으로 공급자 반환 사용량·실제 입력·응답·시간을 수집하고 호출 시점 요율로 예상 비용을 계산한다. 자동화/예약/고객 대본/CLI 요청 출처와 요청자·실행 ID를 보존한다. owner/admin API만 상세를 조회하며 외부 tracing 전송은 사용하지 않는다.
+
 기준일: 2026-10-26. 사용자 확정: Next.js + FastAPI, LangGraph + LangChain, 로컬 개발,
 운영 Docker, 외부 AI API, 개인 채널 MVP → SaaS. 저장소: C:/projects/ASA.
 

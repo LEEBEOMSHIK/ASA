@@ -9,6 +9,7 @@ from asa.auth.session import OwnerSessions
 from asa.config import Settings
 from asa.registry.automations import automation_router
 from asa.registry.history import history_router
+from asa.registry.monitoring import monitoring_router
 from asa.registry.routes import registry_router
 from asa.registry.runtime import runtime_router
 from asa.registry.schemas import RegistryError
@@ -25,6 +26,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(script_router(settings, sessions))
     app.include_router(automation_router(settings, sessions))
     app.include_router(runtime_router(settings, sessions))
+    app.include_router(monitoring_router(settings, sessions))
 
     @app.middleware("http")
     async def request_limits(

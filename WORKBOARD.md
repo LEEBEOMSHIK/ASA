@@ -149,3 +149,9 @@ ASA-052 DONE: 자동화 목록 카드 아이콘/버전·제목/설명·블록 �
 
 
 ASA-053 DONE: 사용자 요청으로 전체 구현 초기 커밋 83a7a5d 및 origin/main 푸시 완료. 원격 빈 저장소 확인. 소스/테스트/문서/배포 구성/라이선스 자산 포함, .env/.local/캐시 제외. ASA-052의 pytest123개·ruff/mypy·typecheck/build 검증 재사용(이후 실행 코드 변경 없음).
+
+ASA-054 DONE: /monitoring 관리자 사용량·비용 및 요청→실행→블록 추적 구현. 직접/예약/고객 대본/CLI 호출 수집, 공급자 반환 토큰·캐시·응답 시간, 요율 스냅샷, 미확인/검색 비용 분리. 원래 요청·요청자·실제 메시지·응답을 owner/admin 및 workspace 범위에서 조회. pytest140개·ruff/mypy·웹 typecheck/build 통과. OpenAI/Claude SDK 모의 HTTP 사용량 검증, DB 마이그레이션과 API 재시작 완료. 브라우저 상세/실패 필터/모바일 넘침/밝음·어두움 확인, 검증용 3개 이벤트 제거. 리뷰의 JSON 문자열 비밀값·자동화 이름 변경 집계 문제 수정 및 재확인. 실제 유료 호출 미수행. .local/verification/ai-monitoring.png, ai-monitoring-mock-trace.png(모의 기록). 요율 설정은 docs/ai-monitoring.md 참고. 커밋/푸시 미수행.
+
+ASA-055 DONE: 모니터링 기본 조회를 기간·검색 한 줄로 축소. 서비스/출처/상태 상세 조건은 기본 접힘, 값 유지·적용 태그·변경 미적용 안내·초기화 제공. 브라우저 펼치기/접기·Enter·접힌 상태 조회·조건 초기화·모바일 가로 넘침 검증. pytest140개·ruff/mypy·웹 typecheck/build 통과. .local/verification/monitoring-compact-filters.png.
+
+ASA-056 DONE: 사용자 요청에 따라 ASA-054/055 커밋 대상 선별·검증 완료. 구현/테스트/설정 예시/문서 포함, .env/.local/캐시 제외. 직전 pytest140개·ruff/mypy·typecheck/build 검증 재사용(이후 실행 코드 변경 없음). 원격 main 기준 0bb58cc 확인. 커밋·푸시 결과는 Git 이력 참조.

@@ -1,5 +1,8 @@
 # 로컬 개발
 
+## AI 모니터링 추가 적용 (ASA-054)
+`uv run --locked --project services/backend python -m asa.registry.init` 이후 API와 자동화 워커를 재시작한다. 관리자 메뉴 **AI 사용량·비용**(`/monitoring`)에서 확인한다. 기본적으로 비용 요율은 비어 있으므로 `ASA_AI_PRICES`를 설정해야 비용을 계산한다. [설정·집계·권한·미확인 처리](ai-monitoring.md)를 참고한다. 로컬 검증은 모의 HTTP 응답으로 수행하며 실제 유료 호출을 하지 않는다.
+
 ## 전제
 
 저장소 루트 C:/projects/ASA에서 PowerShell로 실행한다. 개발에 Docker는 사용하지 않는다.

@@ -144,10 +144,11 @@ class OwnerSessions:
         @router.get("/session")
         def current(
             request: Request, principal: Principal = Depends(self.principal)
-        ) -> dict[str, str]:
+        ) -> dict[str, str | tuple[str, ...]]:
             return {
                 "csrf_token": self.csrf(request.cookies[COOKIE]),
                 "workspace_id": str(principal.workspace_id),
+                "roles": principal.roles,
             }
 
         @router.delete("/session", status_code=204)

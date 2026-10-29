@@ -13,6 +13,7 @@ from asa.config import Settings
 from asa.graph_runtime import execute_graph_run
 from asa.registry.automations import accepts
 from asa.registry.runtime import RunRepository
+from asa.telemetry import call_config, observed_generate
 from asa.tools.catalog import inspect_text
 from asa.tools.model_search import search_answer
 from asa.tools.search import SEARCH_ID, search_ready, web_search
@@ -45,7 +46,7 @@ def generate(repo: RunRepository, tool: dict[str, Any], value: Any) -> Any:
         result = model.with_structured_output(schema).invoke([
             ("system", tool["definition"]["instructions"]),
             ("human", json.dumps(value, ensure_ascii=False)),
-        ])
+        ], **call_config())
     if not isinstance(result, dict):
         raise ValueError("invalid_output")
     return result["value"]
@@ -86,7 +87,8 @@ def process(repo: RunRepository) -> bool:
                            (repo.workspace_id,)).fetchone()
         if not run:
             return False
-        conn.execute("UPDATE automation_runs SET status='running',updated_at=now() "
+        conn.execute("UPDATE automation_runs SET status='running',updated_at=now(),"
+                     "started_at=COALESCE(started_at,now()) "
                      "WHERE workspace_id=%s AND id=%s", (repo.workspace_id, run["id"]))
     if run["definition"].get("graph") is not None:
         execute_graph_run(repo, run, generate)
@@ -150,7 +152,7 @@ def process(repo: RunRepository) -> bool:
                     output = web_search(repo.settings, actual)
                     row.update(provider=repo.settings.search_provider)
                 else:
-                    output = generate(repo, tool, actual)
+                    output = observed_generate(repo, run, tool, step["id"], actual, generate)
                     row.update(provider=tool["provider"], model=tool["model"])
             else:
                 assert isinstance(actual, dict)

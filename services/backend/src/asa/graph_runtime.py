@@ -9,6 +9,7 @@ from psycopg.types.json import Jsonb
 from asa.registry.automations import accepts
 from asa.registry.graph_automation import Evaluator, GraphDefinition
 from asa.registry.runtime import RunRepository
+from asa.telemetry import observed_generate
 from asa.tools.catalog import inspect_text
 from asa.tools.search import SEARCH_ID, search_ready, web_search
 
@@ -109,7 +110,7 @@ def execute_graph_run(
                         output = web_search(repo.settings, actual)
                         row.update(provider=repo.settings.search_provider)
                     else:
-                        output = generate(repo, tool, actual)
+                        output = observed_generate(repo, run, tool, row["id"], actual, generate)
                         row.update(provider=tool["provider"], model=tool["model"])
                 else:
                     if n.tool_id != "asa.text.inspect:1":

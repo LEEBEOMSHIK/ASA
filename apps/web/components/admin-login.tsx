@@ -6,7 +6,7 @@ import { ThemeSelect } from "./theme-provider";
 
 function destination() {
   const next = new URLSearchParams(window.location.search).get("next") || "";
-  return next === "/" || /^\/(?:tools(?:\/[A-Za-z0-9:._%-]+)?|agents(?:\/new|\/[0-9a-f-]{36})?)$/.test(next) ? next : "/agents";
+  return ["/", "/automations", "/monitoring"].includes(next) || /^\/(?:tools(?:\/[A-Za-z0-9:._%-]+)?|agents(?:\/new|\/[0-9a-f-]{36})?)$/.test(next) ? next : "/agents";
 }
 
 export function AdminLogin() {

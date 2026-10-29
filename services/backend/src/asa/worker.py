@@ -14,6 +14,7 @@ from langsmith import tracing_context
 from asa.config import Settings
 from asa.models import DraftRequest, Script
 from asa.providers import make_script_generator
+from asa.telemetry import trace_call
 from asa.workflow import build_graph
 
 
@@ -43,7 +44,12 @@ def _run() -> int:
         parser.error("ASA_DATABASE_URL is required")
 
     def generate(prompt: str) -> Script:
-        return make_script_generator(settings)(prompt)
+        with trace_call(settings, dict(run_id=run_id, request_id=run_id, source='cli',
+                                      requested_by='operator-cli', name='CLI 대본 생성',
+                                      step_id='script', step_name='대본 작성',
+                                      original_request=prompt, provider=settings.ai_provider,
+                                      model=settings.ai_model)):
+            return make_script_generator(settings)(prompt)
 
     with PostgresSaver.from_conn_string(settings.database_url) as saver:
         if args.command == "init-checkpoints":

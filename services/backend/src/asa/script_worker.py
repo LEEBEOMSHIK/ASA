@@ -7,8 +7,10 @@ from uuid import UUID
 from langsmith import tracing_context
 
 from asa.config import Settings
+from asa.models import Script
 from asa.providers import make_script_generator
 from asa.registry.script_stage import ScriptRepository, execute_attempt
+from asa.telemetry import trace_call
 
 
 def main() -> int:
@@ -23,7 +25,26 @@ def main() -> int:
     with tracing_context(enabled=False):
         generate = make_script_generator(settings)
         repo = ScriptRepository(settings.database_url, settings.workspace_id)
-        processed = execute_attempt(repo, str(args.request_id), str(args.attempt_id), generate,
+
+        def monitored(prompt: str) -> Script:
+            with repo._connect() as conn:
+                request = conn.execute("SELECT r.input,r.requested_by,r.created_at::text,r.version,"
+                                       "v.definition->>'name' AS name FROM customer_requests r "
+                                       "JOIN registry_versions v "
+                                       "USING(workspace_id,agent_id,version) "
+                                       "WHERE r.workspace_id=%s AND r.id=%s",
+                                       (settings.workspace_id, args.request_id)).fetchone()
+            assert request
+            with trace_call(settings, dict(
+                run_id=str(args.attempt_id), request_id=str(args.request_id), source='customer',
+                requested_by=request['requested_by'], name=request['name'], step_id='script',
+                requested_at=request['created_at'], revision=request['version'],
+                step_name='대본 작성', original_request=request['input'],
+                provider=settings.ai_provider, model=settings.ai_model,
+            )):
+                return generate(prompt)
+
+        processed = execute_attempt(repo, str(args.request_id), str(args.attempt_id), monitored,
                                     settings.ai_provider, settings.ai_model)
         print(json.dumps({"processed": processed, "request_id": str(args.request_id),
                           "attempt_id": str(args.attempt_id)}))

@@ -40,6 +40,9 @@ export async function api<T>(path: string, method = "GET", body?: unknown, revis
 export function message(error: unknown): string {
   if (!(error instanceof ApiError)) return "서버에 연결할 수 없습니다. 잠시 후 다시 시도하세요.";
   const messages: Record<string, string> = {
+    admin_required: "관리자만 사용량과 요청 상세를 확인할 수 있습니다.",
+    usage_not_found: "호출 기록을 찾을 수 없습니다.",
+    invalid_usage_period: "조회 기간을 확인하세요. 최대 366일 범위로 조회할 수 있습니다.",
     runtime_search_unconfigured: "웹 검색 실행 설정이 필요합니다. 서버의 검색 API 키와 검색 활성화 설정을 확인하세요.",
     runtime_ai_unconfigured: "AI 실행 설정이 필요합니다. 운영자가 API 연결과 자동화 AI 실행을 활성화한 뒤 다시 시도하세요.",
     runtime_nested_tools_unsupported: "다른 도구를 호출하도록 설정한 에이전트는 아직 실행할 수 없습니다. 각 도구와 에이전트를 별도 작업 블록으로 연결하세요.",

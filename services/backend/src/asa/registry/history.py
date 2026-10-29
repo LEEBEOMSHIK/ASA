@@ -43,6 +43,8 @@ def valid_input(value: Any, schema: dict[str, Any]) -> bool:
 
 
 class HistoryRepository(RegistryRepository):
+    requested_by: str | None = None
+
     def detail(self, request_id: UUID) -> dict[str, Any]:
         with self._connect() as conn:
             row = conn.execute(
@@ -97,10 +99,11 @@ class HistoryRepository(RegistryRepository):
                 if source["agent_id"] != body.agent_id or source["version"] != body.version:
                     raise RegistryError(422, "invalid_work_input")
             conn.execute(
-                "INSERT INTO customer_requests(workspace_id,id,agent_id,version,input,source_id) "
-                "VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT(workspace_id,id) DO NOTHING",
+                "INSERT INTO customer_requests(workspace_id,id,agent_id,version,input,"
+                "source_id,requested_by) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(workspace_id,id) DO NOTHING",
                 (self.workspace_id, body.id, body.agent_id, body.version,
-                 Jsonb(body.input), body.source_id),
+                 Jsonb(body.input), body.source_id, self.requested_by),
             )
             existing = conn.execute(
                 "SELECT agent_id,version,input,source_id FROM customer_requests "
@@ -117,7 +120,9 @@ def history_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
     router = APIRouter(prefix="/api/v1/work-requests")
 
     def repo(principal: Principal = Depends(sessions.principal)) -> HistoryRepository:
-        return HistoryRepository(settings.database_url, principal.workspace_id)
+        repository = HistoryRepository(settings.database_url, principal.workspace_id)
+        repository.requested_by = principal.user_id
+        return repository
 
     @router.get("")
     def history(offset: int = Query(0, ge=0, le=100000),

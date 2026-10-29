@@ -1,8 +1,19 @@
+from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class ModelPrice(BaseModel):
+    label: str = Field(min_length=1, max_length=100)
+    input: Decimal = Field(ge=0, allow_inf_nan=False)
+    output: Decimal = Field(ge=0, allow_inf_nan=False)
+    cache_read: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False)
+    cache_creation: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False)
+    cache_creation_5m: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False)
+    cache_creation_1h: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False)
 
 
 class Settings(BaseSettings):
@@ -11,6 +22,7 @@ class Settings(BaseSettings):
     ai_provider: Literal["openai"] = "openai"
     ai_model: str = ""
     ai_models: list[str] = Field(default_factory=list)
+    ai_prices: dict[str, ModelPrice] = Field(default_factory=dict)
     ai_api_key: SecretStr = SecretStr("")
     openai_web_search_models: list[str] = Field(default_factory=list)
     anthropic_web_search_models: list[str] = Field(default_factory=list)

@@ -19,6 +19,166 @@ ORIGIN = {"Origin": "http://testserver"}
 KEY = "test-only-owner-key-" + "x" * 32
 
 
+def test_monitoring_capture_trace_filters_isolation(client, db):
+    from datetime import UTC, datetime, timedelta
+
+    from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+    from langchain_core.messages import AIMessage
+
+    from asa.telemetry import call_config, trace_call
+
+    login(client)
+    settings = Settings(_env_file=None, database_url=db[0], workspace_id=db[1],
+                        ai_api_key='private-value', ai_prices={
+                            'openai:test': {'label': 'test-rate', 'input': '2', 'output': '8'}})
+    context = dict(run_id=str(uuid4()), request_id=str(uuid4()), source='automation',
+                   requested_by='local-owner', automation_id=str(uuid4()), name='고양이 자동화',
+                   revision=2, step_id='writer:1',
+                   step_name='대본 작성', provider='openai', model='test',
+                   original_request='고양이')
+    model = FakeMessagesListChatModel(responses=[AIMessage(content='answer', usage_metadata={
+        'input_tokens': 100, 'output_tokens': 20, 'total_tokens': 120})])
+    with trace_call(settings, context) as capture:
+        model.invoke([('system', 'Write safely'), ('human', 'private-value')], **call_config())
+    url = f'/api/v1/admin/ai-usage/{capture.id}'
+    detail = client.get(url).json()
+    assert detail['original_request'] == '고양이'
+    assert detail['messages'][0][1]['content'] == '[REDACTED]'
+    assert detail['usage']['input_tokens'] == 100
+    assert float(detail['estimated_usd']) == pytest.approx(0.00036)
+    assert detail['duration_ms'] >= 0
+    assert detail['pricing']['label'] == 'test-rate'
+    assert detail['requested_by'] == 'local-owner'
+    # Parsing failure after a response must preserve tokens and estimated charges.
+    with pytest.raises(ValueError), trace_call(
+        settings, {**context, 'step_id': 'writer:2', 'name': '이름 변경'}
+    ):
+        model.invoke('second', **call_config())
+        raise ValueError('private provider error')
+    with pytest.raises(TimeoutError), trace_call(settings, {**context, 'step_id': 'writer:3'}):
+        raise TimeoutError('private provider error')
+    data = client.get('/api/v1/admin/ai-usage').json()
+    assert data['summary']['calls'] == 3
+    assert len(data['automations']) == 1
+    assert data['automations'][0]['calls'] == 3
+    assert data['summary']['runs'] == 1
+    assert data['summary']['failed'] == 2
+    assert data['summary']['usage_unknown'] == 1
+    assert data['summary']['cost_unknown'] == 1
+    assert 'messages' not in data['items'][0]
+    assert 'original_request' not in data['items'][0]
+    filtered = client.get('/api/v1/admin/ai-usage?q=고양이&status=succeeded').json()
+    assert filtered['summary']['calls'] == 1
+    assert client.get('/api/v1/admin/ai-usage?provider=anthropic').json()['summary']['calls'] == 0
+    future = (datetime.now(UTC)+timedelta(days=2)).isoformat()
+    later = (datetime.now(UTC)+timedelta(days=3)).isoformat()
+    assert client.get('/api/v1/admin/ai-usage', params={'start': future, 'end': later}).json()[
+        'summary']['calls'] == 0
+    assert client.get('/api/v1/admin/ai-usage?start=2026-01-01').status_code == 422
+    other = uuid4()
+    migrate(db[0], other)
+    with TestClient(create_app(Settings(_env_file=None, database_url=db[0], workspace_id=other,
+                    owner_access_key=KEY, allowed_origins=['http://testserver']))) as foreign:
+        assert foreign.get('/api/v1/admin/ai-usage').status_code == 401
+        login(foreign)
+        assert foreign.get(url).status_code == 404
+        assert foreign.get('/api/v1/admin/ai-usage').json()['summary']['calls'] == 0
+
+
+def test_monitoring_rejects_non_admin(db, monkeypatch):
+    from asa.auth.session import OwnerSessions, Principal
+
+    monkeypatch.setattr(OwnerSessions, 'principal', lambda self: Principal(
+        user_id='member', workspace_id=db[1], roles=('member',)))
+    with TestClient(create_app(Settings(_env_file=None, database_url=db[0]))) as member:
+        assert member.get('/api/v1/admin/ai-usage').status_code == 403
+        assert member.get(f'/api/v1/admin/ai-usage/{uuid4()}').status_code == 403
+
+
+@pytest.mark.parametrize('provider', ['openai', 'anthropic'])
+def test_monitoring_real_sdk_usage_without_network(client, db, monkeypatch, provider):
+    if provider == "anthropic":
+        import httpx2 as httpx
+    else:
+        import httpx
+    from langchain.chat_models import init_chat_model
+
+    from asa.registry.runtime import RunRepository
+    from asa.runtime_worker import generate
+    from asa.telemetry import trace_call
+
+    login(client)
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        if provider == 'openai':
+            return httpx.Response(200, json={
+                'id': 'chatcmpl-test', 'object': 'chat.completion', 'created': 1, 'model': 'test',
+                'choices': [{'index': 0, 'finish_reason': 'stop', 'message': {
+                    'role': 'assistant', 'content': '{"value":"hello"}'}}],
+                'usage': {'prompt_tokens': 100, 'completion_tokens': 20, 'total_tokens': 120,
+                          'prompt_tokens_details': {'cached_tokens': 30}}})
+        return httpx.Response(200, json={
+            'id': 'msg_test', 'type': 'message', 'role': 'assistant', 'model': 'test',
+            'stop_reason': 'tool_use', 'stop_sequence': None,
+            'usage': {'input_tokens': 70, 'output_tokens': 20, 'cache_read_input_tokens': 30},
+            'content': [{'type': 'tool_use', 'id': 'tool_1', 'name': 'AutomationAnswer',
+                         'input': {'value': 'hello'}}]})
+
+    transport = httpx.Client(transport=httpx.MockTransport(respond))
+    if provider == 'anthropic':
+        monkeypatch.setattr('langchain_anthropic.chat_models._get_default_httpx_client',
+                            lambda **kwargs: transport)
+
+    def init(model, **kwargs):
+        if provider == 'openai':
+            kwargs['http_client'] = transport
+        return init_chat_model(model, **kwargs)
+
+    monkeypatch.setattr('asa.runtime_worker.init_chat_model', init)
+    settings = Settings(_env_file=None, database_url=db[0], workspace_id=db[1],
+                        ai_api_key='fake', anthropic_api_key='fake', ai_prices={
+                            f'{provider}:test': {'label': 'synthetic', 'input': 2, 'output': 8,
+                                                'cache_read': 1}})
+    context = dict(run_id=str(uuid4()), request_id=str(uuid4()), source='cli', name='SDK test',
+                   step_id='ai', step_name='AI', provider=provider, model='test')
+    with trace_call(settings, context) as capture:
+        result = generate(RunRepository(settings), {
+            'provider': provider, 'model': 'test', 'output_schema': {'type': 'string'},
+            'definition': {'instructions': 'Write', 'limits': {'seconds': 60}}}, 'hello')
+    assert result == 'hello' and len(requests) == 1
+    detail = client.get(f'/api/v1/admin/ai-usage/{capture.id}').json()
+    assert detail['usage']['input_tokens'] == 100
+    assert detail['usage']['output_tokens'] == 20
+    assert detail['usage']['cache_read'] == 30
+    assert float(detail['estimated_usd']) == pytest.approx(0.00033)
+    assert 'hello' in str(detail['response'])
+    assert detail['duration_ms'] is not None
+    transport.close()
+
+
+def test_monitoring_pagination_totals_and_unknown_cost(client, db):
+    from psycopg.types.json import Jsonb
+
+    login(client)
+    with psycopg.connect(db[0]) as conn:
+        for index in range(27):
+            conn.execute('INSERT INTO ai_usage_events(workspace_id,id,run_id,request_id,source,'
+                         'name,step_id,step_name,provider,model,usage) '
+                         'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                         (db[1], uuid4(), 'run', 'request', 'schedule', '예약', str(index),
+                          '반복', 'anthropic', 'test', Jsonb(None)))
+    first = client.get('/api/v1/admin/ai-usage').json()
+    second = client.get('/api/v1/admin/ai-usage?offset=25').json()
+    assert first['summary']['calls'] == second['summary']['calls'] == 27
+    assert first['summary']['estimated_usd'] is None
+    assert first['summary']['incomplete'] == 27
+    assert len(first['items']) == 25 and first['has_more']
+    assert len(second['items']) == 2 and not second['has_more']
+    assert {r['id'] for r in first['items']}.isdisjoint(r['id'] for r in second['items'])
+
+
 def script_work(client):
     headers = login(client)
     agent = client.post("/api/v1/agents", json=definition(), headers=headers).json()
@@ -844,7 +1004,7 @@ def test_selected_model_snapshot_worker_and_removed_schedule(db, monkeypatch):
         def with_structured_output(self, schema):
             return self
 
-        def invoke(self, messages):
+        def invoke(self, messages, **kwargs):
             return {'value': 'answer'}
 
     def init(model, **kwargs):
