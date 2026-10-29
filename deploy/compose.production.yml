@@ -1,0 +1,92 @@
+# Production foundation only. Auth, durable queue and backup/restore acceptance remain pending.
+name: asa
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: asa
+      POSTGRES_USER: asa
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U asa -d asa"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/backend.Dockerfile
+    environment:
+      ASA_DATABASE_URL: postgresql://asa:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/asa
+      ASA_OWNER_ACCESS_KEY: ${ASA_OWNER_ACCESS_KEY:?Set ASA_OWNER_ACCESS_KEY}
+      ASA_WORKSPACE_ID: ${ASA_WORKSPACE_ID:-a5a00000-0000-4000-8000-000000000001}
+      ASA_ALLOWED_ORIGINS: ${ASA_ALLOWED_ORIGINS:?Set ASA_ALLOWED_ORIGINS as JSON array}
+      ASA_SECURE_COOKIE: "true"
+      ASA_ENVIRONMENT: production
+      ASA_DEV_LOGIN_ENABLED: "false"
+      ASA_SEARCH_PROVIDER: brave
+      ASA_SEARCH_ENABLED: ${ASA_SEARCH_ENABLED:-false}
+      ASA_SEARCH_API_KEY: ${ASA_SEARCH_API_KEY:-}
+      ASA_ANTHROPIC_MODELS: ${ASA_ANTHROPIC_MODELS:-[]}
+      ASA_ANTHROPIC_API_KEY: ${ASA_ANTHROPIC_API_KEY:-}
+      ASA_OPENAI_WEB_SEARCH_MODELS: ${ASA_OPENAI_WEB_SEARCH_MODELS:-[]}
+      ASA_ANTHROPIC_WEB_SEARCH_MODELS: ${ASA_ANTHROPIC_WEB_SEARCH_MODELS:-[]}
+      ASA_AI_PROVIDER: openai
+      ASA_AI_MODEL: ${ASA_AI_MODEL:-}
+      ASA_AI_MODELS: ${ASA_AI_MODELS:-[]}
+      ASA_AI_API_KEY: ${ASA_AI_API_KEY:-}
+      ASA_AUTOMATION_AI_ENABLED: ${ASA_AUTOMATION_AI_ENABLED:-false}
+    ports: ["127.0.0.1:8000:8000"]
+    depends_on:
+      db: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=4)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/web.Dockerfile
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on:
+      api: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+  worker:
+    profiles: ["operations"]
+    build:
+      context: ..
+      dockerfile: deploy/backend.Dockerfile
+    environment:
+      ASA_DATABASE_URL: postgresql://asa:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/asa
+      ASA_SEARCH_PROVIDER: brave
+      ASA_SEARCH_ENABLED: ${ASA_SEARCH_ENABLED:-false}
+      ASA_SEARCH_API_KEY: ${ASA_SEARCH_API_KEY:-}
+      ASA_ANTHROPIC_MODELS: ${ASA_ANTHROPIC_MODELS:-[]}
+      ASA_ANTHROPIC_API_KEY: ${ASA_ANTHROPIC_API_KEY:-}
+      ASA_OPENAI_WEB_SEARCH_MODELS: ${ASA_OPENAI_WEB_SEARCH_MODELS:-[]}
+      ASA_ANTHROPIC_WEB_SEARCH_MODELS: ${ASA_ANTHROPIC_WEB_SEARCH_MODELS:-[]}
+      ASA_AI_PROVIDER: openai
+      ASA_AI_MODEL: ${ASA_AI_MODEL:-}
+      ASA_AI_API_KEY: ${ASA_AI_API_KEY:-}
+      ASA_AI_MODELS: ${ASA_AI_MODELS:-[]}
+      ASA_AI_TIMEOUT_SECONDS: ${ASA_AI_TIMEOUT_SECONDS:-60}
+      LANGSMITH_TRACING: "false"
+    entrypoint: ["python", "-m", "asa.worker"]
+    command: ["check"]
+    volumes: ["assets:/data/assets"]
+    depends_on:
+      db: { condition: service_healthy }
+    restart: "no"
+volumes:
+  postgres_data:
+  assets:
