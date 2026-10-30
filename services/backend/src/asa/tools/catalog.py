@@ -49,7 +49,6 @@ def builtin_tools() -> list[dict[str, Any]]:
     ]
     for tool_id, name in [
         ("asa.channel.read_style", "채널 스타일 조회"),
-        ("asa.media.image", "이미지 생성"),
         ("asa.media.voice", "음성 생성"),
         ("asa.video.render", "영상 합성"),
     ]:
@@ -68,5 +67,27 @@ def builtin_tools() -> list[dict[str, Any]]:
                 "dependencies": [],
             }
         )
+    items.append({
+        "id": "asa.media.image:1", "name": "캐릭터 기준 이미지 생성", "version": 1,
+        "kind": "asa",
+        "description": "캐릭터 설정에서 기준 이미지를 만들고 이전 이미지로 수정합니다.",
+        "available": False, "execution_available": False, "launch_path": "/characters",
+        "unavailable_reason": "에이전트 답변에서 사용 · 자동화 직접 실행 미지원",
+        "usage": "캐릭터 설정 에이전트의 답변을 가져와 인물별 이미지를 생성합니다. "
+                 "수정은 선택한 이전 이미지를 함께 전달하며 확정된 기준은 자동 교체하지 않습니다.",
+        "input_schema": {"type": "object", "properties": {
+            "character": {"type": "object", "description": "검토한 캐릭터 설정"},
+            "model": {"type": "string", "description": "사용할 이미지 모델"},
+            "base_id": {"type": "string", "description": "수정할 이전 이미지 ID (선택)"},
+            "change": {"type": "string", "description": "수정 요청 (선택)"}},
+            "required": ["character", "model"]},
+        "output_schema": {"type": "object", "properties": {
+            "id": {"type": "string", "description": "이미지 작업 ID"},
+            "status": {"type": "string", "description": "대기·생성 중·완료·확인 필요"}}},
+        "example_input": {"character": {"name": "하나", "appearance": "노란 우비"},
+                          "model": "gpt-image-2.5-sunburst"},
+        "example_output": {"id": "이미지 작업 ID", "status": "queued"},
+        "dependencies": [], "side_effect": "write", "cost": "paid",
+    })
     items.append(search_tool())
     return items

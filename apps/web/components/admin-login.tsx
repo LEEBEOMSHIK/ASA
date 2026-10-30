@@ -6,7 +6,7 @@ import { ThemeSelect } from "./theme-provider";
 
 function destination() {
   const next = new URLSearchParams(window.location.search).get("next") || "";
-  return ["/", "/automations", "/monitoring"].includes(next) || /^\/(?:tools(?:\/[A-Za-z0-9:._%-]+)?|agents(?:\/new|\/[0-9a-f-]{36})?)$/.test(next) ? next : "/agents";
+  return ["/", "/automations", "/monitoring", "/models"].includes(next) || /^\/(?:tools(?:\/[A-Za-z0-9:._%-]+)?|agents(?:\/new|\/[0-9a-f-]{36})?)$/.test(next) ? next : "/agents";
 }
 
 export function AdminLogin() {
@@ -54,7 +54,7 @@ export function AdminLogin() {
         </form>
         {testAvailable && <section className="notice" aria-labelledby="test-login-title">
           <StatusBadge tone="warning">개발 전용</StatusBadge><h2 id="test-login-title">빠르게 둘러보기</h2>
-          <p>접근 키 입력 없이 현재 로컬 작업 공간에 로그인합니다. 여기서 저장한 변경은 실제로 반영됩니다.</p>
+          <p>접근 키 입력 없이 소유자(관리자) 권한으로 현재 로컬 작업 공간에 로그인합니다. 여기서 저장한 변경은 실제로 반영됩니다.</p>
           <div className="actions"><Button variant="secondary" disabled={busy} onClick={() => login(true)}>테스트 로그인</Button></div>
         </section>}
         {busy && <p role="status">로그인 중입니다…</p>}

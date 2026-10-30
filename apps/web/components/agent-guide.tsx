@@ -2,7 +2,9 @@
 import { useState } from "react";
 import { type Definition, type SchemaNode, type Tool } from "../lib/registry";
 import { Field } from "./ui";
+import scriptWriterTemplate from "../lib/script-writer-template.json";
 import { SchemaEditor } from "./schema-editor";
+import { InputFormEditor } from "./input-form-editor";
 
 const executionExamples = [
   { name: "대본 작가", inputLabel: "영상 주제", input: "처음 화분을 키우는 사람을 위한 물 주기 팁",
@@ -37,8 +39,8 @@ export function GroupedTools({ tools, selected, agentId, onChange }: {
       const group = tools.filter(tool => tool.kind === kind);
       return <details className="tool-group tool-category" key={kind}><summary>{kind === "asa" ? "ASA 기본 도구" : "내가 만든 에이전트"}
         <span className="muted"> · {group.filter(t => selected.includes(t.id)).length}개 선택</span></summary>
-        <p className="muted">{kind === "asa" ? "길이 검사처럼 ASA가 제공하는 기능이에요." : "‘도구로 등록’한 버전을 다른 에이전트의 도우미로 사용할 수 있어요."}</p>
-        {group.length === 0 ? <p className="tool-empty">{kind === "asa" ? "아직 제공된 도구가 없어요." : "아직 도구로 등록한 에이전트가 없어요. 에이전트 초안을 저장한 뒤 ‘도구로 등록’을 눌러 주세요."}</p> :
+        <p className="muted">{kind === "asa" ? "길이 검사처럼 ASA가 제공하는 기능이에요." : "등록된 에이전트 버전을 연결 대상으로 선택합니다. 현재는 설정만 저장됩니다."}</p>
+        {group.length === 0 ? <p className="tool-empty">{kind === "asa" ? "아직 제공된 도구가 없어요." : "아직 등록된 에이전트가 없어요. 에이전트 초안을 저장한 뒤 ‘에이전트 등록’을 눌러 주세요."}</p> :
           <div className="tool-choices">{group.map(tool => {
             const self = Boolean(agentId && tool.agent_id === agentId);
             const unavailable = self || !tool.available;
@@ -57,7 +59,7 @@ export function GroupedTools({ tools, selected, agentId, onChange }: {
 
 export const starters = [
   { name: "쇼츠 대본 작가", mark: "01", description: "주제를 짧고 매력적인 대본으로 바꿔요.",
-    instructions: "주어진 주제로 30초 분량의 한국어 쇼츠 대본을 작성하세요. 첫 문장은 호기심을 끄는 질문으로 시작하고, 핵심 내용을 쉽게 설명한 뒤 짧은 마무리로 끝내세요. 확인되지 않은 사실은 단정하지 마세요.",
+    instructions: scriptWriterTemplate.instructions,
     input: "영상으로 만들 주제 (예: 고양이가 상자를 좋아하는 이유)", output: "도입, 본문, 마무리가 있는 30초 대본" },
   { name: "아이디어 기획자", mark: "02", description: "막연한 관심사에서 영상 아이디어를 찾아요.",
     instructions: "주어진 관심사에서 쇼츠 아이디어 5개를 제안하세요. 각각 제목, 시청자가 궁금해할 질문, 전달할 핵심 메시지를 포함하세요. 서로 겹치지 않는 관점으로 제안하세요.",
@@ -79,9 +81,10 @@ export function FriendlyFields({ value, onChange, kind }: {
   value: SchemaNode; onChange: (node: SchemaNode) => void; kind: "input" | "output";
 }) {
   const incoming = kind === "input";
+  if (incoming && value.type === "object") return <><InputFormEditor value={value} onChange={onChange} /><details className="advanced"><summary>중첩 항목 및 세부 형식</summary><SchemaEditor value={value} onChange={onChange} /></details></>;
   return <>
     {Object.entries(value.properties || {}).map(([key, node], i) => <Field key={key} id={`${kind}-description-${key}`}
-      label={`${incoming ? "실행할 때 물어볼 항목" : "AI가 채울 답변 항목"} ${i + 1}`}
+      label={`${incoming ? "사용자가 입력할 항목" : "AI가 채울 답변 항목"} ${i + 1}`}
       hint={incoming ? `${(value.required || []).includes(key) ? "필수 항목" : "선택 항목"} · ${node.type === "string" ? "텍스트" : node.type === "object" ? "정보 묶음" : node.type === "array" ? "목록" : "값"}` : "예: 제목 · 대본 · 해시태그. AI가 이 항목에 어떤 내용을 작성하면 될지 적어 주세요."}>
       {p => <input {...p} maxLength={400} value={node.description || ""}
         placeholder={incoming ? `어떤 정보인가요? 예: 영상 주제 (${key})` : "예: 영상 제목, 30초 분량의 대본, 관련 해시태그"}

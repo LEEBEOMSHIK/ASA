@@ -214,6 +214,7 @@ def test_generate_uses_snapshot_model(monkeypatch):
     repo = RunRepository(Settings(_env_file=None, ai_model='default'))
     assert generate(repo, {'model': 'selected', 'provider': 'openai',
         'definition': {'instructions': 'Echo', 'limits': {'seconds': 120}},
+        'input_schema': {'type': 'string'},
         'output_schema': {'type': 'string'}}, 'hello') == 'answer'
     assert called == ['selected']
 

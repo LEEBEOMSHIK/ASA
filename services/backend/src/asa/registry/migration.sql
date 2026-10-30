@@ -141,3 +141,105 @@ CREATE TABLE IF NOT EXISTS ai_usage_events (
 CREATE INDEX IF NOT EXISTS ai_usage_events_time ON ai_usage_events(workspace_id,created_at DESC,id);
 CREATE INDEX IF NOT EXISTS ai_usage_events_run ON ai_usage_events(workspace_id,run_id);
 ALTER TABLE ai_usage_events ADD COLUMN IF NOT EXISTS requested_at timestamptz;
+
+CREATE TABLE IF NOT EXISTS workspace_model_catalog (
+ workspace_id uuid PRIMARY KEY REFERENCES registry_workspaces(id),
+ revision integer NOT NULL DEFAULT 1,
+ definition jsonb NOT NULL
+);
+
+ALTER TABLE script_attempts ADD COLUMN IF NOT EXISTS automatic boolean NOT NULL DEFAULT false;
+CREATE INDEX IF NOT EXISTS script_queue_pending ON script_attempts(workspace_id,created_at)
+ WHERE automatic AND status='queued';
+CREATE TABLE IF NOT EXISTS script_worker_status (
+ workspace_id uuid PRIMARY KEY REFERENCES registry_workspaces(id),
+ seen_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE script_attempts ADD COLUMN IF NOT EXISTS error_code text;
+ALTER TABLE script_attempts DROP CONSTRAINT IF EXISTS script_attempts_status_check;
+ALTER TABLE script_attempts ADD CONSTRAINT script_attempts_status_check
+ CHECK(status IN ('queued','running','succeeded','unknown','cancelled','failed'));
+
+ALTER TABLE customer_requests ADD COLUMN IF NOT EXISTS is_test boolean NOT NULL DEFAULT false;
+
+ALTER TABLE script_versions ADD COLUMN IF NOT EXISTS answer jsonb;
+
+ALTER TABLE script_attempts ADD COLUMN IF NOT EXISTS live_output jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+CREATE TABLE IF NOT EXISTS character_projects (
+ workspace_id uuid NOT NULL REFERENCES registry_workspaces(id), id uuid NOT NULL,
+ request_id uuid NOT NULL, name text NOT NULL, characters jsonb NOT NULL,
+ approved jsonb NOT NULL DEFAULT '{}'::jsonb, created_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(workspace_id,id), UNIQUE(workspace_id,request_id)
+);
+CREATE TABLE IF NOT EXISTS character_image_jobs (
+ workspace_id uuid NOT NULL, id uuid NOT NULL, project_id uuid NOT NULL,
+ character_id text NOT NULL, version integer NOT NULL, model text NOT NULL,
+ character jsonb NOT NULL, change text NOT NULL, base_id uuid,
+ status text NOT NULL DEFAULT 'queued', error_code text, image bytea,
+ usage jsonb, estimated_usd numeric, created_at timestamptz NOT NULL DEFAULT now(),
+ started_at timestamptz, finished_at timestamptz,
+ PRIMARY KEY(workspace_id,id),
+ FOREIGN KEY(workspace_id,project_id) REFERENCES character_projects(workspace_id,id),
+ UNIQUE(workspace_id,project_id,character_id,version)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS character_image_active
+ ON character_image_jobs(workspace_id,project_id,character_id) WHERE status IN ('queued','running');
+CREATE TABLE IF NOT EXISTS image_worker_status (
+ workspace_id uuid PRIMARY KEY REFERENCES registry_workspaces(id),
+ seen_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Bind image projects to immutable agent answer versions, preserving existing v1 images.
+ALTER TABLE character_projects ADD COLUMN IF NOT EXISTS source_version integer NOT NULL DEFAULT 1;
+ALTER TABLE character_projects DROP CONSTRAINT IF EXISTS character_projects_workspace_id_request_id_key;
+CREATE UNIQUE INDEX IF NOT EXISTS character_project_answer_version
+ ON character_projects(workspace_id,request_id,source_version);
+
+-- Reversible scope decisions for versioned follow-up work of any supported kind.
+CREATE TABLE IF NOT EXISTS work_item_preferences (
+ workspace_id uuid NOT NULL REFERENCES registry_workspaces(id), request_id uuid NOT NULL,
+ source_version integer NOT NULL, kind text NOT NULL, item_id text NOT NULL,
+ excluded boolean NOT NULL DEFAULT false, updated_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(workspace_id,request_id,source_version,kind,item_id)
+);
+ALTER TABLE work_item_preferences ADD COLUMN IF NOT EXISTS reviewed_version integer NOT NULL DEFAULT 0;
+
+-- Transactional hints only: DB rows remain the source of truth.
+CREATE OR REPLACE FUNCTION asa_notify_change() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  wid text;
+  topic text;
+BEGIN
+  IF TG_OP='UPDATE' AND NEW IS NOT DISTINCT FROM OLD THEN RETURN NEW; END IF;
+  IF TG_OP='DELETE' THEN wid := OLD.workspace_id::text;
+  ELSE wid := NEW.workspace_id::text; END IF;
+  PERFORM pg_notify('asa_changes', wid || ':state');
+  topic := CASE TG_TABLE_NAME WHEN 'script_attempts' THEN 'script'
+           WHEN 'character_image_jobs' THEN 'image'
+           WHEN 'automation_runs' THEN 'automation'
+           WHEN 'automation_schedules' THEN 'automation' ELSE NULL END;
+  IF topic IS NOT NULL THEN
+    IF TG_TABLE_NAME='automation_schedules' THEN
+      PERFORM pg_notify('asa_changes', wid || ':' || topic);
+    ELSIF TG_OP <> 'DELETE' THEN
+      IF NEW.status='queued' THEN
+        PERFORM pg_notify('asa_changes', wid || ':' || topic);
+      END IF;
+    END IF;
+  END IF;
+  IF TG_OP='DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
+END $$;
+DO $$
+DECLARE tab text;
+BEGIN
+  FOREACH tab IN ARRAY ARRAY['customer_requests','script_stages','script_versions',
+    'script_attempts','character_projects','character_image_jobs','work_item_preferences',
+    'automation_runs','automation_schedules','workspace_model_catalog','registry_sessions']
+  LOOP
+    EXECUTE format('DROP TRIGGER IF EXISTS asa_change ON %I', tab);
+    EXECUTE format('CREATE TRIGGER asa_change AFTER INSERT OR UPDATE OR DELETE ON %I '
+      'FOR EACH ROW EXECUTE FUNCTION asa_notify_change()', tab);
+  END LOOP;
+END $$;

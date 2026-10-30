@@ -1,4 +1,5 @@
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 
 import psycopg
 from fastapi import FastAPI, Request, Response
@@ -7,8 +8,11 @@ from fastapi.responses import JSONResponse
 
 from asa.auth.session import OwnerSessions
 from asa.config import Settings
+from asa.database import close_database, connection
 from asa.registry.automations import automation_router
+from asa.registry.characters import character_router
 from asa.registry.history import history_router
+from asa.registry.model_catalog import model_catalog_router
 from asa.registry.monitoring import monitoring_router
 from asa.registry.routes import registry_router
 from asa.registry.runtime import runtime_router
@@ -18,7 +22,12 @@ from asa.registry.script_routes import script_router
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
-    app = FastAPI(title="AI Shorts Studio", version="0.1.0")
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        yield
+        close_database(settings.database_url)
+
+    app = FastAPI(title="AI Shorts Studio", version="0.1.0", lifespan=lifespan)
     sessions = OwnerSessions(settings)
     app.include_router(sessions.router())
     app.include_router(registry_router(settings, sessions))
@@ -27,6 +36,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(automation_router(settings, sessions))
     app.include_router(runtime_router(settings, sessions))
     app.include_router(monitoring_router(settings, sessions))
+    app.include_router(model_catalog_router(settings, sessions))
+    app.include_router(character_router(settings, sessions))
 
     @app.middleware("http")
     async def request_limits(
@@ -42,7 +53,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 return JSONResponse({"detail": "payload_too_large"}, status_code=413)
         response = await call_next(request)
         if request.url.path.startswith("/api/v1"):
-            response.headers["Cache-Control"] = "no-store"
+            response.headers.setdefault("Cache-Control", "no-store")
         return response
 
     @app.exception_handler(RegistryError)
@@ -84,8 +95,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 {"status": "not_ready", "database": "unconfigured"}, status_code=503
             )
         try:
-            with psycopg.connect(settings.database_url, connect_timeout=3) as connection:
-                connection.execute("SELECT 1")
+            with connection(settings.database_url) as conn:
+                conn.execute("SELECT 1")
         except psycopg.Error:
             return JSONResponse({"status": "not_ready", "database": "unavailable"}, status_code=503)
         return JSONResponse({"status": "ready", "database": "connected"})

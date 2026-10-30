@@ -71,5 +71,6 @@ def test_worker_uses_selected_provider_key(monkeypatch, provider, model, key):
     repo = RunRepository(settings(anthropic_api_key='claude-secret'))
     assert generate(repo, {'model': model, 'provider': provider,
                           'definition': {'instructions': 'Echo', 'limits': {'seconds': 60}},
+                          'input_schema': {'type': 'string'},
                           'output_schema': {'type': 'string'}}, 'input') == 'sample'
     assert calls == [(model, provider, key)]

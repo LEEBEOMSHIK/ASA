@@ -1,5 +1,23 @@
 # 로컬 개발
 
+## 개별 에이전트 실행 큐 (ASA-075/081)
+현재 실행 화면의 `답변 생성 실행`은 요청을 저장하고 같은 요청 ID로 `/script/start`에 멱등 접수한다. PostgreSQL script_attempts 큐를 상시 로컬 워커가 처리한다. 별도 Redis/Docker는 필요 없다.
+
+- `.env`의 `ASA_SCRIPT_AI_ENABLED=true`와 모델/API 키가 필요하다. `./scripts/run.ps1 script-worker`로 실행한다. 직접 실행은 `python -m asa.script_queue_worker --allow-paid-call`이다.
+- 작업 공간당 한 건씩 순차 실행한다. 세션 advisory lock으로 여러 워커가 같은 작업 공간을 동시에 처리하지 않는다. 큐 한도 기본100건, 일일 실행 한도20건(시작한 요청 기준, DB 일자 경계)이다. 숫자 설정은 ASA_SCRIPT_QUEUE_LIMIT/ASA_SCRIPT_DAILY_AI_CALLS. 응답 출력은 기본 2,048토큰으로 제한하며 ASA_SCRIPT_OUTPUT_TOKENS로 조정한다.
+- 새 실행 시 provider/model을 고정하고 호출 직전 허용 정책과 키를 재검증한다. 지침은 요청의 불변 등록 버전에서 읽는다.
+- 실행 중 워커가 사라지면 다음 워커가 해당 요청을 unknown으로 마감하고 자동 재시도하지 않는다. 외부 API의 exactly-once를 보장하지 않는다. 모델 응답과 과금 여부가 불명확한 경우 관리자 모니터링/공급자 기록을 확인한다.
+- 이전 수동 queued 요청은 automatic=false로 보존하고 소비하지 않는다. 수동 CLI는 자동 큐 요청을 처리하지 못한다.
+- 대기 중 취소만 제공한다. AI 호출 중 취소/병렬 워커 슬롯/도구·다른 에이전트 위임은 지원하지 않는다. 고객 실행은 등록 버전의 지침과 output_schema를 사용한다. 고정 대본 역할이나 제목·내레이션 필드를 추가하지 않는다.
+- 진행 화면은 입력/지침 기반 접수 정보, 앞선 작업 수, 상태, 경과 시간을 표시한다. 모델의 비공개 추론을 추측하거나 가짜 진행률을 표시하지 않는다. 폴링은 요청을 재접수하지 않는다.
+- 실제 토큰은 공급자 응답에서 수집하며 비용은 호출 시 요율에 따른 예상값이다. 사용량 누락은 0이 아닌 미확인이다.
+
+아래 초기 개발 기록 중 ‘고객 요청 저장만 지원/상시 큐 미구현’ 설명은 이 절로 대체한다.
+
+
+## 관리자 모델 관리 (ASA-058)
+마이그레이션과 API/워커 코드 재시작 후 `/models`에서 모델을 등록한다. 이후 목록 변경은 재시작 없이 반영된다. [모델 관리 규칙](model-management.md)을 참고한다.
+
 ## AI 모니터링 추가 적용 (ASA-054)
 `uv run --locked --project services/backend python -m asa.registry.init` 이후 API와 자동화 워커를 재시작한다. 관리자 메뉴 **AI 사용량·비용**(`/monitoring`)에서 확인한다. 기본적으로 비용 요율은 비어 있으므로 `ASA_AI_PRICES`를 설정해야 비용을 계산한다. [설정·집계·권한·미확인 처리](ai-monitoring.md)를 참고한다. 로컬 검증은 모의 HTTP 응답으로 수행하며 실제 유료 호출을 하지 않는다.
 
@@ -227,3 +245,36 @@ ASA-049: 기존 배치가 넓어진 카드와 겹치면 카드 간격 정리를 
 ASA-050: 폰트는 public/fonts에서 로컬 제공한다(CDN 런타임 의존 없음). 개발 브라우저에서 Pretendard Variable 로딩을 확인한다. 폰트 파일 배포 시 라이선스 파일도 함께 유지한다.
 
 ASA-051: 새 블록과 드래그 드롭 시 자동으로 빈자리에 놓인다. 드래그 중 일시 겹침은 허용한다. 기존 배치/좌표 직접 입력의 겹침은 전체 블록 목록과 카드 간격 정리로 처리한다. GNB를 접어도 좌측 레일의 열기 아이콘이 남는다.
+
+### ASA-081 답변 계약
+요청에 고정된 에이전트 지침을 system 메시지로 전달하고 원래 입력·선택한 이전 답변·수정 요청을 함께 전달한다. LangChain 구조화 응답은 등록된 output_schema를 감싼 value를 반환하며 서버가 스키마를 검사한 뒤 실제 답변만 저장한다. script_versions.answer JSONB가 신규 답변을 보존한다. 기존 title/narration 버전과 수정 기능은 호환성을 위해 유지한다. 내부 큐·API의 script 명칭은 호환용이며 개별 에이전트에 제작 단계를 부여하지 않는다. 초기 명시적 대본 CLI(asa.worker)는 별도 시제품이며 고객 에이전트 실행 경로에서 사용하지 않는다.
+
+## SSE 실시간 에이전트 응답 (ASA-095)
+- 요청 상세는 `/api/v1/work-requests/{id}/script/events`, 최근 작업은 `/api/v1/work-requests/events`로 구독한다. 쿠키 세션·workspace 권한을 검증하고 스트림 중에도 세션을 재확인한다.
+- 워커는 모델의 공개용 `understanding`, `direction`, `value`를 단일 호출로 스트리밍한다. 250ms 간격으로 최신 부분 응답을 script_attempts.live_output에 저장한다. API는 500ms 주기로 변경 스냅샷을 SSE로 전달한다. DB 알림/토큰별 이벤트 로그 방식이 아니다.
+- 연결이 끊겨도 작업은 계속된다. 재연결은 최신 스냅샷을 복원하며 요청을 재접수하지 않는다. 45초마다 스트림을 갱신한다. 완료 시 최종 스키마 검증을 통과한 value만 답변 버전으로 저장한다. 중간 오류의 부분 답변은 미완성으로 표시한다.
+- SSE는 `Content-Encoding: identity`, `Cache-Control: no-cache, no-store, no-transform`, `X-Accel-Buffering: no`를 유지해야 한다. Next.js gzip 프록시 버퍼링을 실측해 방지했다. 운영 프록시에서도 SSE 버퍼링 비활성화가 필요하다.
+- 마이그레이션 후 API와 script-worker를 재시작한다. 테스트의 모의 스트리밍과 실제 유료 검증은 구분한다.
+
+## 장문 대본·장면 구성 검증 (ASA-098)
+현재 로컬 `.env`는 `ASA_SCRIPT_OUTPUT_TOKENS=8192`, `ASA_AUTOMATION_OUTPUT_TOKENS=8192`로 설정했다. 코드 기본값2048은 유지한다. 장면 구성 성공 응답은 출력2964/3151토큰이 필요했다. 이 값은 상한이며 실제 출력만 과금되지만 긴 응답의 최대 비용은 늘어날 수 있다. 설정 변경 후 해당 워커를 재시작해야 한다. 실제 검증과 실패 기록은 [장면 구성 작업 기록](worklogs/2026-10-30-scene-planner.md)에 남긴다.
+
+
+## 캐릭터 기준 이미지 (ASA-099)
+- `python -m asa.registry.init` 후 API를 재시작한다. `ASA_IMAGE_AI_ENABLED=true`와 기존 `ASA_AI_API_KEY`를 사용한다.
+- 별도 로컬 프로세스: `./scripts/run.ps1 image-worker` 또는 `python -m asa.image_worker`.
+- 작업 공간에서 캐릭터 설정 에이전트를 실행한다. 완료된 답변 안에서 등장인물을 선택해 이미지 생성·수정·확정을 진행한다. `/characters`는 보관함이며 해당 요청과 답변 버전으로 돌아가는 링크만 제공한다.
+- 이미지 모델은 `ASA_IMAGE_MODELS`, timeout은 `ASA_IMAGE_TIMEOUT_SECONDS`, 최근24시간 접수 한도는 `ASA_IMAGE_DAILY_CALLS`로 설정한다. 직접 Images API만 사용한다.
+- 이미지 워커 연결 상태는 캐릭터 구성 화면에 표시한다. 작업은 DB에 남고 워커 중단 당시 실행 중인 호출은 결과 확인 필요로 전환한다. 자동 재시도하지 않는다.
+- 사용자 지침/이미지/검증 원문은 DB 및 `.local`에만 보관한다. 커밋하지 않는다.
+
+### 공식 OpenAI 비용 조회 연결
+
+AI 생성용 키와 별도로 .env의 ASA_OPENAI_ADMIN_API_KEY에 조직 Admin API Key를 설정하고 API 서버를 재시작합니다. 선택 설정 ASA_OPENAI_USAGE_PROJECT_ID로 조회할 프로젝트를 제한할 수 있습니다. 키를 Git이나 화면에 넣지 않습니다. 소유자로 로그인한 뒤 AI 사용량·비용 → OpenAI 공식 집계에서 확인합니다. 충전 잔액은 결제 화면 링크에서 확인합니다. 키가 없으면 연결 필요로 표시하며 ASA 요청별 사용량은 계속 이용할 수 있습니다.
+
+## DB 연결 풀·알림 운영 (ASA-111)
+변경 적용 시 registry migration을 실행한 뒤 API와 script/image/automation 워커를 재시작한다. LISTEN/NOTIFY는 PostgreSQL 기능으로 별도 Redis/Docker가 필요 없다. API·각 워커는 최대8개의 일반 연결과1개의 알림 연결을 사용할 수 있다. DB 연결을 계속 열어 두는 것은 정상이며 매초 새 연결을 생성하는 것과 다르다.
+
+유휴 시 워커는30초 복구·생존 확인만 수행하며, SSE keepalive는 DB를 읽지 않는다. SSE는45초 재연결 시 최신 상태와 인증을 다시 확인한다. 예약 작업은 예정 시각 또는 변경 알림에 깨어난다. 알림 연결 장애 시 자동 복구와 주기 확인으로 보완한다. 상태 화면에서 오프라인 판정은 heartbeat 유예 시간 뒤 반영된다.
+
+공식 psycopg 자료: https://www.psycopg.org/psycopg3/docs/advanced/pool.html 및 https://www.psycopg.org/psycopg3/docs/advanced/async.html#asynchronous-notifications

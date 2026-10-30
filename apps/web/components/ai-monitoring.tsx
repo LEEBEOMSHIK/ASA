@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, message } from "../lib/registry";
 import { Button, Card, Field, StatusBadge } from "./ui";
+import { OpenAIAccountUsage } from "./openai-account-usage";
 
 type Usage = { input_tokens: number; output_tokens: number; cache_read: number; cache_creation: number };
 type Call = { id: string; run_id: string; request_id: string; source: string; requested_by: string | null;
@@ -16,7 +17,7 @@ type Overview = { summary: Totals; items: Call[]; has_more: boolean;
   automations: (Totals & {automation_id: string | null; name: string})[] };
 type Detail = Call & { workspace_id: string; requested_at: string | null; original_request: unknown; messages: unknown; response: unknown;
   pricing: unknown; related: Call[]; run: {status: string; created_at: string; updated_at: string; elapsed_ms: number; queue_ms: number | null} | null };
-const sources: Record<string,string> = {automation:"직접 실행", schedule:"예약 실행", customer:"고객 대본 요청", cli:"운영자 CLI"};
+const sources: Record<string,string> = {automation:"직접 실행", schedule:"예약 실행", customer:"고객 대본 요청", cli:"운영자 CLI", character:"캐릭터 이미지"};
 const statuses: Record<string,string> = {succeeded:"응답 완료", failed:"호출·처리 실패", incomplete:"완료 미확인"};
 const costs: Record<string,string> = {estimated:"예상 비용", tokens_only:"토큰 비용만 · 검색 비용 미포함", rate_missing:"모델 요율 미등록", usage_unknown:"사용량 미확인", cache_rate_missing:"캐시 요율 미등록", unknown:"미확인"};
 const number = (n: number | null | undefined) => n == null ? "—" : n.toLocaleString("ko-KR");
@@ -27,6 +28,7 @@ const day = (offset = 0) => {const d = new Date(); d.setDate(d.getDate()+offset)
 function JsonContent({value}: {value: unknown}) {return <pre className="usage-payload">{value == null ? "기록되지 않았습니다." : typeof value === "string" ? value : JSON.stringify(value,null,2)}</pre>;}
 
 export function AiMonitoring() {
+  const [view,setView]=useState<"requests"|"official">("requests");
   const [start,setStart] = useState(day(-6)); const [end,setEnd] = useState(day());
   const [provider,setProvider] = useState(""); const [source,setSource] = useState("");
   const [status,setStatus] = useState(""); const [query,setQuery] = useState("");
@@ -62,7 +64,10 @@ export function AiMonitoring() {
     setOffset(0); setSelected(""); setRefresh(v=>v+1);
   }
   return <div className="usage-page">
-    <header className="usage-heading"><div><p className="eyebrow">AI OBSERVABILITY</p><h1>AI 사용량·비용</h1><p className="muted">어떤 요청에서 얼마나 사용했는지, 호출 하나까지 확인하세요.</p></div><div className="badge-row"><StatusBadge>관리자 전용</StatusBadge><Button variant="secondary" disabled={busy} onClick={()=>setRefresh(v=>v+1)}>새로고침</Button></div></header>
+    <header className="usage-heading"><div><p className="eyebrow">AI OBSERVABILITY</p><h1>AI 사용량·비용</h1><p className="muted">어떤 요청에서 얼마나 사용했는지, 호출 하나까지 확인하세요.</p></div><div className="badge-row"><StatusBadge>관리자 전용</StatusBadge>{view === "requests" && <Button variant="secondary" disabled={busy} onClick={()=>setRefresh(v=>v+1)}>새로고침</Button>}</div></header>
+    <nav className="usage-view-switch" aria-label="사용량 조회 종류"><Button variant="secondary" aria-pressed={view==="requests"} onClick={()=>setView("requests")}>ASA 요청별 사용량</Button><Button variant="secondary" aria-pressed={view==="official"} onClick={()=>setView("official")}>OpenAI 공식 집계</Button></nav>
+    {view==="official" && <OpenAIAccountUsage/>}
+    <div className="usage-request-view" hidden={view!=="requests"}>
     <form className="usage-filters" onSubmit={e=>{e.preventDefault();apply();}}>
       <Field id="usage-start" label="시작일">{p=><input {...p} type="date" value={start} onChange={e=>setStart(e.target.value)}/>}</Field>
       <Field id="usage-end" label="종료일">{p=><input {...p} type="date" value={end} onChange={e=>setEnd(e.target.value)}/>}</Field>
@@ -114,5 +119,6 @@ export function AiMonitoring() {
         <h3>같은 실행의 AI 호출</h3><div className="usage-related">{detail.related.map(item=><button key={item.id} className={item.id===selected?"is-active":""} onClick={()=>setSelected(item.id)} aria-current={item.id===selected?"true":undefined}><strong>{item.step_name}</strong><span>{statuses[item.status]} · {seconds(item.duration_ms)} · {money(item.estimated_usd)}</span></button>)}</div>
       </>}
     </section>}
+    </div>
   </div>;
 }

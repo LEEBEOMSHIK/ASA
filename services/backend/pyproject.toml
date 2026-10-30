@@ -4,9 +4,17 @@ version = "0.1.0"
 requires-python = ">=3.11,<3.14"
 dependencies = [
   "httpx>=0.28,<1",
-  "fastapi>=0.115,<1", "uvicorn>=0.34,<1", "pydantic-settings>=2.8,<3",
-  "langsmith>=0.4,<1", "langchain>=1,<2", "langchain-openai>=1,<2", "langchain-anthropic>=1,<2", "langgraph>=1,<2",
-  "langgraph-checkpoint-postgres>=3,<4", "psycopg[binary,pool]>=3.2,<4",
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.34,<1",
+  "pydantic-settings>=2.8,<3",
+  "langsmith>=0.4,<1",
+  "langchain>=1,<2",
+  "langchain-openai>=1,<2",
+  "langchain-anthropic>=1,<2",
+  "langgraph>=1,<2",
+  "langgraph-checkpoint-postgres>=3,<4",
+  "psycopg[binary,pool]>=3.2,<4",
+  "openai>=3.37,<4",
 ]
 
 [dependency-groups]

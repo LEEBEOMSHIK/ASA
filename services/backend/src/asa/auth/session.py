@@ -7,11 +7,11 @@ from dataclasses import dataclass
 from urllib.parse import urlsplit
 from uuid import UUID
 
-import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, SecretStr
 
 from asa.config import Settings
+from asa.database import connection
 
 COOKIE = "asa_session"
 
@@ -61,7 +61,7 @@ class OwnerSessions:
             raise HTTPException(401, "login_required")
         if not self.settings.database_url:
             raise HTTPException(503, "registry_unconfigured")
-        with psycopg.connect(self.settings.database_url, connect_timeout=3) as conn:
+        with connection(self.settings.database_url) as conn:
             row = conn.execute(
                 "SELECT workspace_id FROM registry_sessions "
                 "WHERE token_hash=%s AND expires_at>now()",
@@ -102,7 +102,7 @@ class OwnerSessions:
             ):
                 raise HTTPException(503, "owner_login_unconfigured")
             token = secrets.token_urlsafe(32)
-            with psycopg.connect(self.settings.database_url, connect_timeout=3) as conn:
+            with connection(self.settings.database_url) as conn:
                 conn.execute("DELETE FROM registry_sessions WHERE expires_at<=now()")
                 old = request.cookies.get(COOKIE)
                 if old:
@@ -155,7 +155,7 @@ class OwnerSessions:
         def logout(
             request: Request, response: Response, principal: Principal = Depends(self.principal)
         ) -> None:
-            with psycopg.connect(self.settings.database_url, connect_timeout=3) as conn:
+            with connection(self.settings.database_url) as conn:
                 conn.execute(
                     "DELETE FROM registry_sessions WHERE token_hash=%s AND workspace_id=%s",
                     (

@@ -1,0 +1,45 @@
+.character-studio { display:grid; gap:var(--space-6); min-width:0; }
+.character-studio h1,.character-studio h2,.character-studio h3,.character-studio p { margin:0; }
+.character-heading { display:flex; justify-content:space-between; align-items:center; gap:var(--space-4); flex-wrap:wrap; }
+.character-heading>div { display:grid; gap:var(--space-3); }
+.character-studio .card { padding:var(--space-6); min-width:0; height:auto; }
+.character-form { display:flex; flex-direction:column; gap:var(--space-6); min-width:0; }
+.character-form>.button { align-self:flex-start; }
+.character-columns,.character-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:var(--space-6); align-items:start; }
+.character-field { display:flex; flex-direction:column; gap:var(--space-2); font-size:var(--font-small); font-weight:600; margin:0; }
+.character-field input,.character-field textarea,.character-field select { width:100%; min-width:0; padding:12px; border:1px solid var(--border); border-radius:var(--radius-md); background:var(--surface); color:var(--text); font:inherit; font-weight:400; min-height:var(--control-height); }
+.character-field textarea { resize:vertical; line-height:1.6; }
+.character-studio details { border:1px solid var(--border); border-radius:var(--radius-md); padding:var(--space-4); }
+.character-studio details[open]>.character-form { margin-top:var(--space-4); }
+.character-studio summary { cursor:pointer; font-weight:600; }
+.character-studio .muted { font-size:var(--font-small); line-height:1.6; }
+.character-image { width:100%; max-height:520px; object-fit:contain; background:var(--surface-subtle); border:1px solid var(--border); border-radius:var(--radius-md); }
+.character-empty { padding:var(--space-8); text-align:center; background:var(--surface-subtle); border-radius:var(--radius-md); color:var(--muted); font-size:var(--font-small); }
+.character-status { padding:var(--space-3); background:var(--accent-soft); border-radius:var(--radius-md); font-size:var(--font-small); }
+@media(max-width:900px) { .character-columns,.character-grid { grid-template-columns:1fr; } }
+
+.character-roster { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:var(--space-3); }
+.character-choice { display:flex; align-items:center; gap:var(--space-3); padding:var(--space-4); border:1px solid var(--border); border-radius:var(--radius-md); }
+.character-choice span { display:grid; gap:var(--space-2); }
+.character-choice small { color:var(--muted); }
+.character-choice input { width:18px; height:18px; flex-shrink:0; }
+
+.agent-answer:has(> .character-studio) { max-width:none; width:100%; }
+.agent-answer .character-studio h3 { margin:0; font-size:var(--font-body); line-height:1.5; }
+
+.image-model-select { display:grid; gap:var(--space-3); min-width:0; }
+.image-model-select details { font-size:var(--font-small); }
+.image-model-details { display:grid; gap:var(--space-4); margin-top:var(--space-4); line-height:1.6; }
+.image-model-details dl { display:grid; gap:var(--space-4); margin:0; }
+.image-model-details dt { font-weight:600; }
+.image-model-details dd { margin:var(--space-1) 0 0; color:var(--muted); }
+.image-model-sources { display:flex; align-items:center; flex-wrap:wrap; gap:var(--space-3); }
+.character-studio[id], .character-form[id] { scroll-margin-top:var(--space-6); }
+.character-progress { display:grid; gap:var(--space-2); padding:var(--space-4); background:var(--accent-soft); border-radius:var(--radius-md); font-size:var(--font-small); }
+.character-choice { flex-wrap:wrap; }
+.character-choice label { display:flex; align-items:center; gap:var(--space-3); flex:1; min-width:0; }
+.character-choice strong { word-break:keep-all; overflow-wrap:anywhere; }
+.character-jump { display:inline-flex; align-items:center; min-height:var(--control-height); font-size:var(--font-small); padding:var(--space-2); border-radius:var(--radius-sm); }
+.character-jump:hover { background:var(--accent-soft); }
+.character-scope { display:grid; gap:var(--space-3); border-top:1px solid var(--border); padding-top:var(--space-4); }
+.character-scope .button { justify-self:start; }

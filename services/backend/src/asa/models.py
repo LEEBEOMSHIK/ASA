@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, StrictBool, StringConstraints
 
@@ -19,3 +19,7 @@ class Script(BaseModel):
 class Approval(BaseModel):
     model_config = ConfigDict(extra="forbid")
     approved: StrictBool
+
+
+class AgentAnswer(BaseModel):
+    value: Any

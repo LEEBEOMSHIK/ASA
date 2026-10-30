@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 
 from asa.auth.session import OwnerSessions, Principal
 from asa.config import Settings
+from asa.registry.model_catalog import effective_settings, read_catalog, validate_selection
 from asa.registry.repository import RegistryRepository
 from asa.registry.schemas import AgentDraft
 
@@ -25,31 +26,53 @@ def registry_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
 
     @router.get("/model-profiles")
     def profiles(principal: Principal = Depends(sessions.principal)) -> list[dict[str, Any]]:
+        config = effective_settings(
+            settings.model_copy(update={"workspace_id": principal.workspace_id})
+        )
         return [
             {
                 "id": "default",
-                "name": "기본 서버 모델",
-                "provider": settings.ai_provider,
-                "model": settings.ai_model or None,
-                "configured": bool(settings.ai_model and settings.ai_api_key.get_secret_value()),
+                "name": "작업 공간 기본 모델",
+                "provider": config.ai_provider,
+                "model": config.ai_model or None,
+                "configured": bool(
+                    config.ai_model and config.key_for(config.ai_provider).get_secret_value()
+                ),
                 "execution_available": False,
             }
         ]
 
     @router.get("/ai-models")
     def ai_models(principal: Principal = Depends(sessions.principal)) -> dict[str, Any]:
-        providers = [{"id": provider, "label": label,
-                      "configured": bool(settings.key_for(provider).get_secret_value().strip()),
-                      "web_search_available": True}
-                     for provider, label in [("openai", "OpenAI"), ("anthropic", "Claude")]]
+        config = settings.model_copy(update={"workspace_id": principal.workspace_id})
+        catalog = read_catalog(config)
+        provider, _, model = catalog.default.partition(":")
+        providers = [
+            {
+                "id": p,
+                "label": label,
+                "configured": bool(config.key_for(p).get_secret_value().strip()),
+                "web_search_available": True,
+            }
+            for p, label in [("openai", "OpenAI"), ("anthropic", "Claude")]
+        ]
         return {
-            "models": [{"id": m, "label": m, "provider": p["id"],
-                        "web_search": settings.search_supported(str(p["id"]), m)}
-                       for p in providers for m in settings.models_for(str(p["id"]))],
+            "models": [
+                {"id": m.id, "label": m.label, "provider": m.provider, "web_search": m.web_search}
+                for m in catalog.models
+                if m.enabled
+            ],
             "providers": providers,
-            "default_model": settings.ai_model or None,
+            "default_model": model or None,
+            "default_provider": provider or "openai",
             "configured": any(p["configured"] for p in providers),
         }
+
+    def check_model(body: AgentDraft, repository: RegistryRepository) -> None:
+        config = effective_settings(
+            settings.model_copy(update={"workspace_id": repository.workspace_id})
+        )
+        validate_selection(config, body.provider, body.model)
 
     @router.get("/tools")
     def tools(repository: RegistryRepository = Depends(repo)) -> list[dict[str, Any]]:
@@ -68,6 +91,7 @@ def registry_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
 
     @router.post("/agents", status_code=201)
     def create(body: AgentDraft, repository: RegistryRepository = Depends(repo)) -> dict[str, Any]:
+        check_model(body, repository)
         return repository.create(body)
 
     @router.get("/agents/{agent_id}")
@@ -81,6 +105,7 @@ def registry_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
         expected: int = Depends(revision),
         repository: RegistryRepository = Depends(repo),
     ) -> dict[str, Any]:
+        check_model(body, repository)
         return repository.update(str(agent_id), expected, body)
 
     @router.post("/agents/{agent_id}/validate")
@@ -93,6 +118,7 @@ def registry_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
         expected: int = Depends(revision),
         repository: RegistryRepository = Depends(repo),
     ) -> dict[str, Any]:
+        check_model(AgentDraft.model_validate(repository.get(str(agent_id))["draft"]), repository)
         return repository.publish(str(agent_id), expected)
 
     return router

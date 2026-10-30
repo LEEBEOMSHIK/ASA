@@ -1,5 +1,30 @@
 # AI Shorts Studio 아키텍처
 
+## 후속 작업 상태 (ASA-105)
+- AI 실행 status와 사람 검토를 포함한 work_progress는 별개다. 최근 작업 SSE와 상세가 같은 집계 함수를 사용한다.
+- 공통 계약: kind/label/source_version/items/counts/status/resume_anchor. pending/queued/running/review/approved/excluded/failed/unknown 항목을 집계한다. 현재 개별 에이전트 답변 검토와 캐릭터 이미지 adapter를 지원한다. 별도 음성 등 매체별 실행·검토는 adapter를 추가한다.
+- 완료 조건은 필요 항목 1개 이상 + 모두 확정. 전부 제외는 완료가 아니라 대상 없음. API 오류·불명확한 결과는 별도 확인 대상으로 유지한다.
+- 제외/복원과 마지막 검토 버전은 work_item_preferences에 workspace/request/답변 버전/kind/item으로 저장한다. 이미지나 확정 기록을 삭제하지 않는다. 생성 중 제외/확정을 막고 project 행 잠금으로 생성 접수와 경합을 제어한다.
+- 최근 작업은 최신 답변의 상태를 보여준다. 이전 답변 프로젝트는 버전 선택/보관함에서 보존된다. 프로젝트를 아직 열지 않은 캐릭터 답변도 미생성으로 집계한다.
+- 확정 후 재생성하면 완료를 해제한다. 사용자가 새 검토본 대신 이전 이미지를 다시 확정할 수도 있다. reviewed_version보다 새로운 생성은 다시 검토가 필요하다.
+
+## 개별 에이전트 실행 큐 (ASA-075/081)
+현재 실행 화면의 `답변 생성 실행`은 요청을 저장하고 같은 요청 ID로 `/script/start`에 멱등 접수한다. PostgreSQL script_attempts 큐를 상시 로컬 워커가 처리한다. 별도 Redis/Docker는 필요 없다.
+
+- `.env`의 `ASA_SCRIPT_AI_ENABLED=true`와 모델/API 키가 필요하다. `./scripts/run.ps1 script-worker`로 실행한다. 직접 실행은 `python -m asa.script_queue_worker --allow-paid-call`이다.
+- 작업 공간당 한 건씩 순차 실행한다. 세션 advisory lock으로 여러 워커가 같은 작업 공간을 동시에 처리하지 않는다. 큐 한도 기본100건, 일일 실행 한도20건(시작한 요청 기준, DB 일자 경계)이다. 숫자 설정은 ASA_SCRIPT_QUEUE_LIMIT/ASA_SCRIPT_DAILY_AI_CALLS. 응답 출력은 기본 2,048토큰으로 제한하며 ASA_SCRIPT_OUTPUT_TOKENS로 조정한다.
+- 새 실행 시 provider/model을 고정하고 호출 직전 허용 정책과 키를 재검증한다. 지침은 요청의 불변 등록 버전에서 읽는다.
+- 실행 중 워커가 사라지면 다음 워커가 해당 요청을 unknown으로 마감하고 자동 재시도하지 않는다. 외부 API의 exactly-once를 보장하지 않는다. 모델 응답과 과금 여부가 불명확한 경우 관리자 모니터링/공급자 기록을 확인한다.
+- 이전 수동 queued 요청은 automatic=false로 보존하고 소비하지 않는다. 수동 CLI는 자동 큐 요청을 처리하지 못한다.
+- 대기 중 취소만 제공한다. AI 호출 중 취소/병렬 워커 슬롯/도구·다른 에이전트 위임은 지원하지 않는다. 고객 실행은 등록 버전의 지침과 output_schema를 사용한다. 고정 대본 역할이나 제목·내레이션 필드를 추가하지 않는다.
+- 진행 화면은 입력/지침 기반 접수 정보, 앞선 작업 수, 상태, 경과 시간을 표시한다. 모델의 비공개 추론을 추측하거나 가짜 진행률을 표시하지 않는다. 폴링은 요청을 재접수하지 않는다.
+- 실제 토큰은 공급자 응답에서 수집하며 비용은 호출 시 요율에 따른 예상값이다. 사용량 누락은 0이 아닌 미확인이다.
+
+아래 초기 개발 기록 중 ‘고객 요청 저장만 지원/상시 큐 미구현’ 설명은 이 절로 대체한다.
+
+
+ASA-058: [관리자 모델 카탈로그](model-management.md)는 workspace별 허용 모델·기본 모델·요율을 DB에 저장하고, AI 블록과 에이전트 버전의 모델 선택 및 실행 검증에 공통 적용한다. API 키는 서버 설정에 유지한다.
+
 ASA-054: [관리자 AI 모니터링](ai-monitoring.md)은 workspace별 호출 이벤트를 PostgreSQL에 기록한다. LangChain callback으로 공급자 반환 사용량·실제 입력·응답·시간을 수집하고 호출 시점 요율로 예상 비용을 계산한다. 자동화/예약/고객 대본/CLI 요청 출처와 요청자·실행 ID를 보존한다. owner/admin API만 상세를 조회하며 외부 tracing 전송은 사용하지 않는다.
 
 기준일: 2026-10-26. 사용자 확정: Next.js + FastAPI, LangGraph + LangChain, 로컬 개발,
@@ -206,3 +231,38 @@ GraphNode.web_search는 기본 false이며 직접 AI의 글 출력에만 허용�
 
 ## 전체 카드 시각 규격 (ASA-049)
 ASA-048의 치수를 대체한다. graph-card-layout.ts가 AI 360×248, 일반 280×120, 분기/반복 280×216을 정의하고 카드와 경로가 공유한다. 단일 입출력은 중앙, 다중 입력은 기존 분산 규칙, 두 출력은 140/188px이다. 간격 정리는 사용자 실행 시 위치만 조정하며 연결을 보존한다. 저장 정의 자동 마이그레이션은 하지 않는다.
+
+ASA-076: 개별 에이전트 고객 화면은 요청/답변만 표시한다. 제작 단계는 자동화의 사용자 구성에 한정한다. 기존 대본 큐/출력 계약(제목·내레이션)은 유지하며, 범용 에이전트 출력 계약 확장은 별도 backend 작업이다.
+
+### ASA-081 답변 계약
+요청에 고정된 에이전트 지침을 system 메시지로 전달하고 원래 입력·선택한 이전 답변·수정 요청을 함께 전달한다. LangChain 구조화 응답은 등록된 output_schema를 감싼 value를 반환하며 서버가 스키마를 검사한 뒤 실제 답변만 저장한다. script_versions.answer JSONB가 신규 답변을 보존한다. 기존 title/narration 버전과 수정 기능은 호환성을 위해 유지한다. 내부 큐·API의 script 명칭은 호환용이며 개별 에이전트에 제작 단계를 부여하지 않는다. 초기 명시적 대본 CLI(asa.worker)는 별도 시제품이며 고객 에이전트 실행 경로에서 사용하지 않는다.
+
+### ASA-084 사용자 입력 계약
+input_schema.description은 항목 이름, enum은 선택지, default는 새 입력 폼 기본값, x-widget은 화면 방식이다. 슬라이더는 integer/minimum/maximum(step1)을 사용한다. 서버가 방식/타입/선택지/범위/기본값을 등록 시 검증하고 실행 시 실제 값의 enum/범위/필수를 검증한다. 기본값은 요청 누락을 서버에서 임의로 보충하지 않는다. 고객과 자동화 AI 호출에 입력 스키마를 함께 전달하여 내부 연결 키의 의미를 해석할 수 있게 한다. 기존 키와 등록 버전은 유지한다.
+
+
+## 캐릭터 설정과 이미지 버전 (ASA-099)
+- 사용자 선택 에이전트의 불변 등록 버전 → 기존 고객 요청/LangChain 워커 → 검증된 characters 답변 → 캐릭터 프로젝트 가져오기 → 이미지 큐로 연결한다. 개별 에이전트에 이미지 호출을 숨겨서 강제하지 않는다.
+- `character_projects`는 원본 설정/요청ID/확정 버전 포인터를 보관하고 `character_image_jobs`는 인물별 설정 스냅샷·모델·수정문·기준 이미지ID·생성 이미지·사용량을 보관한다. API는 인증/CSRF/workspace, 서비스는 검증·멱등성, image_worker는 외부 호출을 담당한다.
+- 동일 인물의 활성 작업은1개, 동일 요청UUID는1건. workspace 단위 advisory lock으로 동시 워커를 막는다. 외부 호출 exactly-once는 보장하지 않으며 불확실 호출은 자동 재시도하지 않는다.
+- 승인 API는 예상 이전 버전을 비교한다. 새 이미지 생성이나 수정 완료로 기준 포인터를 바꾸지 않는다. 수정 시 해당 workspace/프로젝트/인물의 완료된 이미지 bytes를 실제 edit API에 첨부한다.
+- 이미지는 MVP에서 DB bytea로 보관하고 인증된 image/png endpoint로만 제공한다. 운영 대용량 자산은 private object storage 전환 필요. 외부 URL 다운로드/사용자 파일 업로드는 현재 미지원.
+- 도구 라이브러리 이미지 항목은 캐릭터 보관함으로 안내하며, 실제 생성·수정·확정은 캐릭터 설정 에이전트 답변에서 수행한다. 자동화 빌더의 범용 이미지 블록 실행과 장면별 이미지 생성은 별도 구현 대상이다.
+- 이미지 호출은 관리자 ledger의 character 출처로 기록한다. 텍스트 입력/이미지 입력/이미지 출력 토큰의 서로 다른 요율을 적용하며 원시usage와 검증일/요율을 함께 보관한다. 사용량 누락은 미확인으로 표시한다.
+
+- 캐릭터 구성은 workspace/request/source_version으로 유일하다. 저장된 script_versions.answer를 검증해 가져오며, 새 답변 버전은 별도 이미지 구성을 갖는다. 기존 이미지와 확정 포인터는 이전 답변에 보존된다.
+# 개별 에이전트 답변 확정
+
+AgentDraft.requires_approval은 기본 false이며 등록 버전의 definition에 보존된다. 개별 실행은 해당 버전의 설정을 사용한다. true인 작업은 최신 답변의 script_stages.approved_version을 기준으로 답변 검토 work_progress를 만든다. 답변 수정·재생성은 확정을 해제한다. 캐릭터 이미지 후속 작업이 함께 있으면 두 그룹을 통합하며 필요한 항목 모두 확정된 경우만 완료한다. 자동화 진행 중 승인은 기존 검토 노드에서 별도로 설정한다.
+
+
+## DB 연결과 변경 알림 (ASA-111)
+- API와 워커의 일반 DB 접근은 프로세스/DSN별 psycopg_pool을 공유한다(최소0, 최대8, 대기5초). 반환 시 트랜잭션 commit/rollback 후 재사용한다. 마이그레이션과 LISTEN은 전용 연결이다.
+- LISTEN 연결은 프로세스/DSN별 1개이며 autocommit으로 대기한다. NOTIFY에는 workspace UUID와 state/script/image/automation 토픽만 넣는다. 요청 본문·이미지·키를 보내지 않는다.
+- 변경 트리거는 commit 후 알림을 전달한다. SSE는 구독 revision을 먼저 잡고 최초 DB snapshot을 읽는다. 이후 변경 revision이 있을 때만 읽고, 값이 달라졌을 때만 snapshot을 전송한다. 15초 keepalive는 DB 조회가 없다.
+- SSE는 45초마다 재연결하여 권한과 최신 상태를 재검증한다. LISTEN 복구 시 revision epoch를 바꿔 누락된 상태를 다시 읽는다. 기존 0.5초 DB 반복 조회는 제거했다.
+- 에이전트·이미지·자동화 워커는 큐 알림을 기다린다. 작업이 없으면 최대30초에 한 번 복구·생존 확인을 한다. 자동화는 다음 예약 시각까지 기다리며, 다른 워커가 잠금을 보유하면30초 대기한다. DB 장애 시5초 후 재시도한다.
+- 이미지 워커 heartbeat30초, 온라인 판정90초. 에이전트 판정도 최소90초로 조정했다. 주기 heartbeat 자체는 NOTIFY하지 않는다.
+- 큐 소유권의 기존 advisory lock은 유지한다. unlock 실패 시 연결을 폐기하여 잠금이 남은 연결을 풀에 반환하지 않는다. 외부 호출 결과 불명확 시 자동 재호출하지 않는 정책은 유지한다.
+- 캐릭터 이미지 화면의3초 조회와 자동화 실행 화면의2초 조회도 SSE로 전환했다.
+- 알림은 영구 큐가 아니다. 업무 행이 진실의 원천이며, 재연결/저빈도 복구 조회가 알림 유실을 보완한다. 완전 무조회 또는 exactly-once를 의미하지 않는다.

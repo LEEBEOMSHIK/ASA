@@ -69,7 +69,8 @@ def validate_definition(
         if not isinstance(kind, str) or kind not in keywords:
             issue("schema_type", path, "지원되는 필드 유형을 선택하세요.")
             return
-        for key in node.keys() - (keywords[kind] | {"type", "description"}):
+        form_keys = {"x-widget", "default"} if path.startswith("input_schema") else set()
+        for key in node.keys() - (keywords[kind] | {"type", "description"} | form_keys):
             issue("schema_keyword", path + "." + key, "지원하지 않는 스키마 속성입니다.")
         if "description" in node and (
             not isinstance(node["description"], str) or len(node["description"]) > 400
@@ -106,6 +107,42 @@ def validate_definition(
                 or (kind in ("number", "integer") and any(not safe_number(v) for v in values))
             ):
                 issue("schema_enum", path, "필드 유형과 일치하는 선택값이 필요합니다.")
+        widget = node.get("x-widget")
+        if widget is not None:
+            allowed = {"text": "string", "textarea": "string", "radio": "string",
+                       "select": "string", "slider": "integer", "number": "number"}
+            if not isinstance(widget, str) or widget not in allowed or (kind != allowed.get(widget)
+                                        and not (widget == "number" and kind == "integer")):
+                issue("input_widget", path, "입력 방식과 자료형이 맞지 않습니다.")
+            if widget in ("radio", "select"):
+                options = node.get("enum", [])
+                if (not isinstance(options, list) or not options
+                        or any(not isinstance(v, str) or not v.strip() for v in options)
+                        or len({str(v) for v in options}) != len(options)):
+                    issue("input_options", path, "중복되거나 빈 선택지는 사용할 수 없습니다.")
+            if widget == "slider" and not (
+                type(node.get("minimum")) is int and type(node.get("maximum")) is int
+                and node["minimum"] < node["maximum"]
+            ):
+                issue("input_range", path, "슬라이더의 정수 최솟값과 최댓값을 설정하세요.")
+        if "default" in node:
+            value = node["default"]
+            valid = (
+                isinstance(value, str) and kind == "string"
+                and type(node.get("minLength", 0)) is int
+                and type(node.get("maxLength", 65536)) is int
+                and node.get("minLength", 0) <= len(value) <= node.get("maxLength", 65536)
+            ) or (type(value) is bool and kind == "boolean")
+            if kind in ("integer", "number"):
+                valid = (safe_number(value) and (kind != "integer" or type(value) is int)
+                         and safe_number(node.get("minimum", -MAX_NUMBER))
+                         and safe_number(node.get("maximum", MAX_NUMBER))
+                         and node.get("minimum", -MAX_NUMBER) <= value
+                         <= node.get("maximum", MAX_NUMBER))
+            if not valid or ("enum" in node and (
+                not isinstance(node["enum"], list) or value not in node["enum"]
+            )):
+                issue("input_default", path, "기본값이 선택지 또는 입력 범위에 맞지 않습니다.")
         if kind == "object":
             props = node.get("properties", {})
             required = node.get("required", [])

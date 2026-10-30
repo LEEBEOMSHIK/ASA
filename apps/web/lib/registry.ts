@@ -1,9 +1,13 @@
 export type SchemaNode = {
   type: string; description?: string; properties?: Record<string, SchemaNode>; required?: string[];
   items?: SchemaNode; maxLength?: number; maxItems?: number; minimum?: number; maximum?: number;
+  enum?: (string | number | boolean)[]; default?: string | number | boolean;
+  "x-widget"?: "text" | "textarea" | "radio" | "select" | "slider" | "number";
 };
 export type Definition = {
   name: string; description: string; instructions: string; model_profile: string;
+  requires_approval?: boolean;
+  provider?: "openai" | "anthropic" | null; model?: string | null;
   input_schema: SchemaNode; output_schema: SchemaNode; tools: string[];
   limits: { model_calls: number; tool_calls: number; depth: number; seconds: number };
 };
@@ -13,10 +17,10 @@ export type Tool = {
   id: string; name: string; version: number; kind: "asa" | "agent"; agent_id?: string;
   description: string; available: boolean; execution_available: boolean; unavailable_reason: string;
   input_schema?: SchemaNode; output_schema?: SchemaNode; dependencies?: string[];
-  usage?: string; example_input?: unknown; example_output?: unknown;
+  usage?: string; example_input?: unknown; example_output?: unknown; launch_path?: string;
 };
 export type Issue = { code: string; field_path: string; message: string };
-export type WorkItem = { id: string; name: string; version: number; status: string; created_at: string };
+export type WorkItem = { work_progress?: import("./work-progress").WorkProgress | null; error_code?: string | null; is_test: boolean; id: string; name: string; version: number; status: string; created_at: string };
 export type WorkDetail = WorkItem & { agent: Tool; input: unknown; result: unknown; error: string | null; source_id: string | null; updated_at: string };
 let csrf = "";
 export function setCsrf(value: string) { csrf = value; }
@@ -40,6 +44,25 @@ export async function api<T>(path: string, method = "GET", body?: unknown, revis
 export function message(error: unknown): string {
   if (!(error instanceof ApiError)) return "서버에 연결할 수 없습니다. 잠시 후 다시 시도하세요.";
   const messages: Record<string, string> = {
+    image_not_configured: "이미지 API 실행을 활성화하고 서버 키를 확인해 주세요.",
+    image_model_not_allowed: "서버에서 허용한 이미지 모델을 선택해 주세요.",
+    image_already_running: "이 캐릭터의 이미지 요청이 이미 진행 중입니다.",
+    work_item_excluded: "생성 대상에서 제외된 항목입니다. 대상으로 복원한 뒤 진행해 주세요.",
+    work_scope_changed: "다른 화면에서 생성 대상이 변경됐습니다. 최신 상태를 확인하고 다시 선택해 주세요.",
+    image_daily_limit: "최근 24시간 이미지 요청 한도에 도달했습니다.",
+    image_reference_invalid: "이 캐릭터의 완료된 이미지를 수정 기준으로 선택해 주세요.",
+    image_reference_required: "수정할 이전 이미지를 먼저 선택해 주세요.",
+    image_approval_changed: "다른 곳에서 기준 이미지를 바꿨습니다. 새로 확인한 후 확정해 주세요.",
+    image_review_changed: "새 이미지 버전이 추가됐습니다. 최신 이미지를 확인한 뒤 다시 확정해 주세요.",
+    character_plan_invalid: "캐릭터 설정 답변 형식이 맞지 않습니다. 에이전트의 답변 항목을 확인해 주세요.",
+    character_plan_not_ready: "캐릭터 설정 답변이 아직 완료되지 않았습니다.",
+    model_already_registered: "이미 등록된 모델입니다. 저장된 목록을 다시 확인하세요.",
+    model_catalog_full: "모델은 최대 100개까지 등록할 수 있습니다.",
+    provider_key_missing: "이 공급자의 API 키를 서버에 먼저 설정하세요.",
+    provider_auth_failed: "공급자가 API 키 인증을 거부했습니다. 키와 접근 권한을 확인하세요.",
+    provider_rate_limited: "공급자 조회 한도에 도달했습니다. 잠시 후 다시 시도하세요.",
+    provider_lookup_failed: "모델 목록을 불러오지 못했습니다. 잠시 후 다시 시도하세요.",
+    invalid_model_selection: "활성화된 공급자와 모델을 선택하세요. 관리자 모델 설정을 확인해 주세요.",
     admin_required: "관리자만 사용량과 요청 상세를 확인할 수 있습니다.",
     usage_not_found: "호출 기록을 찾을 수 없습니다.",
     invalid_usage_period: "조회 기간을 확인하세요. 최대 366일 범위로 조회할 수 있습니다.",
@@ -65,6 +88,8 @@ export function message(error: unknown): string {
     invalid_work_input: "입력 형식이 에이전트 설정과 맞지 않습니다. 필수 항목과 값의 형식을 확인하세요.",
     work_conflict: "이미 저장된 요청과 내용이 다릅니다. 작업 이력을 확인한 후 새 작업을 시작하세요.",
     script_revision_conflict: "대본이 다른 화면에서 변경되었습니다. 입력은 유지됩니다. 내용을 복사한 뒤 최신 버전을 다시 불러오세요.",
+    script_execution_disabled: "대본 실행 서비스가 꺼져 있습니다. 관리자에게 확인해 주세요.",
+    script_queue_full: "대기 중인 요청이 많습니다. 잠시 후 같은 요청으로 다시 시도해 주세요.",
     script_busy: "대본 재작성 요청이 대기하거나 실행 중입니다. 대기 요청을 취소하거나 완료 후 다시 시도하세요.",
     script_tools_unsupported: "도구 호출이 연결된 에이전트는 아직 대본 AI 실행을 지원하지 않습니다. 직접 작성은 가능합니다.",
     script_unknown_ack_required: "이전 AI 호출의 결과가 불확실합니다. 공급자 사용량을 확인하고 중복 비용 가능성을 확인해 주세요.",

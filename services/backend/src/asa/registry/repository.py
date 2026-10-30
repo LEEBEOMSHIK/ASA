@@ -1,13 +1,14 @@
 import hashlib
 import json
+from contextlib import AbstractContextManager
 from importlib.resources import files
 from typing import Any
 from uuid import UUID, uuid4
 
 import psycopg
-from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from asa.database import connection
 from asa.registry.schemas import AgentDraft, RegistryError
 from asa.registry.service import normalize_schema, validate_definition
 from asa.tools.catalog import builtin_tools
@@ -28,8 +29,8 @@ class RegistryRepository:
         self.dsn = dsn
         self.workspace_id = workspace_id
 
-    def _connect(self) -> psycopg.Connection[dict[str, Any]]:
-        return psycopg.connect(self.dsn, row_factory=dict_row, connect_timeout=3)
+    def _connect(self) -> AbstractContextManager[psycopg.Connection[dict[str, Any]]]:
+        return connection(self.dsn, dictionary=True)
 
     def _agent(
         self, conn: psycopg.Connection[dict[str, Any]], agent_id: str, lock: bool = False

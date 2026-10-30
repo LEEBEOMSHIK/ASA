@@ -10,8 +10,10 @@ from langsmith import tracing_context
 from psycopg.types.json import Jsonb
 
 from asa.config import Settings
+from asa.database import changes, release_lock
 from asa.graph_runtime import execute_graph_run
 from asa.registry.automations import accepts
+from asa.registry.model_catalog import effective_settings
 from asa.registry.runtime import RunRepository
 from asa.telemetry import call_config, observed_generate
 from asa.tools.catalog import inspect_text
@@ -45,7 +47,8 @@ def generate(repo: RunRepository, tool: dict[str, Any], value: Any) -> Any:
     with tracing_context(enabled=False):
         result = model.with_structured_output(schema).invoke([
             ("system", tool["definition"]["instructions"]),
-            ("human", json.dumps(value, ensure_ascii=False)),
+            ("human", json.dumps({"input": value, "input_schema": tool["input_schema"]},
+                                 ensure_ascii=False)),
         ], **call_config())
     if not isinstance(result, dict):
         raise ValueError("invalid_output")
@@ -53,21 +56,23 @@ def generate(repo: RunRepository, tool: dict[str, Any], value: Any) -> Any:
 
 
 def tick(repo: RunRepository) -> bool:
+    repo.worker_lock_busy = False
     with repo._connect() as lock:
         acquired = lock.execute("SELECT pg_try_advisory_lock(hashtextextended(%s,0)) AS ok",
                                 (f"asa-runtime:{repo.workspace_id}",)).fetchone()
         lock.commit()
         if not acquired or not acquired["ok"]:
+            repo.worker_lock_busy = True
             return False
         try:
             with tracing_context(enabled=False):
                 return process(repo)
         finally:
-            lock.execute("SELECT pg_advisory_unlock(hashtextextended(%s,0))",
-                         (f"asa-runtime:{repo.workspace_id}",))
+            release_lock(lock, f"asa-runtime:{repo.workspace_id}")
 
 
 def process(repo: RunRepository) -> bool:
+    repo.settings = effective_settings(repo.base_settings)
     with repo._connect() as conn:
         conn.execute("INSERT INTO automation_worker_status(workspace_id) VALUES (%s) "
                      "ON CONFLICT(workspace_id) DO UPDATE SET seen_at=now()", (repo.workspace_id,))
@@ -183,11 +188,23 @@ def main() -> None:
     parser.add_argument("--once", action="store_true")
     args = parser.parse_args()
     repo = RunRepository(Settings())
+    hub = changes(repo.dsn)
+    scope = str(repo.workspace_id)
     while True:
-        tick(repo)
+        version = hub.version(scope, "automation")
+        try:
+            worked = tick(repo)
+            delay = repo.idle_seconds() if not worked and not args.once else 0.0
+        except Exception:
+            print('Automation worker temporarily unavailable; retrying.', flush=True)
+            if args.once:
+                raise
+            time.sleep(5)
+            continue
         if args.once:
             return
-        time.sleep(2)
+        if not worked:
+            hub.wait(scope, "automation", version, delay)
 
 
 if __name__ == "__main__":

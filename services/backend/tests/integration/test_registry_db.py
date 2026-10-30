@@ -1,7 +1,7 @@
 import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import psycopg
 import pytest
@@ -17,6 +17,74 @@ from asa.registry.schemas import AgentDraft
 
 ORIGIN = {"Origin": "http://testserver"}
 KEY = "test-only-owner-key-" + "x" * 32
+
+
+def test_character_images_queue_edit_approval_and_isolation(db, monkeypatch):
+    from psycopg.types.json import Jsonb
+
+    from asa.image_worker import tick
+    from asa.registry.characters import Character, CharacterRepository, ImageRequest
+    from asa.registry.schemas import RegistryError
+
+    dsn, workspace = db
+    repo = CharacterRepository(dsn, workspace)
+    project = uuid4()
+    char = Character(id='hana', name='하나', facts='7살', appearance='노란 우비',
+                     proposed='의상 제안', scene_ids='1,2', image_prompt='정면 전신')
+    with repo._connect() as conn:
+        conn.execute('INSERT INTO character_projects(workspace_id,id,request_id,name,characters) '
+                     'VALUES (%s,%s,%s,%s,%s)',
+                     (workspace, project, uuid4(), 'test', Jsonb([char.model_dump()])))
+    settings = Settings(_env_file=None, database_url=dsn, workspace_id=workspace,
+                        image_ai_enabled=True, ai_api_key='test-only')
+    body = ImageRequest(id=uuid4(), character=char, model='gpt-image-2.5-sunburst')
+    row = repo.enqueue(project, body, settings)
+    assert repo.enqueue(project, body, settings)['id'] == row['id']
+    with pytest.raises(RegistryError, match='image_already_running'):
+        repo.enqueue(project, body.model_copy(update={'id': uuid4()}), settings)
+    calls = []
+    image = b'\x89PNG\r\n\x1a\nmock'
+
+    def fake(settings, model, prompt, reference):
+        calls.append(reference)
+        return image, {'input_tokens': 100, 'output_tokens': 10,
+                       'input_tokens_details': {'text_tokens': 100, 'image_tokens': 0}}
+
+    monkeypatch.setattr('asa.image_worker.generate_image', fake)
+    assert tick(settings)
+    assert not tick(settings)
+    assert calls == [None]
+    repo.approve(body.id, None, 1)
+    edit = body.model_copy(update={'id': uuid4(), 'base_id': body.id, 'change': '모자 파란색'})
+    repo.enqueue(project, edit, settings)
+    assert tick(settings)
+    assert calls == [None, image]
+    state = repo.project(project)
+    assert state['approved']['hana'] == str(body.id)
+    assert len(state['jobs']) == 2
+    assert state['jobs'][0]['version'] == 2
+    with pytest.raises(RegistryError, match='image_approval_changed'):
+        repo.approve(edit.id, None, 2)
+    repo.approve(edit.id, body.id, 2)
+    assert repo.project(project)['approved']['hana'] == str(edit.id)
+    with repo._connect() as conn:
+        usage = conn.execute('SELECT * FROM ai_usage_events WHERE workspace_id=%s',
+                             (workspace,)).fetchall()
+        assert len(usage) == 2 and all(x['estimated_usd'] > 0 for x in usage)
+        assert all(x['source'] == 'character' for x in usage)
+    other = CharacterRepository(dsn, uuid4())
+    with pytest.raises(RegistryError):
+        other.project(project)
+    with pytest.raises(RegistryError):
+        other.approve(body.id, None, 1)
+    # Lost calls are marked unknown and never repeated after restart.
+    third = edit.model_copy(update={'id': uuid4()})
+    repo.enqueue(project, third, settings)
+    with repo._connect() as conn:
+        conn.execute("UPDATE character_image_jobs SET status='running' WHERE id=%s", (third.id,))
+    assert not tick(settings)
+    assert len(calls) == 2
+    assert repo.project(project)['jobs'][0]['status'] == 'unknown'
 
 
 def test_monitoring_capture_trace_filters_isolation(client, db):
@@ -145,7 +213,8 @@ def test_monitoring_real_sdk_usage_without_network(client, db, monkeypatch, prov
                    step_id='ai', step_name='AI', provider=provider, model='test')
     with trace_call(settings, context) as capture:
         result = generate(RunRepository(settings), {
-            'provider': provider, 'model': 'test', 'output_schema': {'type': 'string'},
+            'provider': provider, 'model': 'test', 'input_schema': {'type': 'string'},
+            'output_schema': {'type': 'string'},
             'definition': {'instructions': 'Write', 'limits': {'seconds': 60}}}, 'hello')
     assert result == 'hello' and len(requests) == 1
     detail = client.get(f'/api/v1/admin/ai-usage/{capture.id}').json()
@@ -424,6 +493,49 @@ def test_automation_storage_conflict_and_workspace_boundary(client, db):
                             headers=foreign_headers).json()["issues"]
 
 
+def test_generic_answer_approval_setting_is_versioned_and_resets(client):
+    headers = login(client)
+    draft = {**definition(), "output_schema": {"type": "string"}}
+    agent = client.post("/api/v1/agents", json=draft, headers=headers).json()
+    agent_url = f"/api/v1/agents/{agent['id']}"
+    assert client.post(agent_url + "/publish", headers={
+        **headers, "If-Match": '"1"'}).status_code == 201
+    changed = client.patch(agent_url + "/draft", json={**draft, "requires_approval": True},
+                           headers={**headers, "If-Match": '"1"'})
+    assert changed.status_code == 200
+    assert client.post(agent_url + "/publish", headers={
+        **headers, "If-Match": '"2"'}).status_code == 201
+    for version in (1, 2):
+        work = client.post("/api/v1/work-requests", headers=headers, json={
+            "id": str(uuid4()), "agent_id": agent["id"], "version": version,
+            "input": {"topic": "장면 구성 검토"},
+        }).json()
+        url = f"/api/v1/work-requests/{work['id']}"
+        stage = url + "/script"
+        assert client.get(stage).json()["requires_approval"] is (version == 2)
+        saved = client.post(stage + "/versions", headers=headers, json={
+            "id": str(uuid4()), "expected_revision": 0, "answer": "첫 답변"})
+        assert saved.status_code == 201
+        progress = client.get(url).json()["work_progress"]
+        if version == 1:
+            assert progress is None
+            continue
+        assert progress["status"] == "review"
+        assert progress["kind"] == "answer"
+        assert client.post(stage + "/approve", headers=headers, json={
+            "expected_revision": 1, "version": 1}).status_code == 200
+        assert client.get(url).json()["work_progress"]["status"] == "complete"
+        assert client.post(stage + "/versions", headers=headers, json={
+            "id": str(uuid4()), "expected_revision": 2, "answer": "수정한 답변",
+            "base_version": 1}).status_code == 201
+        assert client.get(url).json()["work_progress"]["status"] == "review"
+        assert client.post(stage + "/approve", headers=headers, json={
+            "expected_revision": 1, "version": 1}).status_code == 409
+        recent = client.get("/api/v1/work-requests").json()["items"]
+        assert next(w for w in recent if w["id"] == work["id"])[
+            "work_progress"]["status"] == "review"
+
+
 def test_script_versions_approval_and_scoped_regeneration(client, db):
     headers, work, url = script_work(client)
     initial = client.get(url)
@@ -463,7 +575,7 @@ def test_script_versions_approval_and_scoped_regeneration(client, db):
     assert result["head_version"] == 2 and result["approved_version"] is None
     assert [v["narration"] for v in result["versions"]] == ["짧은 대본", "첫 대본"]
     assert result["attempts"][0]["status"] == "succeeded"
-    assert client.get(f"/api/v1/work-requests/{work['id']}").json()["result"] is None
+    assert client.get(f"/api/v1/work-requests/{work['id']}").json()["result"]["title"] == "짧은 제목"
     assert client.post(url + "/versions", json={**body, "id": str(uuid4())},
                        headers=headers).status_code == 409
 
@@ -518,6 +630,32 @@ def test_customer_history_pagination_keeps_all_old_requests(client, db):
     assert client.get("/api/v1/work-requests?offset=45").json() == {
         "items": [], "has_more": False,
     }
+
+
+def test_input_widgets_roundtrip_and_request_validation(client):
+    headers = login(client)
+    draft = definition()
+    draft['input_schema'] = {'type': 'object', 'properties': {
+        'mood': {'type': 'string', 'enum': ['오싹', '신비'],
+                 'x-widget': 'radio', 'default': '오싹', 'description': '분위기'},
+        'fear': {'type': 'integer', 'minimum': 1, 'maximum': 5,
+                 'x-widget': 'slider', 'default': 2},
+        'subject': {'type': 'string', 'enum': ['자동', '유령'], 'x-widget': 'select'},
+    }, 'required': ['mood', 'fear']}
+    agent = client.post('/api/v1/agents', json=draft, headers=headers).json()
+    published = client.post(f"/api/v1/agents/{agent['id']}/publish",
+                            headers={**headers, 'If-Match': '"1"'})
+    assert published.status_code == 201
+    stored = client.get(f"/api/v1/agents/{agent['id']}").json()
+    assert stored['draft']['input_schema'] == draft['input_schema']
+    body = {'id': str(uuid4()), 'agent_id': agent['id'], 'version': 1,
+            'input': {'mood': '신비', 'fear': 4}}
+    assert client.post('/api/v1/work-requests', json=body, headers=headers).status_code == 201
+    for invalid in [{'mood': '미등록', 'fear': 4}, {'mood': '신비', 'fear': 6},
+                    {'mood': '신비', 'fear': 2.5}, {'mood': '신비'}]:
+        response = client.post('/api/v1/work-requests', headers=headers,
+                               json={**body, 'id': str(uuid4()), 'input': invalid})
+        assert response.status_code == 422
 
 
 def test_customer_history_persistence_retry_and_validation(client, db):
@@ -588,6 +726,8 @@ def db():
     workspace = uuid4()
     migrate(scoped, workspace)
     yield scoped, workspace
+    from asa.database import close_database
+    close_database(scoped)
     with psycopg.connect(dsn, autocommit=True) as conn:
         conn.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
 
@@ -681,6 +821,9 @@ def test_development_login_session_csrf_logout_and_network_boundary(db):
         assert result.status_code == 200
         assert KEY not in result.text
         assert "HttpOnly" in result.headers["set-cookie"]
+        assert c.get("/api/v1/session").json()["roles"] == ["owner"]
+        assert c.get("/api/v1/admin/models").status_code == 200
+        assert c.get("/api/v1/admin/ai-usage").status_code == 200
         assert c.get("/api/v1/agents").status_code == 200
         assert c.post("/api/v1/agents", json=definition(), headers=origin).status_code == 403
         headers = {**origin, "X-CSRF-Token": result.json()["csrf_token"]}
@@ -960,7 +1103,8 @@ def test_graph_catalog_save_and_preview_model_validation(db):
         assert catalog == {'models': [
             {'id': 'default', 'label': 'default', 'provider': 'openai', 'web_search': False},
             {'id': 'selected', 'label': 'selected', 'provider': 'openai', 'web_search': False}],
-            'default_model': 'default', 'configured': True, 'providers': [
+            'default_model': 'default', 'default_provider': 'openai', 'configured': True,
+            'providers': [
                 {'id': 'openai', 'label': 'OpenAI', 'configured': True,
                  'web_search_available': True},
                 {'id': 'anthropic', 'label': 'Claude', 'configured': False,
@@ -1108,3 +1252,697 @@ def test_native_search_run_preserves_citations_and_review(db, monkeypatch, provi
         assert tick(repo)
         assert client.get(url).json()['status'] == 'succeeded'
         assert len(calls) == 1
+
+
+def test_admin_model_catalog_selection_and_runtime(client, db):
+    from asa.registry.automations import AutomationRepository, SaveAutomation
+    from asa.registry.runtime import RunRepository
+    from asa.registry.schemas import RegistryError
+
+    assert client.get('/api/v1/admin/models').status_code == 401
+    headers = login(client)
+    payload = {'revision': 0, 'default': 'anthropic:claude-test', 'models': [
+        {'provider': 'anthropic', 'id': 'claude-test', 'label': 'Test Claude',
+         'enabled': True, 'price': {'label': 'test-rate', 'input': '3', 'output': '15'}}]}
+    saved = client.put('/api/v1/admin/models', json=payload, headers=headers)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()['revision'] == 1
+    assert client.put('/api/v1/admin/models', json=payload, headers=headers).status_code == 409
+    catalog = client.get('/api/v1/ai-models').json()
+    assert catalog['default_provider'] == 'anthropic'
+    assert catalog['models'][0]['id'] == 'claude-test'
+    bad = {**definition(), 'provider': 'openai', 'model': 'not-allowed'}
+    assert client.post('/api/v1/agents', json=bad, headers=headers).status_code == 422
+    agent = client.post('/api/v1/agents', json={**definition(), 'provider': 'anthropic',
+                        'model': 'claude-test'}, headers=headers).json()
+    aid = agent['id']
+    published = client.post(f'/api/v1/agents/{aid}/publish', headers={
+        **headers, 'If-Match': str(agent['revision'])})
+    assert published.status_code == 201, published.text
+    tools = client.get('/api/v1/tools').json()
+    tool = next(t for t in tools if t.get('agent_id') == aid)
+    automation_id = uuid4()
+    repo = AutomationRepository(db[0], db[1])
+    repo.save(SaveAutomation.model_validate({'id': automation_id, 'revision': 0, 'draft': {
+        'name': 'model snapshot', 'steps': [{'id': 'writer', 'label': 'writer',
+         'tool_id': tool['id'], 'bindings': {'topic': {'source': 'input'}}}]}}))
+    settings = Settings(_env_file=None, database_url=db[0], workspace_id=db[1],
+                        automation_ai_enabled=True, anthropic_api_key='test-key')
+    runtime = RunRepository(settings)
+    _, manifest = runtime.snapshot(automation_id, 1)
+    assert manifest[0]['provider'] == 'anthropic'
+    assert manifest[0]['model'] == 'claude-test'
+    assert runtime.ai_ready()
+    assert runtime.settings.ai_prices['anthropic:claude-test'].input == 3
+    disabled = {**payload, 'revision': 1, 'default': '',
+                'models': [{**payload['models'][0], 'enabled': False}]}
+    assert client.put('/api/v1/admin/models', json=disabled, headers=headers).status_code == 200
+    assert client.get('/api/v1/ai-models').json()['models'] == []
+    assert not RunRepository(settings).model_available(manifest[0])
+    with pytest.raises(RegistryError):
+        RunRepository(settings).snapshot(automation_id, 1)
+    # The published agent retains its selected model after policy changes.
+    assert client.get(f'/api/v1/agents/{aid}').json()['versions'][0]['definition'][
+        'model'] == 'claude-test'
+    other = uuid4()
+    migrate(db[0], other)
+    from asa.registry.model_catalog import read_catalog
+    assert read_catalog(settings.model_copy(update={'workspace_id': other})).models == []
+
+
+def test_model_catalog_admin_permission_and_validation(db, monkeypatch):
+    from pydantic import ValidationError
+
+    from asa.auth.session import OwnerSessions, Principal
+    from asa.registry.model_catalog import Catalog
+
+    with pytest.raises(ValidationError):
+        Catalog.model_validate({'default': 'openai:missing', 'models': []})
+    entry = {'provider': 'openai', 'id': 'test', 'label': 'Test'}
+    with pytest.raises(ValidationError):
+        Catalog.model_validate({'models': [entry, entry]})
+    monkeypatch.setattr(OwnerSessions, 'principal', lambda self: Principal(
+        user_id='member', workspace_id=db[1], roles=('member',)))
+    with TestClient(create_app(Settings(_env_file=None, database_url=db[0],
+                                       workspace_id=db[1]))) as member:
+        assert member.get('/api/v1/admin/models/discover/openai').status_code == 403
+        assert member.get('/api/v1/admin/models/metadata/openai?model=test').status_code == 403
+        assert member.get('/api/v1/admin/models').status_code == 403
+        assert member.put('/api/v1/admin/models', json={'models': []}).status_code == 403
+        assert member.post('/api/v1/admin/models', json={'revision': 0, 'model': entry}).status_code == 403
+        assert member.get('/api/v1/ai-models').status_code == 200
+
+
+def test_model_discovery_admin_routes(client, monkeypatch):
+    from asa.registry import model_catalog
+    from asa.registry.model_discovery import ModelMetadata
+
+    assert client.get('/api/v1/admin/models/discover/openai').status_code == 401
+    headers = login(client)
+    monkeypatch.setattr(model_catalog, 'discover', lambda config, provider: {
+        'models': [{'id': 'test', 'label': 'Test', 'provider': provider}]})
+    monkeypatch.setattr(model_catalog, 'metadata', lambda provider, model: ModelMetadata(
+        checked_at='2026-10-29T00:00:00Z', web_search_supported=True,
+        sources=['https://developers.openai.com/api/docs/models/test']))
+    assert client.get('/api/v1/admin/models/discover/openai').json()['models'][0]['id'] == 'test'
+    meta = client.get('/api/v1/admin/models/metadata/openai?model=test').json()
+    assert meta['web_search_supported'] is True
+    saved = client.put('/api/v1/admin/models', headers=headers, json={
+        'models': [{'provider': 'openai', 'id': 'test', 'label': 'Test', 'metadata': meta}]})
+    assert saved.status_code == 200
+    assert client.get('/api/v1/admin/models').json()['models'][0]['metadata'] == meta
+    assert client.get('/api/v1/admin/models/discover/unknown').status_code == 422
+
+def test_register_model_is_immediate_and_preserves_saved_catalog(client):
+    url = '/api/v1/admin/models'
+    entry = {'provider': 'openai', 'id': 'first', 'label': 'First'}
+    assert client.post(url, json={'revision': 0, 'model': entry}).status_code == 401
+    headers = login(client)
+    first = client.post(url, headers=headers, json={'revision': 0, 'model': entry})
+    assert first.status_code == 201, first.text
+    assert client.get(url).json()['models'][0]['id'] == 'first'
+    saved = first.json()
+    saved['default'] = 'openai:first'
+    assert client.put(url, headers=headers, json=saved).status_code == 200
+    second = {'provider': 'anthropic', 'id': 'second', 'label': 'Second'}
+    assert client.post(url, headers=headers, json={'revision': 1, 'model': second}).status_code == 409
+    result = client.post(url, headers=headers, json={'revision': 2, 'model': second})
+    assert result.status_code == 201
+    reread = client.get(url).json()
+    assert reread['default'] == 'openai:first'
+    assert [m['label'] for m in reread['models']] == ['First', 'Second']
+    assert client.post(url, headers=headers, json={'revision': 3, 'model': second}).status_code == 409
+    # Adding a model cannot submit unrelated unsaved edits or change the default.
+    assert client.post(url, headers=headers, json={'revision': 3, 'model': entry,
+                       'default': ''}).status_code == 422
+
+
+def test_script_queue_duplicate_concurrent_and_recovery(client, db):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from asa.registry.history import HistoryRepository, WorkRequest
+    from asa.registry.script_queue import ScriptQueue
+    from asa.models import Script
+    headers = login(client)
+    agent = client.post('/api/v1/agents', json=definition(), headers=headers).json()
+    client.post(f"/api/v1/agents/{agent['id']}/publish",
+                headers={**headers, 'If-Match': '"1"'})
+    settings = Settings(_env_file=None, database_url=db[0], workspace_id=db[1],
+                        ai_model='test', ai_api_key='fake', script_ai_enabled=True)
+    queue = ScriptQueue(settings)
+    history = HistoryRepository(db[0], db[1])
+    ids = [uuid4() for _ in range(3)]
+    for rid in ids:
+        history.save(WorkRequest(id=rid, agent_id=agent['id'], version=1,
+                                 input={'topic': str(rid)}))
+    with ThreadPoolExecutor(4) as pool:
+        list(pool.map(lambda _: queue.submit(str(ids[0])), range(4)))
+    for rid in ids[1:]:
+        queue.submit(str(rid))
+    assert len(queue.get(str(ids[0]))['attempts']) == 1
+    started, release = Event(), Event()
+    calls = []
+    def slow(prompt):
+        calls.append(prompt)
+        started.set()
+        assert release.wait(5)
+        return Script(title='Title', narration='Narration')
+    with ThreadPoolExecutor(2) as pool:
+        running = pool.submit(queue.tick, slow)
+        assert started.wait(5)
+        assert not queue.tick(slow)
+        release.set()
+        assert running.result()
+    assert len(calls) == 1
+    assert history.detail(ids[0])['status'] == 'succeeded'
+    queue.cancel(str(ids[1]), ids[1])
+    assert queue.tick(lambda _: Script(title='Third', narration='Third result'))
+    assert not queue.tick(slow)
+    assert history.detail(ids[1])['status'] == 'cancelled'
+    assert history.detail(ids[2])['result']['title'] == 'Third'
+    # Simulate a process dying after claiming, without automatically calling again.
+    rid = uuid4()
+    history.save(WorkRequest(id=rid, agent_id=agent['id'], version=1, input={'topic': 'recover'}))
+    queue.submit(str(rid))
+    queue.claim(str(rid), str(rid), 'openai', 'test')
+    assert not queue.tick(slow)
+    assert queue.get(str(rid))['attempts'][0]['status'] == 'unknown'
+    assert history.detail(rid)['status'] == 'failed'
+    assert len(calls) == 1
+    with queue._connect() as conn:
+        assert conn.execute('SELECT count(*) n FROM ai_usage_events WHERE workspace_id=%s',
+                            (db[1],)).fetchone()['n'] == 2
+    other = ScriptQueue(settings.model_copy(update={'workspace_id': uuid4()}))
+    with pytest.raises(Exception):
+        other.submit(str(ids[0]))
+
+
+def test_script_queue_api_usage_failure_and_model_snapshot(client, db):
+    from langchain_core.messages import AIMessage, HumanMessage
+    from langchain_core.outputs import ChatGeneration, LLMResult
+    from asa.registry.history import HistoryRepository, WorkRequest
+    from asa.registry.script_queue import ScriptQueue
+    from asa.models import Script
+    from asa.telemetry import call_config
+    headers, work, url = script_work(client)
+    assert client.post(url + '/start', headers=headers, json={}).status_code == 409
+    settings = Settings(_env_file=None, database_url=db[0], workspace_id=db[1],
+                        ai_model='test', ai_api_key='fake', script_ai_enabled=True,
+                        owner_access_key=KEY, allowed_origins=['http://testserver'],
+                        ai_prices={'openai:test': {'label': 'test', 'input': 2, 'output': 8}})
+    queue = ScriptQueue(settings)
+    with TestClient(create_app(settings)) as api_client:
+        auth = login(api_client)
+        assert api_client.post(url + '/start', headers=ORIGIN, json={}).status_code == 403
+        first = api_client.post(url + '/start', headers=auth, json={})
+        assert first.status_code == 201
+        assert api_client.post(url + '/start', headers=auth, json={}).status_code == 201
+        assert len(api_client.get(url).json()['attempts']) == 1
+        assert api_client.get(url).json()['request_input'] == work['input']
+        def response(prompt):
+            callback = call_config()['config']['callbacks'][0]
+            callback.on_chat_model_start({}, [[HumanMessage(content=prompt)]])
+            callback.on_llm_end(LLMResult(generations=[[ChatGeneration(message=AIMessage(
+                content='result', usage_metadata={'input_tokens': 100, 'output_tokens': 20,
+                                                 'total_tokens': 120}))]]))
+            return Script(title='Test result', narration='Test narration')
+        # A changed default does not change the pinned queued model if still permitted.
+        queue.settings = settings.model_copy(update={'ai_model': 'new', 'ai_models': ['test']})
+        assert queue.tick(response)
+        with queue._connect() as conn:
+            event = conn.execute('SELECT * FROM ai_usage_events WHERE workspace_id=%s',
+                                 (db[1],)).fetchone()
+        assert event['model'] == 'test' and event['request_id'] == work['id']
+        assert event['status'] == 'succeeded' and event['duration_ms'] is not None
+        assert event['usage']['input_tokens'] == 100
+        assert float(event['estimated_usd']) == pytest.approx(0.00036)
+        assert api_client.get(url).json()['versions'][0]['title'] == 'Test result'
+        assert api_client.post(url + '/start', headers=auth, json={}).status_code == 201
+        assert not queue.tick(response)
+    history = HistoryRepository(db[0], db[1])
+    ids = [uuid4(), uuid4()]
+    for rid in ids:
+        history.save(WorkRequest(id=rid, agent_id=work['agent_id'], version=work['version'],
+                                 input={'topic': 'new'}))
+        queue.submit(str(rid))
+    def failed(_):
+        raise TimeoutError('must not be logged')
+    assert queue.tick(failed)
+    assert queue.get(str(ids[0]))['attempts'][0]['status'] == 'unknown'
+    assert queue.get(str(ids[0]))['attempts'][0]['error_code'] == 'ai_timeout'
+    item = next(item for item in history.history(0)['items'] if item['id'] == str(ids[0]))
+    assert item['status'] == 'failed' and item['error_code'] == 'ai_timeout'
+    assert '시간 초과' in history.detail(ids[0])['error']
+
+    assert queue.tick(response)
+    assert history.detail(ids[1])['status'] == 'succeeded'
+    assert not queue.tick(response)
+
+
+def test_script_queue_limits_disabled_and_legacy_not_consumed(client, db):
+    from asa.registry.script_queue import ScriptQueue
+    from asa.registry.script_stage import GenerateScript, ScriptRepository
+    from asa.registry.schemas import RegistryError
+    from asa.registry.history import HistoryRepository, WorkRequest
+    from asa.models import Script
+    _, work, _ = script_work(client)
+    settings = Settings(_env_file=None, database_url=db[0], workspace_id=db[1],
+                        ai_model='test', ai_api_key='fake', script_ai_enabled=True,
+                        script_queue_limit=1, script_daily_ai_calls=1)
+    queue = ScriptQueue(settings)
+    queue.submit(work['id'])
+    rid = uuid4()
+    history = HistoryRepository(db[0], db[1])
+    history.save(WorkRequest(id=rid, agent_id=work['agent_id'], version=work['version'],
+                             input={'topic': 'second'}))
+    with pytest.raises(RegistryError, match='script_queue_full'):
+        queue.submit(str(rid))
+    assert queue.tick(lambda _: Script(title='First', narration='First'))
+    queue.submit(str(rid))
+    assert queue.tick(lambda _: pytest.fail('daily limit must prevent the call'))
+    assert queue.get(str(rid))['attempts'][0]['status'] == 'failed'
+    legacy = uuid4()
+    history.save(WorkRequest(id=legacy, agent_id=work['agent_id'], version=work['version'],
+                             input={'topic': 'manual'}))
+    ScriptRepository(db[0], db[1]).queue(str(legacy), GenerateScript(
+        id=uuid4(), expected_revision=0, base_version=0, instruction='legacy'))
+    assert not queue.tick(lambda _: pytest.fail('legacy work must not be consumed'))
+    assert queue.get(str(legacy))['attempts'][0]['status'] == 'queued'
+
+
+def test_manual_script_result_updates_customer_history(client):
+    headers, work, url = script_work(client)
+    result = client.post(url + '/versions', headers=headers, json={
+        'id': str(uuid4()), 'expected_revision': 0, 'title': 'Edited', 'narration': 'Edited script'})
+    assert result.status_code == 201
+    detail = client.get(f"/api/v1/work-requests/{work['id']}").json()
+    assert detail['result'] == {'title': 'Edited', 'narration': 'Edited script'}
+
+
+def test_script_read_keeps_completion_in_one_snapshot(client, db, monkeypatch):
+    from asa.models import Script
+    from asa.registry.script_stage import GenerateScript, ScriptRepository
+
+    _, work, _ = script_work(client)
+    repo = ScriptRepository(db[0], db[1])
+    rid, aid = work['id'], str(uuid4())
+    repo.queue(rid, GenerateScript(id=aid, expected_revision=0, base_version=0,
+                                  instruction='write'))
+    attempt = repo.claim(rid, aid, 'openai', 'test')
+    original = repo._connect
+
+    class InterleavedConnection:
+        def __enter__(self):
+            self.context = original()
+            self.conn = self.context.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self.context.__exit__(*args)
+
+        def execute(self, query, *args):
+            cursor = self.conn.execute(query, *args)
+            if 'FROM script_versions' in query:
+                ScriptRepository(db[0], db[1]).finish(
+                    rid, attempt, Script(title='Ready', narration='Ready script'))
+            return cursor
+
+    monkeypatch.setattr(repo, '_connect', InterleavedConnection)
+    snapshot = repo.get(rid)
+    assert snapshot['versions'] == []
+    assert snapshot['attempts'][0]['status'] == 'running'
+    complete = ScriptRepository(db[0], db[1]).get(rid)
+    assert complete['attempts'][0]['status'] == 'succeeded'
+    assert complete['versions'][0]['title'] == 'Ready'
+
+
+def test_work_test_label_is_explicit_metadata(client):
+    headers, work, _ = script_work(client)
+    assert work['is_test'] is False
+    body = dict(id=str(uuid4()), agent_id=work['agent_id'], version=work['version'],
+                input={'topic': 'ordinary text'}, is_test=True)
+    saved = client.post('/api/v1/work-requests', headers=headers, json=body)
+    assert saved.status_code == 201
+    assert saved.json()['is_test'] is True
+    assert next(i for i in client.get('/api/v1/work-requests').json()['items']
+                if i['id'] == body['id'])['is_test'] is True
+    assert client.post('/api/v1/work-requests', headers=headers,
+                       json={**body, 'is_test': False}).status_code == 409
+    normal = client.post('/api/v1/work-requests', headers=headers, json={
+        **body, 'id': str(uuid4()), 'input': {'topic': '실행 연결 검증: user text'},
+        'is_test': False})
+    assert normal.json()['is_test'] is False
+    repeated = client.post('/api/v1/work-requests', headers=headers, json={
+        **body, 'id': str(uuid4()), 'source_id': body['id'], 'is_test': False})
+    assert repeated.status_code == 201
+    assert repeated.json()['is_test'] is False
+
+@pytest.mark.parametrize('schema,answer', [({'type': 'string', 'maxLength': 200}, 'Detailed answer'), ({'type': 'object', 'properties': {'summary': {'type': 'string', 'maxLength': 200}, 'tags': {'type': 'array', 'items': {'type': 'string', 'maxLength': 50}, 'maxItems': 5}}, 'required': ['summary', 'tags']}, {'summary': 'Detailed', 'tags': ['one', 'two']})])
+def test_agent_answer_contract_persistence_revision_and_validation(client, db, schema, answer):
+    import json
+    from asa.models import AgentAnswer
+    from asa.registry.script_stage import ScriptRepository, GenerateScript, execute_attempt
+    headers = login(client)
+    draft = definition()
+    draft['output_schema'] = schema
+    draft['instructions'] = 'Act as an analyst, use the configured response format.'
+    agent = client.post('/api/v1/agents', headers=headers, json=draft).json()
+    assert client.post(f"/api/v1/agents/{agent['id']}/publish", headers={**headers, 'If-Match': '"1"'}).status_code == 201
+    rid = str(uuid4())
+    assert client.post('/api/v1/work-requests', headers=headers, json=dict(id=rid, agent_id=agent['id'], version=1, input={'topic': 'Analysis'})).status_code == 201
+    repo = ScriptRepository(db[0], db[1])
+    aid = str(uuid4())
+    repo.queue(rid, GenerateScript(id=aid, expected_revision=0, base_version=0, instruction='Answer'))
+    assert execute_attempt(repo, rid, aid, lambda _: AgentAnswer(value=answer))
+    stage = repo.get(rid)
+    assert stage['versions'][0]['answer'] == answer
+    assert client.get(f'/api/v1/work-requests/{rid}').json()['result'] == answer
+    aid2 = str(uuid4())
+    repo.queue(rid, GenerateScript(id=aid2, expected_revision=stage['revision'], base_version=1, instruction='Improve'))
+    def improve(prompt):
+        contract = json.loads(prompt)
+        assert contract['previous_answer'] == answer
+        assert contract['output_schema']['type'] == schema['type']
+        assert contract['agent_instructions'] == draft['instructions']
+        assert 'scope' not in contract
+        return AgentAnswer(value=answer)
+    assert execute_attempt(repo, rid, aid2, improve)
+    stage = repo.get(rid)
+    assert stage['head_version'] == 2
+    saved = client.post(f'/api/v1/work-requests/{rid}/script/versions', headers=headers, json=dict(id=str(uuid4()), expected_revision=stage['revision'], base_version=2, answer=answer))
+    assert saved.status_code == 201
+    assert saved.json()['versions'][0]['answer'] == answer
+    stage = repo.get(rid)
+    aid3 = str(uuid4())
+    repo.queue(rid, GenerateScript(id=aid3, expected_revision=stage['revision'], base_version=3, instruction='Invalid'))
+    assert execute_attempt(repo, rid, aid3, lambda _: AgentAnswer(value=123))
+    assert repo.get(rid)['head_version'] == 3
+    assert repo.get(rid)['attempts'][0]['status'] == 'unknown'
+
+
+@pytest.mark.parametrize("timeout", [False, True])
+def test_agent_sse_reconnect_isolation_and_persisted_partial(client, db, monkeypatch, timeout):
+    from asa.registry.script_queue import ScriptQueue
+    from asa.models import Script
+    import asa.registry.sse as sse
+    monkeypatch.setattr(sse, 'STREAM_LIFETIME', 0)
+    headers, work, url = script_work(client)
+    settings = Settings(_env_file=None, database_url=db[0], workspace_id=db[1],
+                        ai_model='test', ai_api_key='fake', script_ai_enabled=True,
+                        owner_access_key=KEY, allowed_origins=['http://testserver'])
+    queue = ScriptQueue(settings)
+    queue.submit(work['id'])
+    calls = []
+
+    def factory(config, publish):
+        def generate(prompt):
+            calls.append(prompt)
+            publish({'understanding': '요청 이해', 'direction': '작성 방향', 'value': '부분 답변'})
+            assert queue.get(work['id'])['attempts'][0]['live_output']['value'] == '부분 답변'
+            if timeout:
+                raise TimeoutError('private provider error')
+            return Script(title='제목', narration='최종 답변')
+        return generate
+
+    monkeypatch.setattr('asa.registry.script_queue.make_agent_generator', factory)
+    assert queue.tick()
+    with TestClient(create_app(settings)) as browser:
+        assert browser.get(url + '/events').status_code == 401
+        login(browser)
+        first = browser.get(url + '/events')
+        assert first.status_code == 200
+        assert first.headers['content-type'].startswith('text/event-stream')
+        assert '요청 이해' in first.text and '부분 답변' in first.text
+        assert browser.get(url + '/events', headers={'Last-Event-ID': 'old'}).text == first.text
+        recent = browser.get('/api/v1/work-requests/events')
+        assert work['id'] in recent.text
+        assert ('failed' if timeout else 'succeeded') in recent.text
+        if timeout:
+            assert 'ai_timeout' in first.text
+            assert 'private provider error' not in first.text
+            assert queue.get(work['id'])['versions'] == []
+        assert first.headers['content-encoding'] == 'identity'
+        assert 'no-transform' in first.headers['cache-control']
+        assert browser.get(f'/api/v1/work-requests/{uuid4()}/script/events').status_code == 404
+        from asa.registry.schemas import RegistryError
+        other_queue = ScriptQueue(settings.model_copy(update={'workspace_id': uuid4()}))
+        with pytest.raises(RegistryError):
+            other_queue.get(work['id'])
+        assert len(calls) == 1
+        assert len(queue.get(work['id'])['attempts']) == 1
+
+def test_character_projects_follow_immutable_answer_versions(client, db):
+    from psycopg.types.json import Jsonb
+    from asa.registry.characters import CharacterRepository, ImportPlan
+    from asa.registry.schemas import RegistryError
+
+    headers, work, _ = script_work(client)
+    dsn, workspace = db
+    repo = CharacterRepository(dsn, workspace)
+    char = dict(id='hana', name='Hana', facts='', appearance='yellow coat',
+                proposed='', scene_ids='1', image_prompt='front view')
+    with repo._connect() as conn:
+        conn.execute('INSERT INTO script_stages(workspace_id,request_id) VALUES (%s,%s)',
+                     (workspace, work['id']))
+        for number, name in [(1, 'Hana'), (2, 'Updated Hana')]:
+            conn.execute('INSERT INTO script_versions'
+                         '(workspace_id,request_id,version,operation_id,title,narration,source,answer) '
+                         "VALUES (%s,%s,%s,%s,'','','ai',%s)",
+                         (workspace, work['id'], number, uuid4(),
+                          Jsonb({'characters': [{**char, 'name': name}]})))
+    first = ImportPlan(id=uuid4(), request_id=work['id'], name='Characters')
+    p1 = repo.import_plan(first)
+    assert repo.import_plan(first.model_copy(update={'id': uuid4()}))['id'] == p1['id']
+    p2 = repo.import_plan(first.model_copy(update={'id': uuid4(), 'source_version': 2}))
+    assert p2['id'] != p1['id']
+    assert p1['characters'][0]['name'] == 'Hana'
+    assert p2['characters'][0]['name'] == 'Updated Hana'
+    assert p2['source_version'] == 2
+    with pytest.raises(RegistryError, match='image_id_conflict'):
+        repo.import_plan(first.model_copy(update={'source_version': 2}))
+    with pytest.raises(RegistryError, match='character_plan_not_ready'):
+        repo.import_plan(first.model_copy(update={'id': uuid4(), 'source_version': 3}))
+    with pytest.raises(RegistryError):
+        CharacterRepository(dsn, uuid4()).import_plan(first)
+    entries = client.get('/api/v1/characters/projects').json()
+    assert len(entries) == 2
+    assert {p['source_version'] for p in entries} == {1, 2}
+    assert all(p['request_id'] == work['id'] for p in entries)
+
+
+def test_followup_history_scope_completion_and_version_isolation(client, db):
+    from psycopg.types.json import Jsonb
+    from asa.registry.characters import Character, CharacterRepository, ImageRequest, ImportPlan, ItemScope
+    from asa.registry.history import HistoryRepository
+    from asa.registry.schemas import RegistryError
+
+    headers, work, _ = script_work(client)
+    dsn, workspace = db
+    repo = CharacterRepository(dsn, workspace)
+    history = HistoryRepository(dsn, workspace)
+    char = dict(id='hana', name='Hana', facts='', appearance='coat', proposed='', scene_ids='1', image_prompt='front')
+    with repo._connect() as conn:
+        conn.execute('INSERT INTO script_stages(workspace_id,request_id) VALUES (%s,%s)', (workspace, work['id']))
+        conn.execute('INSERT INTO script_versions(workspace_id,request_id,version,operation_id,title,narration,source,answer) '
+                     "VALUES (%s,%s,1,%s,'','','ai',%s)",
+                     (workspace, work['id'], uuid4(), Jsonb({'characters': [char, {**char, 'id': 'other'}]})))
+        conn.execute("UPDATE customer_requests SET status='succeeded' WHERE workspace_id=%s AND id=%s", (workspace, work['id']))
+    # Even an answer never opened/imported has outstanding work.
+    assert history.history(0)['items'][0]['work_progress']['counts']['pending'] == 2
+    project = repo.import_plan(ImportPlan(id=uuid4(), request_id=work['id'], name='test'))
+    pid = UUID(project['id'])
+    settings = Settings(_env_file=None, database_url=dsn, workspace_id=workspace,
+                        image_ai_enabled=True, ai_api_key='test-only')
+    body = ImageRequest(id=uuid4(), character=Character(**char), model='gpt-image-2.5-sunburst')
+    repo.enqueue(pid, body, settings)
+    with pytest.raises(RegistryError, match='image_already_running'):
+        repo.set_scope(pid, 'hana', ItemScope(excluded=True, expected=False))
+    assert history.detail(UUID(work['id']))['work_progress']['counts']['queued'] == 1
+    with repo._connect() as conn:
+        conn.execute("UPDATE character_image_jobs SET status='succeeded',image=%s WHERE workspace_id=%s AND id=%s",
+                     (b'fake', workspace, body.id))
+    assert history.history(0)['items'][0]['work_progress']['status'] == 'review'
+    repo.approve(body.id, None, 1)
+    assert history.history(0)['items'][0]['work_progress']['status'] == 'pending'
+    repo.set_scope(pid, 'other', ItemScope(excluded=True, expected=False))
+    assert history.history(0)['items'][0]['work_progress']['status'] == 'complete'
+    assert client.get(f"/api/v1/work-requests/{work['id']}").json()['work_progress']['counts']['excluded'] == 1
+    with pytest.raises(RegistryError, match='work_scope_changed'):
+        repo.set_scope(pid, 'other', ItemScope(excluded=False, expected=False))
+    with pytest.raises(RegistryError, match='work_item_excluded'):
+        repo.enqueue(pid, body.model_copy(update={'id': uuid4(), 'character': Character(**{**char, 'id': 'other'})}), settings)
+    with pytest.raises(RegistryError):
+        CharacterRepository(dsn, uuid4()).set_scope(pid, 'other', ItemScope(excluded=False, expected=True))
+    repo.set_scope(pid, 'other', ItemScope(excluded=False, expected=True))
+    assert history.history(0)['items'][0]['work_progress']['status'] == 'pending'
+    # Revisions reopen review; user can explicitly retain the older approved image.
+    edit = body.model_copy(update={'id': uuid4(), 'base_id': body.id, 'change': 'blue'})
+    repo.enqueue(pid, edit, settings)
+    assert history.history(0)['items'][0]['work_progress']['status'] == 'running'
+    with repo._connect() as conn:
+        conn.execute("UPDATE character_image_jobs SET status='succeeded',image=%s WHERE workspace_id=%s AND id=%s",
+                     (b'fake', workspace, edit.id))
+    assert repo.project(pid)['work_progress']['counts']['review'] == 1
+    with pytest.raises(RegistryError, match="image_review_changed"):
+        repo.approve(body.id, body.id, 1)
+    repo.approve(body.id, body.id, 2)
+    assert repo.project(pid)['work_progress']['counts']['approved'] == 1
+    # A new answer must not inherit previous approval/exclusions.
+    with repo._connect() as conn:
+        conn.execute('INSERT INTO script_versions(workspace_id,request_id,version,operation_id,title,narration,source,answer) '
+                     "VALUES (%s,%s,2,%s,'','','ai',%s)", (workspace, work['id'], uuid4(), Jsonb({'characters': [char]})))
+    latest = history.history(0)['items'][0]['work_progress']
+    assert latest['source_version'] == 2 and latest['counts']['pending'] == 1
+    assert repo.project(pid)['work_progress']['counts']['approved'] == 1
+
+
+def test_pool_reuses_connection_and_rolls_back(db):
+    from asa.database import connection, close_database
+    dsn, _ = db
+    with connection(dsn) as conn:
+        first = conn.info.backend_pid
+    with pytest.raises(ValueError):
+        with connection(dsn) as conn:
+            conn.execute("CREATE TABLE should_rollback(id int)")
+            raise ValueError('rollback')
+    with connection(dsn) as conn:
+        assert conn.info.backend_pid == first
+        assert conn.execute("SELECT to_regclass('should_rollback')").fetchone()[0] is None
+    close_database(dsn)
+
+
+def test_notifications_commit_only_and_workspace_isolation(db):
+    from asa.database import changes, close_database, connection
+    dsn, workspace = db
+    hub = changes(dsn)
+    assert hub.ready.wait(5)
+    baseline = hub.version(str(workspace), 'state')
+    with psycopg.connect(dsn) as conn:
+        conn.execute("INSERT INTO work_item_preferences(workspace_id,request_id,source_version,"
+                     "kind,item_id,excluded) VALUES (%s,%s,1,'test','test',true)",
+                     (workspace, uuid4()))
+        assert hub.version(str(workspace), 'state') == baseline
+        conn.rollback()
+    assert hub.version(str(workspace), 'state') == baseline
+    with connection(dsn) as conn:
+        conn.execute("SELECT pg_notify('asa_changes', %s)", (str(workspace)+':state',))
+    assert hub.wait(str(workspace), 'state', baseline, 3) != baseline
+    assert hub.version(str(uuid4()), 'state') == hub.epoch
+    close_database(dsn)
+
+
+def test_queue_notification_wakes_idle_consumer_once(client, db):
+    import threading
+    from asa.database import changes
+    from asa.models import Script
+    from asa.registry.script_queue import ScriptQueue
+    headers, work, url = script_work(client)
+    config = Settings(_env_file=None, database_url=db[0], workspace_id=db[1],
+                      script_ai_enabled=True, ai_model='test', ai_api_key='fake')
+    repo = ScriptQueue(config)
+    hub = changes(db[0])
+    assert hub.ready.wait(5)
+    scope = str(db[1])
+    version = hub.version(scope, 'script')
+    calls = []
+    assert not repo.tick(lambda p: calls.append(p))
+    # An idle wait returns unchanged; no paid generator or repeated queue read.
+    assert hub.wait(scope, 'script', version, 0.1) == version
+    repo.submit(work['id'])
+    assert hub.wait(scope, 'script', version, 3) != version
+    def generate(prompt):
+        calls.append(prompt)
+        return Script(title='Test', narration='One response')
+    assert repo.tick(generate)
+    assert not repo.tick(generate)
+    assert len(calls) == 1
+    assert repo.get(work['id'])['attempts'][0]['status'] == 'succeeded'
+
+
+def test_listener_reconnect_forces_snapshot_reconciliation(db):
+    import time
+    from asa.database import changes, connection
+    hub = changes(db[0])
+    assert hub.ready.wait(5)
+    epoch = hub.epoch
+    # Only the listener for this isolated test DSN/schema is terminated.
+    with connection(db[0]) as conn:
+        rows = conn.execute("SELECT pid FROM pg_stat_activity WHERE application_name='asa-listener' "
+                            "AND query='LISTEN asa_changes'").fetchall()
+    # Use a dedicated tagged listener PID instead of affecting other applications.
+    assert hub.backend_pid
+    with connection(db[0]) as conn:
+        conn.execute('SELECT pg_terminate_backend(%s)', (hub.backend_pid,))
+    deadline = time.monotonic()+12
+    while time.monotonic()<deadline:
+        if hub.ready.is_set() and hub.epoch > epoch and hub.backend_pid:
+            break
+        time.sleep(0.05)
+    assert hub.ready.is_set() and hub.epoch > epoch
+
+
+def test_image_and_automation_sse_require_auth_and_scope(client, db, monkeypatch):
+    import asa.registry.sse as sse
+    monkeypatch.setattr(sse, 'STREAM_LIFETIME', 0)
+    for path in [f'/api/v1/characters/projects/{uuid4()}/events',
+                 f'/api/v1/automation-runs/{uuid4()}/events']:
+        assert client.get(path).status_code == 401
+    login(client)
+    assert client.get(f'/api/v1/characters/projects/{uuid4()}/events').status_code == 404
+    assert client.get(f'/api/v1/automation-runs/{uuid4()}/events').status_code == 404
+
+
+def test_pooled_concurrent_enqueue_does_not_exhaust_pool(client, db, monkeypatch):
+    import threading
+    import time
+    from asa.registry.runtime import RunInput, RunRepository
+    _, saved = runtime_flow(client)
+    settings = Settings(_env_file=None, database_url=db[0], workspace_id=db[1])
+    repos = [RunRepository(settings) for _ in range(8)]
+    barrier = threading.Barrier(8)
+    original = RunRepository.snapshot
+    def slow_snapshot(self, *args):
+        time.sleep(0.1)  # Give seven contenders time to borrow the other slots.
+        return original(self, *args)
+    monkeypatch.setattr(RunRepository, 'snapshot', slow_snapshot)
+    def enqueue(repo):
+        barrier.wait(timeout=5)
+        return repo.enqueue(UUID(saved['id']), RunInput(id=uuid4(), revision=1, prompt='test'))
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        results = list(executor.map(enqueue, repos))
+    assert len({r['id'] for r in results}) == 8
+    assert all(r['status'] == 'queued' for r in results)
+
+
+def test_idle_schedule_deadline_and_sse_snapshot(client, db, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+    from asa.registry.runtime import RunRepository, RunInput, ScheduleInput
+    import asa.registry.sse as sse
+    _, saved = runtime_flow(client)
+    repo = RunRepository(Settings(_env_file=None, database_url=db[0], workspace_id=db[1]))
+    assert repo.idle_seconds() == 30
+    repo.save_schedule(UUID(saved['id']), ScheduleInput(revision=1, schedule_revision=0,
+        enabled=True, kind='once', at=datetime.now(UTC)+timedelta(seconds=5), prompt='test'))
+    assert 0 < repo.idle_seconds() <= 5
+    with repo._connect() as conn:
+        conn.execute("UPDATE automation_schedules SET next_at=now()-interval '1 second'")
+    assert repo.idle_seconds() == 0
+    run = repo.enqueue(UUID(saved['id']), RunInput(id=uuid4(), revision=1, prompt='test'))
+    monkeypatch.setattr(sse, 'STREAM_LIFETIME', 0)
+    response = client.get(f"/api/v1/automation-runs/{run['id']}/events")
+    assert response.status_code == 200 and 'event: snapshot' in response.text
+    assert 'queued' in response.text
+
+
+def test_standby_automation_worker_does_not_spin_on_overdue_schedule(client, db):
+    from asa.registry.runtime import RunRepository
+    from asa.runtime_worker import tick
+    repo = RunRepository(Settings(_env_file=None, database_url=db[0], workspace_id=db[1]))
+    with psycopg.connect(db[0]) as lock:
+        lock.execute('SELECT pg_advisory_lock(hashtextextended(%s,0))',
+                     (f'asa-runtime:{db[1]}',))
+        assert not tick(repo)
+        assert repo.worker_lock_busy
+        assert repo.idle_seconds() == 30
+    assert not tick(repo)
+    assert not repo.worker_lock_busy

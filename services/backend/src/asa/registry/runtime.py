@@ -1,17 +1,22 @@
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends
+import psycopg
+from fastapi import APIRouter, Depends, Request
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.responses import StreamingResponse
 
 from asa.auth.session import OwnerSessions, Principal
 from asa.config import Settings
 from asa.registry.automations import Automation, check_flow
 from asa.registry.graph_automation import GraphNode, ai_tool
+from asa.registry.model_catalog import effective_settings
 from asa.registry.repository import RegistryRepository
 from asa.registry.schemas import RegistryError
+from asa.registry.sse import snapshot_stream
 from asa.tools.search import SEARCH_ID, search_ready
 
 SEOUL = timezone(timedelta(hours=9))
@@ -52,26 +57,39 @@ class ScheduleInput(BaseModel):
 class RunRepository(RegistryRepository):
     def __init__(self, settings: Settings, requested_by: str | None = None):
         super().__init__(settings.database_url, settings.workspace_id)
-        self.settings = settings
+        self.base_settings = settings
+        self.settings = effective_settings(settings)
         self.requested_by = requested_by
+        self.worker_lock_busy = False
 
-    def ai_ready(self, model: str | None = None, provider: str = "openai") -> bool:
-        return bool(self.settings.automation_ai_enabled
-                    and (model or self.settings.ai_model) in self.settings.models_for(provider)
-                    and self.settings.key_for(provider).get_secret_value().strip())
+    def ai_ready(self, model: str | None = None, provider: str | None = None) -> bool:
+        provider = provider or self.settings.ai_provider
+        return bool(
+            self.settings.automation_ai_enabled
+            and (model or self.settings.ai_model) in self.settings.models_for(provider)
+            and self.settings.key_for(provider).get_secret_value().strip()
+        )
 
     def model_available(self, tool: dict[str, Any]) -> bool:
-        return bool(tool["provider"] in ("openai", "anthropic")
-                    and self.ai_ready(tool["model"], tool["provider"])
-                    and (not tool.get("web_search") or self.settings.search_supported(
-                        tool["provider"], tool["model"]))
-                    and (tool.get("model_selected", False)
-                         or tool["model"] == self.settings.ai_model))
+        return bool(
+            tool["provider"] in ("openai", "anthropic")
+            and self.ai_ready(tool["model"], tool["provider"])
+            and (
+                not tool.get("web_search")
+                or self.settings.search_supported(tool["provider"], tool["model"])
+            )
+            and (tool.get("model_selected", False) or tool["model"] == self.settings.ai_model)
+        )
 
-    def snapshot(self, automation_id: UUID, revision: int) -> tuple[dict[str, Any], list[Any]]:
-        with self._connect() as conn:
-            row = conn.execute("SELECT draft,revision FROM automation_drafts WHERE workspace_id=%s "
-                               "AND id=%s", (self.workspace_id, automation_id)).fetchone()
+    def snapshot(self, automation_id: UUID, revision: int,
+                 connection: psycopg.Connection[dict[str, Any]] | None = None
+                 ) -> tuple[dict[str, Any], list[Any]]:
+        with nullcontext(connection) if connection is not None else self._connect() as conn:
+            self.settings = effective_settings(self.base_settings, conn)
+            row = conn.execute(
+                "SELECT draft,revision FROM automation_drafts WHERE workspace_id=%s AND id=%s",
+                (self.workspace_id, automation_id),
+            ).fetchone()
             if not row:
                 raise RegistryError(404, "automation_not_found")
             if row["revision"] != revision:
@@ -84,12 +102,18 @@ class RunRepository(RegistryRepository):
             catalog = {t["id"]: t for t in tools}
             manifest = []
             ai_count = 0
-            executable = ([n for n in draft.graph.nodes if n.kind in ('ai', 'tool')]
-                          if draft.graph else draft.steps)
+            executable = (
+                [n for n in draft.graph.nodes if n.kind in ("ai", "tool")]
+                if draft.graph
+                else draft.steps
+            )
             for step in executable:
                 inline = getattr(step, "kind", None) == "ai"
-                tool = (ai_tool(step) if isinstance(step, GraphNode) and inline
-                        else dict(catalog[step.tool_id]))
+                tool = (
+                    ai_tool(step)
+                    if isinstance(step, GraphNode) and inline
+                    else dict(catalog[step.tool_id])
+                )
                 if draft.graph:
                     tool["node_id"] = step.id
                 if tool["kind"] == "agent" and not inline:
@@ -103,11 +127,17 @@ class RunRepository(RegistryRepository):
                 if tool["kind"] == "agent":
                     if tool["definition"]["tools"]:
                         raise RegistryError(422, "runtime_nested_tools_unsupported")
-                    selected = step.model if isinstance(step, GraphNode) and inline else None
+                    selected = (
+                        step.model
+                        if isinstance(step, GraphNode) and inline
+                        else tool["definition"].get("model")
+                    )
                     model = selected or self.settings.ai_model
-                    provider = (step.provider or self.settings.ai_provider
-                                if isinstance(step, GraphNode) and inline
-                                else self.settings.ai_provider)
+                    provider = (
+                        step.provider or self.settings.ai_provider
+                        if isinstance(step, GraphNode) and inline
+                        else tool["definition"].get("provider") or self.settings.ai_provider
+                    )
                     if not self.ai_ready(model, provider):
                         raise RegistryError(422, "runtime_ai_unconfigured")
                     tool["provider"] = provider
@@ -128,50 +158,76 @@ class RunRepository(RegistryRepository):
     def enqueue(self, automation_id: UUID, body: RunInput) -> dict[str, Any]:
         # Serialize enqueue per workspace, including duplicate IDs and queue limits.
         with self._connect() as conn:
-            conn.execute("SELECT id FROM registry_workspaces WHERE id=%s FOR UPDATE",
-                         (self.workspace_id,))
-            old = conn.execute("SELECT * FROM automation_runs WHERE workspace_id=%s AND id=%s",
-                               (self.workspace_id, body.id)).fetchone()
+            conn.execute(
+                "SELECT id FROM registry_workspaces WHERE id=%s FOR UPDATE", (self.workspace_id,)
+            )
+            old = conn.execute(
+                "SELECT * FROM automation_runs WHERE workspace_id=%s AND id=%s",
+                (self.workspace_id, body.id),
+            ).fetchone()
             if old:
-                if (old["automation_id"] != automation_id or old["revision"] != body.revision
-                        or old["prompt"] != body.prompt):
+                if (
+                    old["automation_id"] != automation_id
+                    or old["revision"] != body.revision
+                    or old["prompt"] != body.prompt
+                ):
                     raise RegistryError(409, "runtime_id_conflict")
                 return {"id": str(body.id), "status": old["status"]}
-            definition, manifest = self.snapshot(automation_id, body.revision)
-            count = conn.execute("SELECT count(*) AS n FROM automation_runs WHERE workspace_id=%s "
-                                 "AND status IN ('queued','running','waiting_review')",
-                                 (self.workspace_id,)).fetchone()
+            definition, manifest = self.snapshot(automation_id, body.revision, conn)
+            count = conn.execute(
+                "SELECT count(*) AS n FROM automation_runs WHERE workspace_id=%s "
+                "AND status IN ('queued','running','waiting_review')",
+                (self.workspace_id,),
+            ).fetchone()
             if count and count["n"] >= 100:
                 raise RegistryError(409, "runtime_queue_full")
-            conn.execute("INSERT INTO automation_runs(workspace_id,id,automation_id,revision,"
-                         "definition,manifest,prompt,requested_by) "
-                         "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-                         (self.workspace_id, body.id, automation_id, body.revision,
-                          Jsonb(definition), Jsonb(manifest), body.prompt, self.requested_by))
+            conn.execute(
+                "INSERT INTO automation_runs(workspace_id,id,automation_id,revision,"
+                "definition,manifest,prompt,requested_by) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                (
+                    self.workspace_id,
+                    body.id,
+                    automation_id,
+                    body.revision,
+                    Jsonb(definition),
+                    Jsonb(manifest),
+                    body.prompt,
+                    self.requested_by,
+                ),
+            )
         return {"id": str(body.id), "status": "queued"}
 
     def runs(self, automation_id: UUID) -> list[dict[str, Any]]:
         with self._connect() as conn:
-            return conn.execute("SELECT id::text,status,revision,created_at::text,error "
-                                "FROM automation_runs WHERE workspace_id=%s AND automation_id=%s "
-                                "ORDER BY created_at DESC LIMIT 50",
-                                (self.workspace_id, automation_id)).fetchall()
+            return conn.execute(
+                "SELECT id::text,status,revision,created_at::text,error "
+                "FROM automation_runs WHERE workspace_id=%s AND automation_id=%s "
+                "ORDER BY created_at DESC LIMIT 50",
+                (self.workspace_id, automation_id),
+            ).fetchall()
 
     def detail(self, run_id: UUID) -> dict[str, Any]:
         with self._connect() as conn:
-            row = conn.execute("SELECT id::text,automation_id::text,revision,definition,prompt,"
-                               "status,steps,next_step,error,created_at::text,updated_at::text "
-                               "FROM automation_runs WHERE workspace_id=%s AND id=%s",
-                               (self.workspace_id, run_id)).fetchone()
+            row = conn.execute(
+                "SELECT id::text,automation_id::text,revision,definition,prompt,"
+                "status,steps,next_step,error,created_at::text,updated_at::text "
+                "FROM automation_runs WHERE workspace_id=%s AND id=%s",
+                (self.workspace_id, run_id),
+            ).fetchone()
             if not row:
                 raise RegistryError(404, "runtime_not_found")
             return row
 
-    def transition(self, run_id: UUID, approve: bool,
-                   expected_step: int | None = None) -> dict[str, Any]:
+    def transition(
+        self, run_id: UUID, approve: bool, expected_step: int | None = None
+    ) -> dict[str, Any]:
         with self._connect() as conn:
-            row = conn.execute("SELECT status,next_step FROM automation_runs WHERE workspace_id=%s "
-                               "AND id=%s FOR UPDATE", (self.workspace_id, run_id)).fetchone()
+            row = conn.execute(
+                "SELECT status,next_step FROM automation_runs WHERE workspace_id=%s "
+                "AND id=%s FOR UPDATE",
+                (self.workspace_id, run_id),
+            ).fetchone()
             if not row:
                 raise RegistryError(404, "runtime_not_found")
             allowed = ("waiting_review",) if approve else ("queued", "waiting_review")
@@ -179,17 +235,21 @@ class RunRepository(RegistryRepository):
                 raise RegistryError(409, "runtime_state_conflict")
             if approve and row["next_step"] != expected_step:
                 raise RegistryError(409, "runtime_state_conflict")
-            conn.execute("UPDATE automation_runs SET status=%s,updated_at=now() "
-                         "WHERE workspace_id=%s AND id=%s",
-                         ("queued" if approve else "cancelled", self.workspace_id, run_id))
+            conn.execute(
+                "UPDATE automation_runs SET status=%s,updated_at=now() "
+                "WHERE workspace_id=%s AND id=%s",
+                ("queued" if approve else "cancelled", self.workspace_id, run_id),
+            )
         return self.detail(run_id)
 
     def schedule(self, automation_id: UUID) -> dict[str, Any] | None:
         with self._connect() as conn:
-            return conn.execute("SELECT revision,enabled,kind,time,next_at::text,prompt,"
-                                "definition_revision,note FROM automation_schedules "
-                                "WHERE workspace_id=%s AND automation_id=%s",
-                                (self.workspace_id, automation_id)).fetchone()
+            return conn.execute(
+                "SELECT revision,enabled,kind,time,next_at::text,prompt,"
+                "definition_revision,note FROM automation_schedules "
+                "WHERE workspace_id=%s AND automation_id=%s",
+                (self.workspace_id, automation_id),
+            ).fetchone()
 
     def save_schedule(self, automation_id: UUID, body: ScheduleInput) -> dict[str, Any]:
         definition, manifest = self.snapshot(automation_id, body.revision)
@@ -198,114 +258,193 @@ class RunRepository(RegistryRepository):
         if body.enabled and (target is None or target.tzinfo is None or target <= now):
             raise RegistryError(422, "runtime_schedule_time")
         with self._connect() as conn:
-            conn.execute("SELECT id FROM registry_workspaces WHERE id=%s FOR UPDATE",
-                         (self.workspace_id,))
-            old = conn.execute("SELECT revision FROM automation_schedules WHERE workspace_id=%s "
-                               "AND automation_id=%s FOR UPDATE",
-                               (self.workspace_id, automation_id)).fetchone()
+            conn.execute(
+                "SELECT id FROM registry_workspaces WHERE id=%s FOR UPDATE", (self.workspace_id,)
+            )
+            old = conn.execute(
+                "SELECT revision FROM automation_schedules WHERE workspace_id=%s "
+                "AND automation_id=%s FOR UPDATE",
+                (self.workspace_id, automation_id),
+            ).fetchone()
             if (old["revision"] if old else 0) != body.schedule_revision:
                 raise RegistryError(409, "revision_conflict")
-            conn.execute("INSERT INTO automation_schedules(workspace_id,automation_id,enabled,"
-                         "kind,time,next_at,prompt,definition,manifest,definition_revision,"
-                         "requested_by) "
-                         "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT "
-                         "(workspace_id,automation_id) DO UPDATE SET revision=automation_schedules."
-                         "revision+1,enabled=EXCLUDED.enabled,kind=EXCLUDED.kind,time=EXCLUDED.time,"
-                         "next_at=EXCLUDED.next_at,prompt=EXCLUDED.prompt,definition=EXCLUDED.definition,"
-                         "manifest=EXCLUDED.manifest,definition_revision=EXCLUDED.definition_revision,"
-                         "note='',requested_by=EXCLUDED.requested_by",
-                         (self.workspace_id, automation_id, body.enabled, body.kind,
-                                     body.time, target, body.prompt, Jsonb(definition),
-                                     Jsonb(manifest), body.revision, self.requested_by))
+            conn.execute(
+                "INSERT INTO automation_schedules(workspace_id,automation_id,enabled,"
+                "kind,time,next_at,prompt,definition,manifest,definition_revision,"
+                "requested_by) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT "
+                "(workspace_id,automation_id) DO UPDATE SET revision=automation_schedules."
+                "revision+1,enabled=EXCLUDED.enabled,kind=EXCLUDED.kind,time=EXCLUDED.time,"
+                "next_at=EXCLUDED.next_at,prompt=EXCLUDED.prompt,definition=EXCLUDED.definition,"
+                "manifest=EXCLUDED.manifest,definition_revision=EXCLUDED.definition_revision,"
+                "note='',requested_by=EXCLUDED.requested_by",
+                (
+                    self.workspace_id,
+                    automation_id,
+                    body.enabled,
+                    body.kind,
+                    body.time,
+                    target,
+                    body.prompt,
+                    Jsonb(definition),
+                    Jsonb(manifest),
+                    body.revision,
+                    self.requested_by,
+                ),
+            )
         return self.schedule(automation_id) or {}
 
     def disable_schedule(self, automation_id: UUID) -> None:
         with self._connect() as conn:
-            conn.execute("UPDATE automation_schedules SET enabled=false,revision=revision+1 "
-                         "WHERE workspace_id=%s AND automation_id=%s",
-                         (self.workspace_id, automation_id))
+            conn.execute(
+                "UPDATE automation_schedules SET enabled=false,revision=revision+1 "
+                "WHERE workspace_id=%s AND automation_id=%s",
+                (self.workspace_id, automation_id),
+            )
+
+    def idle_seconds(self) -> float:
+        """Wake at the next scheduled job, with a 30s recovery/heartbeat ceiling."""
+        if self.worker_lock_busy:
+            return 30.0
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT EXTRACT(EPOCH FROM (min(next_at)-now())) AS delay "
+                "FROM automation_schedules WHERE workspace_id=%s AND enabled=true",
+                (self.workspace_id,),
+            ).fetchone()
+            if row and row['delay'] is not None and row['delay'] <= 0:
+                count = conn.execute(
+                    "SELECT count(*) AS n FROM automation_runs WHERE workspace_id=%s "
+                    "AND status IN ('queued','running','waiting_review')",
+                    (self.workspace_id,),
+                ).fetchone()
+                return 30.0 if count and count['n'] >= 100 else 0.0
+        delay = row['delay'] if row else None
+        # Overdue but blocked by an active/review job must not cause a busy loop.
+        return min(30.0, float(delay)) if delay is not None and delay > 0 else 30.0
 
     def dispatch_due(self, now: datetime | None = None) -> int:
         now = now or datetime.now(UTC)
         dispatched = 0
         with self._connect() as conn:
-            conn.execute("SELECT id FROM registry_workspaces WHERE id=%s FOR UPDATE",
-                         (self.workspace_id,))
-            rows = conn.execute("SELECT * FROM automation_schedules WHERE workspace_id=%s "
-                                "AND enabled=true AND next_at<=%s FOR UPDATE SKIP LOCKED",
-                                (self.workspace_id, now)).fetchall()
+            conn.execute(
+                "SELECT id FROM registry_workspaces WHERE id=%s FOR UPDATE", (self.workspace_id,)
+            )
+            rows = conn.execute(
+                "SELECT * FROM automation_schedules WHERE workspace_id=%s "
+                "AND enabled=true AND next_at<=%s FOR UPDATE SKIP LOCKED",
+                (self.workspace_id, now),
+            ).fetchall()
             for row in rows:
-                count = conn.execute("SELECT count(*) AS n FROM automation_runs "
-                                     "WHERE workspace_id=%s AND status IN "
-                                     "('queued','running','waiting_review')",
-                                     (self.workspace_id,)).fetchone()
+                count = conn.execute(
+                    "SELECT count(*) AS n FROM automation_runs "
+                    "WHERE workspace_id=%s AND status IN "
+                    "('queued','running','waiting_review')",
+                    (self.workspace_id,),
+                ).fetchone()
                 if count and count["n"] >= 100:
                     continue  # Keep the due occurrence pending until capacity is available.
-                active = conn.execute("SELECT id FROM automation_runs WHERE workspace_id=%s "
-                                      "AND automation_id=%s AND status IN "
-                                      "('queued','running','waiting_review') LIMIT 1",
-                                      (self.workspace_id, row["automation_id"])).fetchone()
+                active = conn.execute(
+                    "SELECT id FROM automation_runs WHERE workspace_id=%s "
+                    "AND automation_id=%s AND status IN "
+                    "('queued','running','waiting_review') LIMIT 1",
+                    (self.workspace_id, row["automation_id"]),
+                ).fetchone()
                 note = "이전 작업이 진행 중이어서 이번 예약을 건너뛰었습니다." if active else ""
-                ai_blocked = any(t["kind"] == "agent" and not self.model_available(t)
-                                 for t in row["manifest"])
+                ai_blocked = any(
+                    t["kind"] == "agent" and not self.model_available(t) for t in row["manifest"]
+                )
                 if ai_blocked:
                     note = "AI 설정을 확인한 뒤 예약을 다시 켜 주세요."
                 if not active and not ai_blocked:
-                    conn.execute("INSERT INTO automation_runs(workspace_id,id,automation_id,"
-                                 "revision,definition,manifest,prompt,schedule_id,occurrence,"
-                                 "requested_by) "
-                                 "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
-                                 (self.workspace_id, uuid4(), row["automation_id"],
-                                  row["definition_revision"], Jsonb(row["definition"]),
-                                  Jsonb(row["manifest"]), row["prompt"], row["automation_id"],
-                                  row["next_at"], row.get("requested_by")))
+                    conn.execute(
+                        "INSERT INTO automation_runs(workspace_id,id,automation_id,"
+                        "revision,definition,manifest,prompt,schedule_id,occurrence,"
+                        "requested_by) "
+                        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
+                        (
+                            self.workspace_id,
+                            uuid4(),
+                            row["automation_id"],
+                            row["definition_revision"],
+                            Jsonb(row["definition"]),
+                            Jsonb(row["manifest"]),
+                            row["prompt"],
+                            row["automation_id"],
+                            row["next_at"],
+                            row.get("requested_by"),
+                        ),
+                    )
                     dispatched += 1
-                conn.execute("UPDATE automation_schedules SET revision=revision+1,"
-                             "enabled=%s,next_at=%s,note=%s "
-                             "WHERE workspace_id=%s AND automation_id=%s",
-                             (row["kind"] == "daily" and not ai_blocked,
-                              next_daily(row["time"], now) if row["kind"] == "daily" else None,
-                              note, self.workspace_id, row["automation_id"]))
+                conn.execute(
+                    "UPDATE automation_schedules SET revision=revision+1,"
+                    "enabled=%s,next_at=%s,note=%s "
+                    "WHERE workspace_id=%s AND automation_id=%s",
+                    (
+                        row["kind"] == "daily" and not ai_blocked,
+                        next_daily(row["time"], now) if row["kind"] == "daily" else None,
+                        note,
+                        self.workspace_id,
+                        row["automation_id"],
+                    ),
+                )
         return dispatched
 
     def status(self) -> dict[str, Any]:
         with self._connect() as conn:
-            row = conn.execute("SELECT seen_at::text,seen_at>now()-interval '6 minutes' AS online "
-                               "FROM automation_worker_status WHERE workspace_id=%s",
-                               (self.workspace_id,)).fetchone()
-        return {"worker_online": bool(row and row["online"]), "last_seen": row["seen_at"] if row
-                else None, "ai_ready": self.ai_ready(), "daily_call_limit":
-                self.settings.automation_daily_ai_calls}
+            row = conn.execute(
+                "SELECT seen_at::text,seen_at>now()-interval '6 minutes' AS online "
+                "FROM automation_worker_status WHERE workspace_id=%s",
+                (self.workspace_id,),
+            ).fetchone()
+        return {
+            "worker_online": bool(row and row["online"]),
+            "last_seen": row["seen_at"] if row else None,
+            "ai_ready": self.ai_ready(),
+            "daily_call_limit": self.settings.automation_daily_ai_calls,
+        }
 
 
 def runtime_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
     router = APIRouter(prefix="/api/v1")
 
     def repo(principal: Principal = Depends(sessions.principal)) -> RunRepository:
-        return RunRepository(settings.model_copy(update={"workspace_id": principal.workspace_id}),
-                             principal.user_id)
+        return RunRepository(
+            settings.model_copy(update={"workspace_id": principal.workspace_id}), principal.user_id
+        )
 
     @router.get("/automation-runtime")
     def status(repository: RunRepository = Depends(repo)) -> dict[str, Any]:
         return repository.status()
 
     @router.post("/automations/{automation_id}/runs", status_code=201)
-    def enqueue(automation_id: UUID, body: RunInput,
-                repository: RunRepository = Depends(repo)) -> dict[str, Any]:
+    def enqueue(
+        automation_id: UUID, body: RunInput, repository: RunRepository = Depends(repo)
+    ) -> dict[str, Any]:
         return repository.enqueue(automation_id, body)
 
     @router.get("/automations/{automation_id}/runs")
-    def runs(automation_id: UUID,
-             repository: RunRepository = Depends(repo)) -> list[dict[str, Any]]:
+    def runs(
+        automation_id: UUID, repository: RunRepository = Depends(repo)
+    ) -> list[dict[str, Any]]:
         return repository.runs(automation_id)
 
     @router.get("/automation-runs/{run_id}")
     def detail(run_id: UUID, repository: RunRepository = Depends(repo)) -> dict[str, Any]:
         return repository.detail(run_id)
 
+    @router.get("/automation-runs/{run_id}/events")
+    def events(run_id: UUID, request: Request,
+               repository: RunRepository = Depends(repo)) -> StreamingResponse:
+        def load() -> dict[str, Any]:
+            sessions.principal(request)
+            return repository.detail(run_id)
+        return snapshot_stream(request, load, repository.dsn, repository.workspace_id)
+
     @router.post("/automation-runs/{run_id}/approve")
-    def approve(run_id: UUID, body: ApprovalInput,
-                repository: RunRepository = Depends(repo)) -> dict[str, Any]:
+    def approve(
+        run_id: UUID, body: ApprovalInput, repository: RunRepository = Depends(repo)
+    ) -> dict[str, Any]:
         return repository.transition(run_id, True, body.next_step)
 
     @router.post("/automation-runs/{run_id}/cancel")
@@ -313,18 +452,21 @@ def runtime_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
         return repository.transition(run_id, False)
 
     @router.get("/automations/{automation_id}/schedule")
-    def schedule(automation_id: UUID,
-                 repository: RunRepository = Depends(repo)) -> dict[str, Any] | None:
+    def schedule(
+        automation_id: UUID, repository: RunRepository = Depends(repo)
+    ) -> dict[str, Any] | None:
         return repository.schedule(automation_id)
 
     @router.put("/automations/{automation_id}/schedule")
-    def save_schedule(automation_id: UUID, body: ScheduleInput,
-                      repository: RunRepository = Depends(repo)) -> dict[str, Any]:
+    def save_schedule(
+        automation_id: UUID, body: ScheduleInput, repository: RunRepository = Depends(repo)
+    ) -> dict[str, Any]:
         return repository.save_schedule(automation_id, body)
 
     @router.delete("/automations/{automation_id}/schedule")
-    def disable_schedule(automation_id: UUID,
-                         repository: RunRepository = Depends(repo)) -> dict[str, str]:
+    def disable_schedule(
+        automation_id: UUID, repository: RunRepository = Depends(repo)
+    ) -> dict[str, str]:
         repository.disable_schedule(automation_id)
         return {"status": "disabled"}
 

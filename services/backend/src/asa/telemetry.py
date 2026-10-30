@@ -50,19 +50,21 @@ def estimate(usage: dict[str, int] | None, price: ModelPrice | None,
         return None, "usage_unknown"
     if price is None:
         return None, "rate_missing"
+    rates = (price.long_context if price.long_context is not None
+             and usage["input_tokens"] > price.long_context.input_tokens_gt else price)
     read, write = usage["cache_read"], usage["cache_creation"]
     write5, write1 = usage.get('cache_creation_5m', 0), usage.get('cache_creation_1h', 0)
     generic = write - write5 - write1
-    if ((read and price.cache_read is None) or (generic and price.cache_creation is None)
-            or (write5 and price.cache_creation_5m is None)
-            or (write1 and price.cache_creation_1h is None)):
+    if ((read and rates.cache_read is None) or (generic and rates.cache_creation is None)
+            or (write5 and rates.cache_creation_5m is None)
+            or (write1 and rates.cache_creation_1h is None)):
         return None, "cache_rate_missing"
-    amount = ((usage["input_tokens"] - read - write) * price.input
-              + usage["output_tokens"] * price.output
-              + read * (price.cache_read or Decimal(0))
-              + generic * (price.cache_creation or Decimal(0))
-              + write5 * (price.cache_creation_5m or Decimal(0))
-              + write1 * (price.cache_creation_1h or Decimal(0))) / Decimal(1_000_000)
+    amount = ((usage["input_tokens"] - read - write) * rates.input
+              + usage["output_tokens"] * rates.output
+              + read * (rates.cache_read or Decimal(0))
+              + generic * (rates.cache_creation or Decimal(0))
+              + write5 * (rates.cache_creation_5m or Decimal(0))
+              + write1 * (rates.cache_creation_1h or Decimal(0))) / Decimal(1_000_000)
     return amount, "tokens_only" if web_search else "estimated"
 
 

@@ -46,9 +46,11 @@ export function AutomationLauncher({item, initial, onClose}: {item: Item; initia
   },[item.id]);
   useEffect(() => {
     if (!run || !["queued","running"].includes(run.status)) return;
-    let alive = true;
-    const timer = window.setInterval(() => {api<Run>(`/automation-runs/${run.id}`).then(r => {if(alive)setRun(r);}).catch(e => {if(alive)setError(message(e));});},2000);
-    return () => {alive=false;clearInterval(timer);};
+    const events = new EventSource(`/api/v1/automation-runs/${run.id}/events`);
+    events.addEventListener("snapshot",event=>{setRun(JSON.parse((event as MessageEvent).data) as Run);setError(v=>v.startsWith("실시간 연결을 복구")?"":v);});
+    const disconnected=()=>setError("실시간 연결을 복구하고 있습니다. 자동화를 다시 실행할 필요는 없습니다.");
+    events.onerror=disconnected;events.addEventListener("unavailable",disconnected);
+    return () => events.close();
   },[run?.id,run?.status]);
   async function perform(action: () => Promise<void>) {setBusy(true);setError("");setNotice("");try {await action();} catch(e){setError(message(e));} finally{setBusy(false);}}
   async function refreshHistory() {setHistory(await api<Run[]>(`/automations/${item.id}/runs`));}

@@ -12,8 +12,9 @@ export function useDirtyGuard() { return useContext(DirtyContext); }
 export function RegistryShell({ children }: { children: ReactNode }) {
   const sidebar = useSidebarCollapse();
   const pathname = usePathname();
-  const active = pathname.startsWith("/monitoring") ? "/monitoring" : pathname.startsWith("/automations") ? "/automations" : pathname.startsWith("/agents") ? "/agents" : "/tools";
-  const title = active === "/monitoring" ? "AI 사용량·비용" : active === "/automations" ? "자동화 빌더" : active === "/agents" ? "에이전트" : "도구 라이브러리";
+  const active = pathname.startsWith("/characters") ? "/characters" : pathname.startsWith("/models") ? "/models" : pathname.startsWith("/monitoring") ? "/monitoring" : pathname.startsWith("/automations") ? "/automations" : pathname.startsWith("/agents") ? "/agents" : "/tools";
+  const title = active === "/characters" ? "캐릭터 보관함" : active === "/models" ? "AI 모델 관리" : active === "/monitoring" ? "AI 사용량·비용" : active === "/automations" ? "자동화 빌더" : active === "/agents" ? "에이전트" : "도구 라이브러리";
+  const [roleLabel, setRoleLabel] = useState("");
   const [admin, setAdmin] = useState(false);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
   const [error, setError] = useState("");
@@ -23,7 +24,7 @@ export function RegistryShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true;
     api<{ csrf_token: string; roles: string[] }>("/session").then(data => {
-      if (active) { setAdmin(data.roles?.some(role => role === "owner" || role === "admin") ?? false); setCsrf(data.csrf_token); setStatus("ready"); }
+      if (active) { setRoleLabel(data.roles?.includes("owner") ? "소유자 · 관리자 권한" : data.roles?.includes("admin") ? "관리자" : "일반 사용자"); setAdmin(data.roles?.some(role => role === "owner" || role === "admin") ?? false); setCsrf(data.csrf_token); setStatus("ready"); }
     }).catch(e => {
       if (!active) return;
       if (e instanceof ApiError && e.status === 401) {
@@ -50,7 +51,7 @@ export function RegistryShell({ children }: { children: ReactNode }) {
         <div className="studio-sidebar-note"><strong>내 작업 공간</strong><p>에이전트를 준비하고<br/>나만의 작업 흐름을 만드세요.</p></div>
         <div className="sidebar-footer"><ThemeSelect />{status === "ready" && <Button variant="secondary" disabled={busy} onClick={() => logout()}>로그아웃</Button>}</div>
       </aside>
-      <div className="studio-content"><header className="customer-topbar"><span>스튜디오 <span className="muted"> / {title}</span></span><span className="muted">내 작업 공간</span></header>
+      <div className="studio-content"><header className="customer-topbar"><span>스튜디오 <span className="muted"> / {title}</span></span><span className="muted">{roleLabel || "권한 확인 중"}</span></header>
       <details className="studio-mobile-nav"><summary>스튜디오 메뉴 · {title}</summary><StudioNavigation active={active} includeAdmin={admin}/><ThemeSelect />{status === "ready" && <Button variant="secondary" disabled={busy} onClick={() => logout()}>로그아웃</Button>}</details>
     <main id="main" className="shell registry-shell studio-main">
       {confirmLogout && <section role="alert" className="notice"><p>저장하지 않은 변경이 있습니다. 변경을 버리고 로그아웃할까요?</p>

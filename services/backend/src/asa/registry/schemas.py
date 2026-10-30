@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -17,6 +17,9 @@ class AgentDraft(BaseModel):
     description: str = Field(default="", max_length=400)
     instructions: str = Field(min_length=1, max_length=8000)
     model_profile: str = Field(default="default", min_length=1, max_length=80)
+    requires_approval: bool = False
+    provider: Literal["openai", "anthropic"] | None = None
+    model: str | None = Field(default=None, min_length=1, max_length=200)
     input_schema: dict[str, Any]
     output_schema: dict[str, Any]
     tools: list[str] = Field(default_factory=list, max_length=40)

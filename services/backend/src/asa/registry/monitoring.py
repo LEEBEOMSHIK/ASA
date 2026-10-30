@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from asa.auth.session import OwnerSessions, Principal
 from asa.config import Settings
+from asa.registry.account_usage import OpenAIUsage
 from asa.registry.repository import RegistryRepository
 from asa.registry.schemas import RegistryError
 
@@ -52,6 +53,7 @@ class MonitoringRepository(RegistryRepository):
                                        "CASE WHEN max(automation_id) IS NOT NULL THEN "
                                        "(array_agg(name ORDER BY created_at DESC,id DESC))[1] "
                                        "WHEN max(source)='customer' THEN '고객 대본 요청' "
+                                       "WHEN max(source)='character' THEN '캐릭터 이미지' "
                                        "ELSE '운영자 CLI' END AS name,"
                                        f"{SUMMARY} FROM ai_usage_events WHERE {where} "
                                        "GROUP BY COALESCE(automation_id,source) "
@@ -88,6 +90,14 @@ class MonitoringRepository(RegistryRepository):
 
 def monitoring_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
     router = APIRouter(prefix="/api/v1/admin/ai-usage")
+    account_usage = OpenAIUsage(settings)
+
+    @router.get("/openai-account")
+    def official_usage(refresh: bool = False,
+                       principal: Principal = Depends(sessions.principal)) -> dict[str, Any]:
+        if 'owner' not in principal.roles or principal.workspace_id != settings.workspace_id:
+            raise HTTPException(403, 'owner_required')
+        return account_usage.read(force=refresh)
 
     def repo(principal: Principal = Depends(sessions.principal)) -> MonitoringRepository:
         if not set(principal.roles).intersection({'owner', 'admin'}):
@@ -99,7 +109,7 @@ def monitoring_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
         start: datetime | None = None, end: datetime | None = None,
         provider: Literal['', 'openai', 'anthropic'] = '',
         status: Literal['', 'succeeded', 'failed', 'incomplete'] = '',
-        source: Literal['', 'automation', 'schedule', 'customer', 'cli'] = '',
+        source: Literal['', 'automation', 'schedule', 'customer', 'cli', 'character'] = '',
         q: str = Query('', max_length=200), offset: int = Query(0, ge=0, le=100000),
         repository: MonitoringRepository = Depends(repo),
     ) -> dict[str, Any]:

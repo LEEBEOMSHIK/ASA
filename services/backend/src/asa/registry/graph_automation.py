@@ -94,14 +94,14 @@ def graph_selection_issues(graph: GraphDefinition, settings: Settings | None = N
         issues.append(ValidationIssue(code="invalid_graph", field_path="graph",
                                      message="최종 결과 블록은 하나여야 합니다."))
     for node in graph.nodes:
-        provider = node.provider or "openai"
+        provider = node.provider or (settings.ai_provider if settings else "openai")
         allowed = settings.models_for(provider) if settings else []
         if node.web_search and (node.kind != "ai" or node.output_type != "text" or not settings
                 or not settings.search_supported(provider, node.model or settings.ai_model)):
             issues.append(ValidationIssue(code="invalid_model", field_path=f"{node.id}.web_search",
                                          message="검색 지원 모델과 하나의 글 형식을 선택하세요."))
         if node.provider is not None and (node.kind != "ai" or (
-                provider == "anthropic" and not node.model)):
+                not node.model and (not settings or provider != settings.ai_provider))):
             issues.append(ValidationIssue(code="invalid_model", field_path=f"{node.id}.provider",
                                          message="Claude를 사용할 모델을 선택하세요."))
         if node.model is not None and (node.kind != "ai" or node.model not in allowed):

@@ -16,3 +16,6 @@ test('explicit model is retained and loading is not reported as missing',()=>{
  assert.equal(aiCardInfo({...node,provider:'anthropic',model:'chosen'},null).model,'Claude · chosen');
  assert.equal(aiCardInfo(node,null).warning,'');
 });
+
+assert.equal(aiCardInfo({instructions:"대본 작성"},"claude-default","anthropic").model,"Claude · claude-default");
+assert.equal(aiCardInfo({instructions:"대본 작성",provider:"anthropic"},"claude-default","anthropic").warning,"");

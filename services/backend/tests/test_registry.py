@@ -27,6 +27,34 @@ def draft(**changes):
     )
 
 
+def test_input_form_contract():
+    from asa.registry.history import valid_input
+    schema = {"type": "object", "properties": {
+        "mood": {"type": "string", "description": "분위기", "enum": ["오싹", "신비"],
+                 "x-widget": "radio", "default": "오싹"},
+        "fear": {"type": "integer", "minimum": 1, "maximum": 5,
+                 "x-widget": "slider", "default": 2},
+    }, "required": ["mood", "fear"]}
+    assert not validate_definition(draft(input_schema=schema), {})
+    assert valid_input({"mood": "신비", "fear": 3}, schema)
+    assert not valid_input({"mood": "다른 값", "fear": 3}, schema)
+    assert not valid_input({"mood": "오싹", "fear": 6}, schema)
+    assert not valid_input({"mood": "오싹", "fear": 2.5}, schema)
+    schema["properties"]["fear"]["default"] = 9
+    assert validate_definition(draft(input_schema=schema), {})
+
+
+@pytest.mark.parametrize("node", [
+    {"type": "string", "x-widget": "slider"},
+    {"type": "string", "x-widget": "radio", "enum": []},
+    {"type": "string", "x-widget": "select", "enum": ["a", "a"]},
+    {"type": "integer", "x-widget": "slider", "minimum": 5, "maximum": 5},
+    {"type": "string", "enum": ["a"], "default": "b"},
+])
+def test_invalid_input_form_rejected(node):
+    assert validate_definition(draft(input_schema={"type": "object", "properties": {"x": node}}), {})
+
+
 def test_restricted_schema_and_unknown_tool_are_rejected():
     issues = validate_definition(
         draft(
