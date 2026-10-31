@@ -361,3 +361,7 @@ ASA-111 DONE: 프로세스별 연결 풀 및 PostgreSQL LISTEN/NOTIFY 적용. �
 ASA-112 IN PROGRESS: 누적 완료 변경 커밋·push 준비. 코드/테스트/템플릿/문서 131개 선별, .local/비밀값/캐시 제외. CACHE_POLICY.md 부재로 디스크 삭제 보류. 기존 검증 213 tests/ruff/mypy/typecheck/build 통과 결과 유지, EOF 공백 정리.
 
 ASA-112 DONE: 완료 변경 131개 파일의 커밋 포함 목록 확인 및 비밀값 검사 완료(예시 CHANGE_ME만 검출). 불필요 EOF 공백 3곳 정리. 로컬 산출물·비밀값·캐시 제외 유지, 실제 삭제 0개. 직전 전체 검증 결과 재확인. main 커밋·원격 push 진행.
+
+ASA-113 IN PROGRESS: CACHE_POLICY.md 작성. 사용자 자료/생성 자산/DB/활성 런타임 보존 조건으로 로컬 캐시와 일회성 보조 파일 조사·정리.
+
+ASA-113 DONE (2026-11-01): CACHE_POLICY.md 추가. 승인 범위의 검사 캐시 5개 디렉터리와 이전 커밋 보조 스크립트 1개 정리(파일20개, 논리112,590,896 bytes/약107.4MiB; C드라이브 여유 관측 +112,599,040 bytes). .env와 .local/work·verification·bootstrap 보존 파일1,121개 전후 SHA256 일치. DB/생성 이미지/로그/.next/의존성 보존, API ready(DB 연결)·웹 HTTP200 확인. 코드 변경 없어 전체 테스트/빌드 재실행 생략(캐시 재생성 방지). 삭제 상세 로컬 기록 .local/cache-cleanup-2026-11-01.json. 커밋·push 미실행.
