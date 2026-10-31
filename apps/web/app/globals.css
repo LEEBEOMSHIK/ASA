@@ -963,3 +963,7 @@ article.flow-library-card { display:flex; flex-direction:column; gap:0; padding:
   position:sticky; top:0; z-index:1; background:var(--surface-subtle);
 }
 @media (max-width:760px) { .customer-sidebar { display:none; } }
+
+.answer-management { display: grid; gap: var(--space-3); margin-top: var(--space-6); padding-top: var(--space-6); border-top: 1px solid var(--border); }
+.answer-management p { margin: var(--space-2) 0 0; font-size: var(--font-small); }
+.answer-management > .script-actions { margin: 0; }

@@ -365,3 +365,29 @@ ASA-112 DONE: 완료 변경 131개 파일의 커밋 포함 목록 확인 및 비
 ASA-113 IN PROGRESS: CACHE_POLICY.md 작성. 사용자 자료/생성 자산/DB/활성 런타임 보존 조건으로 로컬 캐시와 일회성 보조 파일 조사·정리.
 
 ASA-113 DONE (2026-11-01): CACHE_POLICY.md 추가. 승인 범위의 검사 캐시 5개 디렉터리와 이전 커밋 보조 스크립트 1개 정리(파일20개, 논리112,590,896 bytes/약107.4MiB; C드라이브 여유 관측 +112,599,040 bytes). .env와 .local/work·verification·bootstrap 보존 파일1,121개 전후 SHA256 일치. DB/생성 이미지/로그/.next/의존성 보존, API ready(DB 연결)·웹 HTTP200 확인. 코드 변경 없어 전체 테스트/빌드 재실행 생략(캐시 재생성 방지). 삭제 상세 로컬 기록 .local/cache-cleanup-2026-11-01.json. 커밋·push 미실행.
+
+ASA-114 IN PROGRESS: 캐릭터 이미지·버전·확정은 유지하고 하단 수정/설정/제외를 수정 및 확인 disclosure로 묶기. 생성 전에는 펼침, 진행/오류는 외부 노출. 실제 화면 검증 예정.
+
+ASA-114 DONE: 캐릭터 카드 하단 수정 및 확인 토글 적용. 이미지/버전/확정 유지, 성공 중복 상태 제거, 진행·실패 외부 노출. 실제 밝게/어둡게·클릭/Enter 접힘 검증(77px, 내부 gap/margin16px, summary44px). 760px 폭 overflow 없음 실측, 좁은 화면 스크린샷은 캡처 timeout으로 미확인. 테마/viewport 복원. backend213 tests(78.64s)/ruff 및 frontend typecheck/build 통과(빌드 EPERM은 권한 환경 재실행 통과). 화면 .local/verification/character-edit-collapsed.png. 사용자 이미지/확정 데이터 변경 및 유료 호출 없음.
+
+ASA-115 IN PROGRESS: 참고 facts/proposed 편집 및 primary appearance/image_prompt 우선순위 분리. 요청 전달/버전 보존 회귀 검증 및 화면 설명 적용.
+
+ASA-115 DONE: facts/proposed 편집 및 draft 요청 연결. primary_settings/reference_context 분리, 수정 요청>우선 설정>충돌 없는 참고 순서를 프롬프트에 명시. 단위 테스트 red→green 및 이미지 큐 통합 테스트로 네 수정값의 DB/worker/API 인자 전달·기존 버전 보존 검증. backend214 tests(76.37s), ruff/mypy, frontend typecheck/build 통과. 실제 두 필드 입력 후 원문 복원, 안내/간격16px·760px overflow 없음 확인. UI 테마·펼침 복원. 이미지 작업0건 확인 후 워커 재시작 적용. 유료 이미지 호출/시각적 결과 준수 테스트는 미실행. 화면 .local/verification/character-reference-edit.png.
+
+ASA-116 IN PROGRESS: 상단 캐릭터 선택+단일 큰 카드/이전다음 구성. 카드 컴포넌트 유지로 이동 중 입력 보존, 이미지·설정 2열 및 좁은 화면1열 검증.
+
+ASA-116 DONE: 상단 이름/상태 선택 및 이전·다음 이동, 본문 단일 큰 카드 적용. 이미지/편집2열·1100px 이하1열, 외형 여러줄 입력, 일괄 선택 대신 개별 생성에 집중. 숨긴 카드 컴포넌트 유지로 설정/수정요청 이동 중 보존. 실제 1개 표시·이전다음·수정문 유지 후 원복·미생성 버튼·760px 1열 overflow없음 확인. 다크 색상 확인, 좁은 화면 캡처 timeout으로 시각 증거 미확보. 테마/viewport/선택 복원. backend214 tests(76.57s)/ruff/mypy 및 frontend typecheck/build 통과. 유료 호출·DB 변경 없음. 화면 .local/verification/character-single-card.png.
+
+ASA-117 IN PROGRESS: 이미지 모델 제목 옆 공통 ? 도움말로 비교/요금 안내 이동. 별도 큰 disclosure 제거, 접근성 및 실제 화면 검증.
+
+ASA-117 DONE: 이미지 모델 라벨 옆 공통 ? HelpText로 비교/비용 안내 이동, 큰 disclosure 제거. 선택창 공통 character-field 스타일 유지. 실제 클릭/Enter/Escape, 라벨 중앙정렬/gap8px, 선택창44px, 다크 색상 및760px 펼침 overflow 없음 실측. 밝게/viewport/접힘 복원. 스크린샷 .local/verification/image-model-help.png. backend214 tests(77.08s)/ruff/mypy 및 frontend typecheck/build 통과. 최초 제한환경 DB 오류/빌드 복사 경고는 권한 환경 재검증 통과. 유료 호출·사용자 데이터 변경 없음.
+
+ASA-118 IN PROGRESS: 개별 이미지와 답변 전체 관리 분리. 명시적 버튼 이름/범위 안내 및 화면 검증.
+
+ASA-118 DONE: 에이전트 답변 관리 section을 이미지/답변 article 밖에 분리. 전체 답변 범위 안내 및 에이전트 답변 수정/답변 텍스트 복사로 이름 변경. 실제 편집 진입/취소, 경계24px/내부12px, 다크 색상/760px overflow 없음 확인. 테마/viewport 복원. 복사 동작은 기존 handler 유지(클립보드 덮어쓰기 미실행). backend214 tests(78.88s)/ruff/mypy 및 frontend typecheck/build 통과. 화면 .local/verification/answer-management.png. 사용자 데이터 변경/유료 호출 없음.
+
+ASA-119 IN PROGRESS: 캐릭터 선택 카드 균등 grid/높이, 자동 줄바꿈 및 긴 이름 처리. 실제 크기/반응형 검증.
+
+ASA-119 DONE: 선택 카드 auto-fill 균등 grid/동일 높이, 이름 줄바꿈·상태 하단정렬. 실제 desktop6열168.48px/높이99.49px, 마지막 줄 동일폭,760px2열213.34px/overflow없음 확인. 다음 줄 Enter 선택 및 다크 상태 검증 후 테마/선택/viewport 복원. backend214 tests(74.38s), frontend typecheck/build 통과. 화면 .local/verification/character-picker-grid.png. 사용자 데이터 변경 없음.
+
+ASA-120 DONE: ASA-114~119 완료 변경11개 파일 선별 및 커밋 준비. 단일 캐릭터 편집/참고 설정 우선순위/공통 도움말/답변 관리 분리/균등 선택 카드와 회귀 테스트·문서 포함. 직전214 tests/ruff/mypy/typecheck/build 통과 확인. 비밀값 패턴 검출0, 로컬 자료·이미지·캐시 제외 및 보존, 실제 삭제0. 사용자 요청으로 main 커밋·push 진행.

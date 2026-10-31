@@ -43,10 +43,12 @@ def test_character_images_queue_edit_approval_and_isolation(db, monkeypatch):
     with pytest.raises(RegistryError, match='image_already_running'):
         repo.enqueue(project, body.model_copy(update={'id': uuid4()}), settings)
     calls = []
+    prompts = []
     image = b'\x89PNG\r\n\x1a\nmock'
 
     def fake(settings, model, prompt, reference):
         calls.append(reference)
+        prompts.append(prompt)
         return image, {'input_tokens': 100, 'output_tokens': 10,
                        'input_tokens_details': {'text_tokens': 100, 'image_tokens': 0}}
 
@@ -55,14 +57,24 @@ def test_character_images_queue_edit_approval_and_isolation(db, monkeypatch):
     assert not tick(settings)
     assert calls == [None]
     repo.approve(body.id, None, 1)
-    edit = body.model_copy(update={'id': uuid4(), 'base_id': body.id, 'change': '모자 파란색'})
+    edited = char.model_copy(update={'facts': '수정한 대본 정보', 'proposed': '수정한 AI 제안',
+                                     'appearance': '초록 우비', 'image_prompt': '측면 전신'})
+    edit = body.model_copy(update={'id': uuid4(), 'base_id': body.id, 'change': '모자 파란색',
+                                   'character': edited})
     repo.enqueue(project, edit, settings)
     assert tick(settings)
     assert calls == [None, image]
+    import json
+    sent = json.loads(prompts[1].split('\nCHARACTER_DATA:\n', 1)[1])
+    assert sent['reference_context'] == {'facts': '수정한 대본 정보', 'proposed': '수정한 AI 제안'}
+    assert sent['primary_settings'] == {'appearance': '초록 우비', 'image_prompt': '측면 전신'}
+    assert sent['requested_change'] == '모자 파란색'
     state = repo.project(project)
     assert state['approved']['hana'] == str(body.id)
     assert len(state['jobs']) == 2
     assert state['jobs'][0]['version'] == 2
+    assert state['jobs'][0]['character'] == edited.model_dump()
+    assert state['jobs'][1]['character'] == char.model_dump()
     with pytest.raises(RegistryError, match='image_approval_changed'):
         repo.approve(edit.id, None, 2)
     repo.approve(edit.id, body.id, 2)
