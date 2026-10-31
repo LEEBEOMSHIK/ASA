@@ -391,3 +391,27 @@ ASA-119 IN PROGRESS: 캐릭터 선택 카드 균등 grid/높이, 자동 줄바�
 ASA-119 DONE: 선택 카드 auto-fill 균등 grid/동일 높이, 이름 줄바꿈·상태 하단정렬. 실제 desktop6열168.48px/높이99.49px, 마지막 줄 동일폭,760px2열213.34px/overflow없음 확인. 다음 줄 Enter 선택 및 다크 상태 검증 후 테마/선택/viewport 복원. backend214 tests(74.38s), frontend typecheck/build 통과. 화면 .local/verification/character-picker-grid.png. 사용자 데이터 변경 없음.
 
 ASA-120 DONE: ASA-114~119 완료 변경11개 파일 선별 및 커밋 준비. 단일 캐릭터 편집/참고 설정 우선순위/공통 도움말/답변 관리 분리/균등 선택 카드와 회귀 테스트·문서 포함. 직전214 tests/ruff/mypy/typecheck/build 통과 확인. 비밀값 패턴 검출0, 로컬 자료·이미지·캐시 제외 및 보존, 실제 삭제0. 사용자 요청으로 main 커밋·push 진행.
+
+ASA-121 IN PROGRESS: 이미지 큐/생성 경과 시간, 불변 요청 요약, 백그라운드 이동 안내. 클라이언트 타이머만 사용하고 SSE 유지.
+
+ASA-121 DONE: 이미지 대기/생성 타이머 및 불변 요청 요약·워커 미연결/백그라운드 안내 추가. SSE 상태 갱신 유지, 매초 DB/API 호출 없음. 실제 뭉실이 서버 기록23초 표시 확인. 임시 모의 화면에서 queued→running/초단위 갱신/상세 토글 검증 후 임시 route 삭제. 좁은 화면 viewport 측정은 적용되지 않아 미검증, active 다크 시각 미검증. frontend3개 렌더/시간 테스트, typecheck/build; backend214 tests(72.39s)/ruff/mypy 통과. 유료 호출/사용자 DB 변경 없음. 화면 .local/verification/image-job-duration.png 및 image-job-progress-preview.png.
+
+ASA-122 IN PROGRESS: 실제 상태 기반4단계 표시와 경과 시간 결합. 생성/저장은 현재 서버의 단일 상태로 표시, 검토/확정 및 오류 구분. 사용자 요청으로 브라우저 시각 확인은 사용자에게 위임.
+
+ASA-122 DONE: 4단계 완료 체크/현재 강조/펄스와 시간 병기. 생성·저장 합산, 사용자 확정 전 검토 필요, 실패/unknown 중단·확인필요 표시. 타이머 cleanup/reduced-motion 지원. frontend5개 회귀 테스트/typecheck/build, backend214 tests(71.94s)/ruff/mypy 통과. 사용자 지시에 따라 브라우저 확인 미실행(사용자 확인 예정). 유료 호출/DB 변경/커밋 없음.
+
+ASA-123 IN PROGRESS: 버전 고정 후속 이미지 검수 연결(선택/수동/자동), 별도 검수 큐·비전 호출/사용량, 이미지별 검수 이력과 설정 변경 안내. 미연결/실패는 생성·사람 확정을 막지 않음.
+
+ASA-123 DONE: 검수 전용 에이전트/purpose 및 after_tasks.image_review(버전고정·수동/자동) 추가. 이미지별 불변 검수 큐/설정/결과 이력, 멱등·활성 중복 방지·workspace 격리·재시작 unknown, 원래 요청 추적과 토큰/비용 기록. 이미지 저장과 자동 검수 접수를 같은 트랜잭션/savepoint로 처리하며 선택적 검수 실패는 이미지 보존. 실제 이미지와 수정 기준 이미지를 비전 입력으로 전달하고 base64는 모니터링에서 제외. 검수 실패/미연결/설정변경 안내, 수동 재검수, 백그라운드 경과 시간 및 SSE 제공. 자동 재생성/사람 확정 없음. 이미지 없이 일반 요청·자동화 블록으로 검수 에이전트 호출 차단(명시적 이미지 검수 블록은 미구현).
+검증: backend216 tests(71.87s)/ruff/mypy, frontend7개 렌더·시간 테스트/typecheck/build 통과. 초기 빌드 standalone 복사는 sandbox EPERM으로 실패 후 권한 실행 통과. 추가 요율 테스트 표본의 label 누락을 수정하고 전체 재검증 통과. 유료 AI 호출 없음, 실제 검수 품질 미검증.
+로컬 DB migration/API·이미지 워커 재시작 완료. 이미지 검수 에이전트145c3387-2415-415a-8a47-2c282a117ecf v1 생성, 기존 캐릭터 설정 에이전트6d009f0d-a677-48d4-956a-8572436f54f4 v2에 수동 연결. 기존 요청·생성이미지·확정 상태 보존. 실제 설정 화면 선택값·16px간격·필드동일폭·수평넘침없음 확인, 기존 결과에서 검수 미연결/확정2·검토1·미생성4와 워커 연결 확인. 화면 .local/verification/image-review-settings.png. 새 유료 검수 결과의 브라우저 시각 검증/모바일/다크 시각 검증은 미실행. 커밋·push 없음.
+
+ASA-124 DONE: 에이전트별 기본 아이콘 12종 선택, 관리용 저장·등록 버전 반영, 목록/실행/미리보기 공통 표시. 기존 로봇 기본값 유지.
+
+ASA-124 검증: backend pytest 218 passed(아이콘 기본값·허용목록, DB 저장 및 등록 버전 보존 포함), ruff src / mypy src(42 files), frontend typecheck / build / SSR tests 8 passed. 실제 브라우저에서 12종 선택·방향키 이동·요약 아이콘 반영 및 간격 확인(.local/verification/agent-icon-picker.png). API 재시작 적용. 사용자 기존 아이콘·등록 버전은 임의 변경하지 않음, 유료 API 호출 없음. 추가로 tests까지 ruff를 넓혀 실행했을 때 기존 테스트 파일 스타일 위반이 있어 소스 검사 통과와 구분함(이번 추가 행 길이 위반은 수정).
+
+ASA-125 DONE: 기본 아이콘 표시 + 선택적 아이콘 변경 펼침, 관리용 공통 Field 도움말 아이콘 적용.
+
+ASA-125 검증: backend218 tests/ruff src/mypy42 files, frontend8 tests/typecheck/build 통과. 실제 브라우저 기본 로봇·접힘·변경 펼침12종·다시 접기·공통 관리용 아이콘 및 주변 정렬 확인. screenshot .local/verification/agent-icon-default.png. API 실행에 루트 .env를 명시하여 테스트 로그인 복구. 사용자 DB 내용 변경/유료 호출/커밋 없음.
+
+ASA-126 커밋 준비 완료: ASA-121~125 이미지 진행·경과 시간, 선택적 이미지 검수 큐/연결/사용량, 에이전트 아이콘 기본값·선택 UI와 공통 도움말을 하나의 기능 묶음으로 정리. 코드·테스트·템플릿·문서만 포함. 사용자 자료/생성 이미지/DB/.env/.local/캐시는 보존·제외, 실제 삭제 없음. 직전 backend218 tests/ruff src/mypy 및 frontend8 tests/typecheck/build 결과 재사용(이후 실행 코드 변경 없음). 실제 유료 검수 품질과 미기록 테마/모바일 상태는 미검증. 사용자 요청에 따라 main 커밋 및 origin push 진행.

@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { type Definition, type SchemaNode, type Tool } from "../lib/registry";
 import { Field } from "./ui";
+import imageReviewTemplate from "../lib/image-review-template.json";
 import scriptWriterTemplate from "../lib/script-writer-template.json";
 import { SchemaEditor } from "./schema-editor";
 import { InputFormEditor } from "./input-form-editor";
@@ -67,11 +68,14 @@ export const starters = [
   { name: "대본 검수자", mark: "03", description: "대본의 어색한 표현과 개선점을 찾아요.",
     instructions: "입력된 대본을 읽고 이해하기 어려운 표현, 흐름이 끊기는 부분, 사실 확인이 필요한 주장을 짚어주세요. 개선 이유와 수정안을 함께 제시하세요. 사실 여부를 확인할 수 없으면 확인이 필요하다고 표시하세요.",
     input: "검토할 대본 전체", output: "개선할 부분과 이유, 수정한 대본" },
+  { name: "이미지 검수 에이전트", mark: "검수", description: "생성 이미지와 캐릭터 설정을 비교해 수정할 부분을 찾아요.",
+    instructions: imageReviewTemplate.instructions,
+    input: "이미지 결과에서 자동 전달되는 캐릭터 설정", output: "검토 의견과 수정 제안" },
 ];
 
 export function starterDefinition(index: number): Definition {
   const s = starters[index];
-  return { name: s.name, description: s.description, instructions: s.instructions, model_profile: "default", tools: [],
+  return { purpose: s.name === "이미지 검수 에이전트" ? "image_review" : "general", name: s.name, description: s.description, instructions: s.instructions, model_profile: "default", tools: [],
     input_schema: { type: "object", properties: { topic: { type: "string", description: s.input } }, required: ["topic"] },
     output_schema: { type: "string" },
     limits: { model_calls: 10, tool_calls: 20, depth: 2, seconds: 300 } };

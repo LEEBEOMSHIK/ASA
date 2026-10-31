@@ -14,7 +14,7 @@ export function AgentList() {
     {error ? <p role="alert">{error}</p> : agents === null ? <p role="status">목록을 불러오는 중입니다…</p> : agents.length === 0 ?
       <Card><h2>첫 에이전트를 만들어 보세요.</h2><p>대본 작가, 기획자, 검수자처럼 나만의 역할을 설정할 수 있습니다.</p></Card> :
       <div className="catalog-grid">{agents.map(agent => <Card key={agent.id} className="agent-catalog-card">
-        <div className="card-heading"><AgentIcon /><StatusBadge>저장한 초안</StatusBadge></div><h2><a href={`/agents/${agent.id}`}>{agent.draft.name}</a></h2>
+        <div className="card-heading"><AgentIcon icon={agent.draft.icon}/><StatusBadge>저장한 초안</StatusBadge></div><h2><a href={`/agents/${agent.id}`}>{agent.draft.name}</a></h2>
         <p className="muted">{agent.draft.description || "소개를 추가해 이 도우미의 역할을 알려 주세요."}</p><div className="catalog-footer"><span className="muted">연결 도구 {agent.draft.tools.length}개</span><a href={`/agents/${agent.id}`}>설정 편집 →</a></div>
       </Card>)}</div>}</>;
 }

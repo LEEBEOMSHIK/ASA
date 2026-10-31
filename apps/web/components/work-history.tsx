@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { api, message, type WorkDetail } from "../lib/registry";
-import { Button, Card, StatusBadge } from "./ui";
+import { AgentIcon, Button, Card, StatusBadge } from "./ui";
 import { ScriptStage } from "./script-stage";
 import { progressLabel, progressCounts } from "../lib/work-progress";
 
@@ -39,7 +39,7 @@ export function WorkHistory({ initialId, onRepeat, onSelect, onDirtyChange }: { 
   }, [id]);
   return <section><div className="page-heading"><div><p className="eyebrow">YOUR WORK</p><h1>에이전트와 작업</h1><p className="muted">선택한 에이전트에 맡긴 요청과 답변을 확인하세요.</p></div><Button variant="secondary" disabled={loading || dirty} onClick={() => setRefresh(value => value + 1)}>새로고침</Button></div>
     {loading ? <p role="status">작업을 불러오는 중입니다…</p> : error ? <p role="alert">{error}</p> : detail ? <div className="tool-detail-stack history-detail">
-      <Card><div className="card-heading"><h2>{detail.agent.name}</h2><StatusBadge tone={detail.status === "succeeded" ? "success" : detail.status === "failed" ? "danger" : "neutral"}>{detail.work_progress && detail.status === "succeeded" ? "AI 답변 완료" : status(detail.status)}</StatusBadge></div><p className="muted">에이전트 버전 {detail.version} · 보낸 시각 {date(detail.created_at)}</p><p className="muted">마지막 상태 변경 {date(detail.updated_at)}</p>
+      <Card><div className="card-heading"><h2 className="agent-title"><AgentIcon icon={detail.agent.icon}/>{detail.agent.name}</h2><StatusBadge tone={detail.status === "succeeded" ? "success" : detail.status === "failed" ? "danger" : "neutral"}>{detail.work_progress && detail.status === "succeeded" ? "AI 답변 완료" : status(detail.status)}</StatusBadge></div><p className="muted">에이전트 버전 {detail.version} · 보낸 시각 {date(detail.created_at)}</p><p className="muted">마지막 상태 변경 {date(detail.updated_at)}</p>
         {detail.source_id && <p>이전 요청을 바탕으로 만든 작업입니다. <button className="button button--secondary" onClick={() => navigate(detail.source_id!)}>원래 작업 보기</button></p>}
         {detail.status === "saved" && <p className="notice">요청이 저장되어 있습니다. 아래에서 에이전트에 답변을 요청할 수 있습니다.</p>}
         <Button onClick={() => { if (canLeave()) onRepeat(detail); }}>이 요청으로 다시 작업</Button><p className="helper-text">이전 입력과 같은 에이전트 버전을 불러옵니다. 내용을 바꿔 보내면 새로운 요청으로 기록됩니다.</p>

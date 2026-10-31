@@ -47,6 +47,17 @@ def validate_definition(
 
     if len(json.dumps(draft.model_dump(), ensure_ascii=False).encode()) > 65536:
         issue("payload_size", "definition", "정의는 64 KiB 이하여야 합니다.")
+    link = draft.after_tasks.image_review
+    if draft.purpose == "image_review" and (draft.tools or link):
+        issue("review_dependencies", "after_tasks",
+              "이미지 검수 에이전트는 다른 도구나 후속 검수를 호출할 수 없습니다.")
+    if link:
+        target = catalog.get(link.agent_ref)
+        if (not target or target.get("purpose") != "image_review"
+                or target.get("agent_id") == agent_id):
+            issue("review_agent", "after_tasks.image_review",
+                  "등록된 이미지 검수 에이전트를 선택하세요.")
+
     if draft.model_profile != "default":
         issue("model_profile", "model_profile", "등록된 서버 모델 프로필을 선택하세요.")
 

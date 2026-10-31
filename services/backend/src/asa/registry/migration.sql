@@ -207,6 +207,24 @@ CREATE TABLE IF NOT EXISTS work_item_preferences (
 ALTER TABLE work_item_preferences ADD COLUMN IF NOT EXISTS reviewed_version integer NOT NULL DEFAULT 0;
 
 -- Transactional hints only: DB rows remain the source of truth.
+ALTER TABLE character_image_jobs ADD COLUMN IF NOT EXISTS review_error_code text;
+
+CREATE TABLE IF NOT EXISTS asset_reviews (
+ workspace_id uuid NOT NULL REFERENCES registry_workspaces(id), id uuid NOT NULL,
+ project_id uuid NOT NULL, image_id uuid NOT NULL, agent_ref text NOT NULL,
+ definition jsonb NOT NULL, character jsonb NOT NULL, change text NOT NULL DEFAULT '',
+ status text NOT NULL DEFAULT 'queued' CHECK(status IN ('queued','running','succeeded','failed','unknown')),
+ result jsonb, error_code text, automatic boolean NOT NULL DEFAULT false,
+ created_at timestamptz NOT NULL DEFAULT now(), started_at timestamptz, finished_at timestamptz,
+ PRIMARY KEY(workspace_id,id),
+ FOREIGN KEY(workspace_id,image_id) REFERENCES character_image_jobs(workspace_id,id),
+ FOREIGN KEY(workspace_id,project_id) REFERENCES character_projects(workspace_id,id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS asset_review_active ON asset_reviews(workspace_id,image_id)
+ WHERE status IN ('queued','running');
+CREATE UNIQUE INDEX IF NOT EXISTS asset_review_auto ON asset_reviews(workspace_id,image_id)
+ WHERE automatic;
+
 CREATE OR REPLACE FUNCTION asa_notify_change() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
   wid text;
@@ -218,6 +236,7 @@ BEGIN
   PERFORM pg_notify('asa_changes', wid || ':state');
   topic := CASE TG_TABLE_NAME WHEN 'script_attempts' THEN 'script'
            WHEN 'character_image_jobs' THEN 'image'
+           WHEN 'asset_reviews' THEN 'image'
            WHEN 'automation_runs' THEN 'automation'
            WHEN 'automation_schedules' THEN 'automation' ELSE NULL END;
   IF topic IS NOT NULL THEN
@@ -235,7 +254,7 @@ DO $$
 DECLARE tab text;
 BEGIN
   FOREACH tab IN ARRAY ARRAY['customer_requests','script_stages','script_versions',
-    'script_attempts','character_projects','character_image_jobs','work_item_preferences',
+    'asset_reviews','script_attempts','character_projects','character_image_jobs','work_item_preferences',
     'automation_runs','automation_schedules','workspace_model_catalog','registry_sessions']
   LOOP
     EXECUTE format('DROP TRIGGER IF EXISTS asa_change ON %I', tab);

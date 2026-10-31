@@ -68,6 +68,7 @@ class HistoryRepository(RegistryRepository):
                 "id": f"agent:{row['agent_id']}:{row['version']}",
                 "agent_id": row["agent_id"], "version": row["version"], "kind": "agent",
                 "name": definition["name"], "description": definition["description"],
+                "icon": definition.get("icon", "bot"),
                 "input_schema": definition["input_schema"], "available": True,
                 "execution_available": False, "unavailable_reason": "실행 연결 준비 중",
             }
@@ -99,6 +100,8 @@ class HistoryRepository(RegistryRepository):
             ).fetchone()
             if version is None:
                 raise RegistryError(404, "tool_not_found")
+            if version["definition"].get("purpose") == "image_review":
+                raise RegistryError(422, "review_image_required")
             if not valid_input(body.input, version["definition"]["input_schema"]):
                 raise RegistryError(422, "invalid_work_input")
             if body.source_id:

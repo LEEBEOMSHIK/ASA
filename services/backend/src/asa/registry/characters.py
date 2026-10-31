@@ -57,6 +57,12 @@ class ImageRequest(BaseModel):
     base_id: UUID | None = None
 
 
+class ReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: UUID
+    character: Character
+
+
 class Approval(BaseModel):
     expected: UUID | None = None
     expected_latest_version: int = Field(ge=1, strict=True)
@@ -70,7 +76,7 @@ class ItemScope(BaseModel):
 
 JOB_COLUMNS = (
     "id::text,project_id::text,character_id,version,model,character,change,"
-    "base_id::text,status,error_code,usage,estimated_usd,created_at::text,"
+    "base_id::text,status,error_code,review_error_code,usage,estimated_usd,created_at::text,"
     "started_at::text,finished_at::text"
 )
 
@@ -89,6 +95,15 @@ class CharacterRepository(RegistryRepository):
             row["jobs"] = conn.execute(
                 f"SELECT {JOB_COLUMNS} FROM character_image_jobs "
                 "WHERE workspace_id=%s AND project_id=%s ORDER BY created_at DESC",
+                (self.workspace_id, project_id),
+            ).fetchall()
+            from asa.registry.image_reviews import review_config
+            row["review_config"] = review_config(conn, self.workspace_id, project_id)
+            row["reviews"] = conn.execute(
+                "SELECT id::text,image_id::text,agent_ref,character,status,result,error_code,"
+                "definition->>'name' AS name,created_at::text,started_at::text,finished_at::text "
+                "FROM asset_reviews WHERE workspace_id=%s AND project_id=%s "
+                "ORDER BY created_at DESC",
                 (self.workspace_id, project_id),
             ).fetchall()
             row["worker_online"] = bool(
@@ -442,6 +457,12 @@ def character_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
         project_id: UUID, character_id: str, body: ItemScope, r: CharacterRepository = Depends(repo)
     ) -> dict[str, Any]:
         return r.set_scope(project_id, character_id, body)
+
+    @router.post("/images/{job_id}/reviews")
+    def review(job_id: UUID, body: ReviewRequest,
+               r: CharacterRepository = Depends(repo)) -> dict[str, Any]:
+        from asa.registry.image_reviews import enqueue_review
+        return enqueue_review(r, job_id, body.id, body.character.model_dump(), settings)
 
     @router.post("/images/{job_id}/approve")
     def approve(

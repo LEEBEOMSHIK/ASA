@@ -6,7 +6,7 @@ import { CitedAnswer } from "./cited-answer";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, message, type Tool, type SchemaNode, type Issue } from "../lib/registry";
 import { type AutomationDraft, type GraphNode, type GraphEdge, type Binding, nodeKinds, ports, portNames } from "../lib/automation-graph";
-import { Button, Field, StatusBadge } from "./ui";
+import { AgentIcon, Button, Field, StatusBadge } from "./ui";
 import { wirePath, routeConnections, inputSocketOffset, type Point } from "../lib/graph-routing";
 const show = (v: unknown): string => typeof v === "string" ? v : v === undefined ? "" : JSON.stringify(v,null,2);
 const parse = (s: string): unknown => {try{return JSON.parse(s);}catch{return s;}};
@@ -184,7 +184,7 @@ export function GraphEditor({draft,change,tools,busy,testOpen,closeTest}: {draft
     const d=drag.current;if(d?.moved){update(placeCard({...n,x:coordinate(Math.round((d.x+(e.clientX-d.px)/zoom)/8)*8),y:coordinate(Math.round((d.y+(e.clientY-d.py)/zoom)/8)*8)},graph.nodes));}
     drag.current=null;setDragRoutingNodes(null);setMoving(false);if(e.currentTarget.hasPointerCapture(e.pointerId))e.currentTarget.releasePointerCapture(e.pointerId);
    }} onPointerCancel={()=>{drag.current=null;setDragRoutingNodes(null);setMoving(false);suppressClick.current=true;}} onLostPointerCapture={()=>{drag.current=null;setDragRoutingNodes(null);setMoving(false);}}>
-    <span className="graph-kind-icon"><GraphIcon kind={n.kind==="tool"&&tools.find(t=>t.id===n.tool_id)?.kind==="agent"?"agent":n.kind}/></span><span className="graph-heading-copy"><small>{n.kind==="tool"?(tools.find(t=>t.id===n.tool_id)?.kind==="agent"?"내 에이전트":"ASA 기본 도구"):n.kind==="ai"?"직접 AI 구성":nodeKinds[n.kind]}</small><strong>{n.label}</strong></span>
+    <span className="graph-kind-icon">{n.kind==="tool"&&tools.find(t=>t.id===n.tool_id)?.kind==="agent"?<AgentIcon icon={tools.find(t=>t.id===n.tool_id)?.icon}/>:<GraphIcon kind={n.kind}/>}</span><span className="graph-heading-copy"><small>{n.kind==="tool"?(tools.find(t=>t.id===n.tool_id)?.kind==="agent"?"내 에이전트":"ASA 기본 도구"):n.kind==="ai"?"직접 AI 구성":nodeKinds[n.kind]}</small><strong>{n.label}</strong></span>
    </button>
    {n.kind==="ai"&&<div className="graph-ai-info">
     <p className="graph-ai-summary" title={aiCardInfo(n,catalog?.default_model??null,catalog?.default_provider||"openai").summary}>{aiCardInfo(n,catalog?.default_model??null,catalog?.default_provider||"openai").summary}</p>

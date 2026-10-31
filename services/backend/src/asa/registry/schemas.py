@@ -11,6 +11,17 @@ class Limits(BaseModel):
     seconds: int = Field(default=300, ge=1, le=900)
 
 
+class ReviewLink(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    agent_ref: str = Field(pattern=r"^agent:[0-9a-fA-F-]{36}:[1-9][0-9]*$")
+    mode: Literal["manual", "automatic"] = "manual"
+
+
+class AfterTasks(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    image_review: ReviewLink | None = None
+
+
 class AgentDraft(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
     name: str = Field(min_length=1, max_length=80)
@@ -18,6 +29,12 @@ class AgentDraft(BaseModel):
     instructions: str = Field(min_length=1, max_length=8000)
     model_profile: str = Field(default="default", min_length=1, max_length=80)
     requires_approval: bool = False
+    icon: Literal[
+        "bot", "pen", "film", "image", "palette", "mic", "search", "shield",
+        "sparkles", "book", "code", "person",
+    ] = "bot"
+    purpose: Literal["general", "image_review"] = "general"
+    after_tasks: AfterTasks = Field(default_factory=AfterTasks)
     provider: Literal["openai", "anthropic"] | None = None
     model: str | None = Field(default=None, min_length=1, max_length=200)
     input_schema: dict[str, Any]

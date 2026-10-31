@@ -125,6 +125,8 @@ class RunRepository(RegistryRepository):
                     assert agent
                     tool["definition"] = agent["definition"]
                 if tool["kind"] == "agent":
+                    if tool["definition"].get("purpose") == "image_review":
+                        raise RegistryError(422, "review_image_required")
                     if tool["definition"]["tools"]:
                         raise RegistryError(422, "runtime_nested_tools_unsupported")
                     selected = (

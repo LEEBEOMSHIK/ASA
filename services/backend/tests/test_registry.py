@@ -114,3 +114,15 @@ def test_oversized_numeric_bound_returns_issue_not_server_error():
     assert any(
         i.code == "schema_bound" for i in validate_definition(draft(input_schema=schema), {})
     )
+
+
+def test_agent_icon_whitelist_and_legacy_default():
+    from pydantic import ValidationError
+    assert draft().icon == 'bot'
+    for icon in [
+        'bot', 'pen', 'film', 'image', 'palette', 'mic',
+        'search', 'shield', 'sparkles', 'book', 'code', 'person',
+    ]:
+        assert draft(icon=icon).model_dump()['icon'] == icon
+    with pytest.raises(ValidationError):
+        draft(icon='<svg onload=alert(1)>')

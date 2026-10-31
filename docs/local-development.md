@@ -278,3 +278,5 @@ AI 생성용 키와 별도로 .env의 ASA_OPENAI_ADMIN_API_KEY에 조직 Admin A
 유휴 시 워커는30초 복구·생존 확인만 수행하며, SSE keepalive는 DB를 읽지 않는다. SSE는45초 재연결 시 최신 상태와 인증을 다시 확인한다. 예약 작업은 예정 시각 또는 변경 알림에 깨어난다. 알림 연결 장애 시 자동 복구와 주기 확인으로 보완한다. 상태 화면에서 오프라인 판정은 heartbeat 유예 시간 뒤 반영된다.
 
 공식 psycopg 자료: https://www.psycopg.org/psycopg3/docs/advanced/pool.html 및 https://www.psycopg.org/psycopg3/docs/advanced/async.html#asynchronous-notifications
+
+ASA-123: `python -m asa.registry.init` 후 API와 image-worker를 재시작한다. 별도 검수 프로세스는 없다. 새 에이전트의 ‘이미지 검수 에이전트’ 예시로 지침을 만들고 이미지 입력을 지원하는 허용 모델을 선택한다. 캐릭터 설정 에이전트의 ‘답변 이후 작업’에 등록 버전을 연결한다. 기본은 수동이며 자동 모드는 이미지 완료마다 별도 유료 검수를 접수한다. 기존 요청에는 새 설정을 소급 적용하지 않는다.

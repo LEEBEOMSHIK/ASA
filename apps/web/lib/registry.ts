@@ -1,3 +1,4 @@
+import type { AgentIconId } from "./agent-icons";
 export type SchemaNode = {
   type: string; description?: string; properties?: Record<string, SchemaNode>; required?: string[];
   items?: SchemaNode; maxLength?: number; maxItems?: number; minimum?: number; maximum?: number;
@@ -5,8 +6,11 @@ export type SchemaNode = {
   "x-widget"?: "text" | "textarea" | "radio" | "select" | "slider" | "number";
 };
 export type Definition = {
+  icon?: AgentIconId;
   name: string; description: string; instructions: string; model_profile: string;
   requires_approval?: boolean;
+  purpose?: "general" | "image_review";
+  after_tasks?: {image_review?: {agent_ref: string; mode: "manual" | "automatic"} | null};
   provider?: "openai" | "anthropic" | null; model?: string | null;
   input_schema: SchemaNode; output_schema: SchemaNode; tools: string[];
   limits: { model_calls: number; tool_calls: number; depth: number; seconds: number };
@@ -14,9 +18,11 @@ export type Definition = {
 export type Version = { version: number; source_revision: number; definition: Definition; digest: string };
 export type Agent = { id: string; revision: number; draft: Definition; versions?: Version[] };
 export type Tool = {
+  icon?: AgentIconId;
   id: string; name: string; version: number; kind: "asa" | "agent"; agent_id?: string;
   description: string; available: boolean; execution_available: boolean; unavailable_reason: string;
   input_schema?: SchemaNode; output_schema?: SchemaNode; dependencies?: string[];
+  purpose?: "general" | "image_review";
   usage?: string; example_input?: unknown; example_output?: unknown; launch_path?: string;
 };
 export type Issue = { code: string; field_path: string; message: string };
@@ -44,6 +50,9 @@ export async function api<T>(path: string, method = "GET", body?: unknown, revis
 export function message(error: unknown): string {
   if (!(error instanceof ApiError)) return "서버에 연결할 수 없습니다. 잠시 후 다시 시도하세요.";
   const messages: Record<string, string> = {
+    review_image_required: "이미지 검수 에이전트는 캐릭터 이미지 결과의 AI 검수 요청으로 실행하세요.",
+    review_not_configured: "이 작업의 에이전트 등록 버전에 이미지 검수 연결이 없습니다. 설정에서 연결한 새 버전으로 시작하세요.",
+    review_already_running: "이 이미지의 AI 검수가 이미 대기하거나 진행 중입니다.",
     image_not_configured: "이미지 API 실행을 활성화하고 서버 키를 확인해 주세요.",
     image_model_not_allowed: "서버에서 허용한 이미지 모델을 선택해 주세요.",
     image_already_running: "이 캐릭터의 이미지 요청이 이미 진행 중입니다.",

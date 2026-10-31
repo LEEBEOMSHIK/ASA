@@ -103,13 +103,17 @@ class RegistryRepository:
                     "alias": row["alias"],
                     "kind": "agent",
                     "name": definition["name"],
+                    "icon": definition.get("icon", "bot"),
                     "description": definition["description"],
-                    "available": True,
+                    "available": definition.get("purpose") != "image_review",
                     "execution_available": False,
-                    "unavailable_reason": "등록 가능 · 실행 연결은 다음 단계에서 제공",
+                    "unavailable_reason": ("이미지 결과 화면에서 검수 요청"
+                                           if definition.get("purpose") == "image_review"
+                                           else "등록 가능 · 실행 연결은 다음 단계에서 제공"),
                     "input_schema": definition["input_schema"],
                     "output_schema": definition["output_schema"],
                     "dependencies": definition["tools"],
+                    "purpose": definition.get("purpose", "general"),
                 }
             )
         return tools

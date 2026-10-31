@@ -10,6 +10,7 @@ from psycopg.types.json import Jsonb
 from asa.config import Settings
 from asa.database import changes, release_lock
 from asa.registry.characters import CharacterRepository
+from asa.registry.image_reviews import enqueue_automatic, process_review
 from asa.telemetry import redact
 from asa.tools.character_images import IMAGE_RATES, generate_image, image_cost, image_prompt
 
@@ -37,7 +38,22 @@ def tick(settings: Settings) -> bool:
             return False
         try:
             heartbeat(repo)
-            return process(repo, settings)
+            stop = threading.Event()
+
+            def pulse_review() -> None:
+                while not stop.wait(30):
+                    try:
+                        heartbeat(repo)
+                    except Exception:
+                        pass
+
+            thread = threading.Thread(target=pulse_review, daemon=True)
+            thread.start()
+            try:
+                return process_review(repo, settings) or process(repo, settings)
+            finally:
+                stop.set()
+                thread.join(timeout=1)
         finally:
             release_lock(lock, f"asa-image:{repo.workspace_id}")
 
@@ -111,18 +127,6 @@ def process(repo: CharacterRepository, settings: Settings) -> bool:
             ).fetchone()
             assert base and base["image"]
             reference = bytes(base["image"])
-    stop = threading.Event()
-
-    def pulse() -> None:
-        while not stop.wait(30):
-            try:
-                heartbeat(repo)
-            except Exception:
-                # A failed DB heartbeat never triggers a second paid invocation.
-                pass
-
-    thread = threading.Thread(target=pulse, daemon=True)
-    thread.start()
     started = time.perf_counter()
     usage: dict[str, Any] | None = None
     image = None
@@ -134,9 +138,6 @@ def process(repo: CharacterRepository, settings: Settings) -> bool:
         code = getattr(exc, "status_code", None)
         if code in (400, 401, 403, 404, 422, 429):
             status, error = "failed", f"image_provider_{code}"
-    finally:
-        stop.set()
-        thread.join(timeout=1)
     duration = round((time.perf_counter() - started) * 1000)
     known_price = job["model"] in ("gpt-image-2.5-sunburst", "gpt-image-2.5-flare")
     cost = image_cost(usage) if known_price else None
@@ -166,6 +167,17 @@ def process(repo: CharacterRepository, settings: Settings) -> bool:
                 job["id"],
             ),
         )
+        if status == "succeeded":
+            try:
+                with conn.transaction():
+                    enqueue_automatic(repo, job["id"], settings, conn)
+            except Exception:
+                # A failed optional review must never discard the completed image.
+                conn.execute(
+                    "UPDATE character_image_jobs SET review_error_code='review_enqueue_failed' "
+                    "WHERE workspace_id=%s AND id=%s",
+                    (repo.workspace_id, job["id"]),
+                )
     return True
 
 
@@ -181,7 +193,7 @@ def main() -> None:
         try:
             worked = tick(settings)
         except Exception:
-            print('Image worker temporarily unavailable; retrying.', flush=True)
+            print("Image worker temporarily unavailable; retrying.", flush=True)
             if args.once:
                 raise
             time.sleep(5)

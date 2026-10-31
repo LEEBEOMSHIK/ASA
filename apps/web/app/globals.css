@@ -967,3 +967,25 @@ article.flow-library-card { display:flex; flex-direction:column; gap:0; padding:
 .answer-management { display: grid; gap: var(--space-3); margin-top: var(--space-6); padding-top: var(--space-6); border-top: 1px solid var(--border); }
 .answer-management p { margin: var(--space-2) 0 0; font-size: var(--font-small); }
 .answer-management > .script-actions { margin: 0; }
+
+.after-task-settings { display:grid; gap:var(--space-4); }
+.after-task-settings > h2, .after-task-settings > p, .after-task-settings .field, .after-task-settings .field > p { margin:0; }
+.after-task-settings .field > label { min-height:24px; }
+
+.agent-icon-picker { margin:var(--space-6) 0 0; min-width:0; }
+.agent-icon-picker > .field { margin:0; }
+.agent-icon-current { display:flex; align-items:center; flex-wrap:wrap; gap:var(--space-3); }
+.agent-icon-current .agent-avatar { width:36px; height:36px; margin:0; }
+.agent-icon-current .button { min-height:36px; padding:var(--space-2) var(--space-3); font-size:var(--font-small); }
+.agent-icon-choices { margin:var(--space-3) 0 0; padding:0; border:0; min-width:0; }
+.agent-icon-options { display:grid; grid-template-columns:repeat(auto-fill,minmax(84px,1fr)); gap:var(--space-2); margin:var(--space-3) 0; }
+.agent-icon-option { position:relative; display:flex; flex-direction:column; align-items:center; gap:var(--space-2); padding:var(--space-3) var(--space-2); border:1px solid var(--border); border-radius:var(--radius-md); cursor:pointer; font-size:var(--font-small); background:var(--surface); }
+.agent-icon-option input { position:absolute; opacity:0; width:1px; height:1px; }
+.agent-icon-option:has(input:checked) { border-color:var(--primary); background:var(--accent-soft); color:var(--primary); }
+.agent-icon-option:has(input:focus-visible) { outline:2px solid var(--focus); outline-offset:3px; }
+.agent-icon-option:has(input:disabled) { opacity:.55; cursor:default; }
+.agent-icon-option .agent-avatar { width:32px; height:32px; margin:0; }
+.agent-icon-option .agent-avatar svg { width:20px; height:20px; }
+.agent-title { display:flex; align-items:center; gap:var(--space-3); }
+.agent-title .agent-avatar { flex-shrink:0; margin:0; }
+.graph-kind-icon .agent-avatar { width:100%; height:100%; margin:0; border-radius:inherit; background:transparent; }

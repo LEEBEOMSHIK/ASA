@@ -94,6 +94,7 @@ def redact(value: Any, settings: Settings) -> Any:
                 pass
             else:
                 return json.dumps(clean(decoded, depth + 1), ensure_ascii=False)
+        item = re.sub(r"data:image/[^;]+;base64,[A-Za-z0-9+/=]+", "[IMAGE BYTES OMITTED]", item)
         for secret in secrets:
             if secret:
                 item = item.replace(secret, "[REDACTED]")

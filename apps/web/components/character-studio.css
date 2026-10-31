@@ -65,3 +65,26 @@
 .character-editor-layout > .character-edit { min-width:0; }
 .character-editor-layout .character-field textarea { min-height:120px; }
 @media(max-width:1100px) { .character-editor-layout { grid-template-columns:minmax(0,1fr); } }
+
+.image-job-progress { display:grid; gap:var(--space-3); padding:var(--space-4); background:var(--accent-soft); border-radius:var(--radius-md); overflow-wrap:anywhere; }
+.image-job-times { display:flex; flex-wrap:wrap; gap:var(--space-4); font-variant-numeric:tabular-nums; }
+.image-job-settings { display:grid; gap:var(--space-2); margin:var(--space-4) 0 0; }
+.image-job-settings dt { font-weight:600; }
+.image-job-settings dd { margin:0 0 var(--space-2); white-space:pre-wrap; }
+
+.image-job-steps { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:var(--space-3); list-style:none; padding:0; margin:0; }
+.image-job-steps li { display:flex; align-items:flex-start; gap:var(--space-2); padding:var(--space-3); border:1px solid var(--border); border-radius:var(--radius-md); background:var(--surface); min-width:0; }
+.image-job-steps strong, .image-job-steps small { display:block; overflow-wrap:anywhere; }
+.image-job-steps small { margin-top:var(--space-1); color:var(--muted); }
+.image-step-mark { display:inline-flex; align-items:center; justify-content:center; flex:0 0 24px; height:24px; border:1px solid var(--border); border-radius:50%; font-size:var(--font-small); }
+.image-job-steps li[data-state="current"], .image-job-steps li[data-state="done"] .image-step-mark { border-color:var(--primary); color:var(--primary); }
+.image-job-steps li[data-state="interrupted"] { border-style:dashed; }
+.image-step-mark--active { animation:image-step-pulse 1.4s ease-in-out infinite; }
+@keyframes image-step-pulse { 50% { box-shadow:0 0 0 4px var(--accent-soft); } }
+@media(prefers-reduced-motion:reduce) { .image-step-mark--active { animation:none; } }
+@media(max-width:900px) { .image-job-steps { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:480px) { .image-job-steps { grid-template-columns:minmax(0,1fr); } }
+
+.image-review { border-top: 1px solid var(--border); padding-top: 20px; margin-top: 4px; }
+.image-review h4 { margin: 0; }
+.image-review > .button { align-self: flex-start; }

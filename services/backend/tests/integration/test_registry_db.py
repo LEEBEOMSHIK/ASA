@@ -1958,3 +1958,93 @@ def test_standby_automation_worker_does_not_spin_on_overdue_schedule(client, db)
         assert repo.idle_seconds() == 30
     assert not tick(repo)
     assert not repo.worker_lock_busy
+
+
+def test_image_review_queue_snapshot_auto_and_isolation(db, monkeypatch):
+    from psycopg.types.json import Jsonb
+    from asa.registry.characters import Character, CharacterRepository, ImageRequest
+    from asa.registry.image_reviews import enqueue_review, enqueue_automatic, process_review
+    from asa.registry.schemas import RegistryError
+    dsn, workspace = db
+    repo = CharacterRepository(dsn, workspace)
+    reviewer = repo.create(AgentDraft.model_validate({**definition(), 'name': 'Image reviewer',
+                         'purpose': 'image_review', 'output_schema': {'type': 'string'}}))
+    repo.publish(reviewer['id'], 1)
+    ref = f"agent:{reviewer['id']}:1"
+    maker = repo.create(AgentDraft.model_validate({**definition(),
+                       'after_tasks': {'image_review': {'agent_ref': ref, 'mode': 'automatic'}}}))
+    repo.publish(maker['id'], 1)
+    project, request = uuid4(), uuid4()
+    char = Character(id='cloud', name='cloud', facts='facts', proposed='proposal',
+                     appearance='coat', scene_ids='1', image_prompt='front')
+    with repo._connect() as conn:
+        conn.execute("INSERT INTO customer_requests(workspace_id,id,agent_id,version,input) "
+                     "VALUES (%s,%s,%s,1,'{}')", (workspace,request,maker['id']))
+        conn.execute('INSERT INTO character_projects(workspace_id,id,request_id,name,characters) '
+                     'VALUES (%s,%s,%s,%s,%s)',
+                     (workspace,project,request,'review test',Jsonb([char.model_dump()])))
+    settings = Settings(_env_file=None,database_url=dsn,workspace_id=workspace,
+                        image_ai_enabled=True,ai_api_key='test-only',ai_model='test-model',
+                        ai_models=['test-model'], ai_prices={'openai:test-model':{'input':1,'output':2,'label':'test rate'}})
+    # Effective model resolution is isolated from global admin catalog in this test.
+    monkeypatch.setattr('asa.registry.image_reviews.effective_settings',lambda s,*a:s)
+    image = ImageRequest(id=uuid4(),character=char,model='gpt-image-2.5-sunburst')
+    repo.enqueue(project,image,settings)
+    from asa.image_worker import tick
+    monkeypatch.setattr('asa.image_worker.generate_image',lambda *a:(b'png-test',None))
+    assert tick(settings)  # Image commit and automatic review enqueue share a transaction.
+    enqueue_automatic(repo,image.id,settings)
+    enqueue_automatic(repo,image.id,settings)
+    snapshot = repo.project(project)
+    assert len(snapshot['reviews']) == 1 and snapshot['review_config']['agent_ref'] == ref
+    calls=[]
+    def fake(config,definition,character,change,png,reference):
+        from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+        from langchain_core.messages import AIMessage
+        from asa.telemetry import call_config
+        FakeMessagesListChatModel(responses=[AIMessage(content='검수 의견',usage_metadata={
+            'input_tokens':100,'output_tokens':10,'total_tokens':110})]).invoke('test',**call_config())
+        calls.append((definition,character,png))
+        return '발이 설정과 다릅니다.'
+    monkeypatch.setattr('asa.registry.image_reviews.review_image',fake)
+    assert process_review(repo,settings)
+    assert not process_review(repo,settings)
+    assert calls[0][2] == b'png-test'
+    assert repo.project(project)['approved'] == {}
+    assert repo.project(project)['reviews'][0]['result'] == '발이 설정과 다릅니다.'
+    changed = {**char.model_dump(),'appearance':'green coat'}
+    review_id=uuid4()
+    first=enqueue_review(repo,image.id,review_id,changed,settings)
+    assert enqueue_review(repo,image.id,review_id,changed,settings)==first
+    with pytest.raises(RegistryError,match='review_already_running'):
+        enqueue_review(repo,image.id,uuid4(),changed,settings)
+    with pytest.raises(RegistryError):
+        enqueue_review(CharacterRepository(dsn,uuid4()),image.id,uuid4(),changed,settings)
+    assert process_review(repo,settings)
+    assert calls[-1][1]['appearance']=='green coat'
+    # Frozen image settings are not overwritten by review criteria.
+    assert repo.project(project)['jobs'][0]['character']['appearance']=='coat'
+    with repo._connect() as conn:
+        events=conn.execute("SELECT * FROM ai_usage_events WHERE step_name='이미지 검수'").fetchall()
+        assert len(events)==2 and all(str(e['request_id'])==str(request) for e in events)
+        assert all(e['usage']['input_tokens']==100 and e['estimated_usd']>0 for e in events)
+    retry=enqueue_review(repo,image.id,uuid4(),changed,settings)
+    with repo._connect() as conn:
+        conn.execute("UPDATE asset_reviews SET status='running' WHERE id=%s", (retry['id'],))
+    assert not process_review(repo,settings)
+    assert repo.project(project)['reviews'][0]['status']=='unknown'
+    # Interrupted review never prevents a human from approving the image.
+    repo.approve(image.id,None,1)
+    assert repo.project(project)['approved']['cloud']==str(image.id)
+
+
+def test_agent_icon_saved_published_and_version_preserved(db):
+    repo=RegistryRepository(*db)
+    agent=repo.create(AgentDraft.model_validate({**definition(),'icon':'pen'}))
+    assert repo.get(agent['id'])['draft']['icon']=='pen'
+    v1=repo.publish(agent['id'],1)
+    saved=repo.update(agent['id'],1,AgentDraft.model_validate({**definition(),'icon':'film'}))
+    v2=repo.publish(agent['id'],saved['revision'])
+    assert v1['definition']['icon']=='pen' and v2['definition']['icon']=='film'
+    icons={t['version']:t['icon'] for t in repo.tools() if t.get('agent_id')==agent['id']}
+    assert icons=={1:'pen',2:'film'}

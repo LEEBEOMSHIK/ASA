@@ -2,13 +2,15 @@
 import { useEffect, useRef, useState } from "react";
 import { api, message, type Tool } from "../lib/registry";
 import { Button, Card, StatusBadge } from "./ui";
+import { ImageJobProgress, type ImageJob } from "./image-job-progress";
+import { ImageReviewPanel, type AssetReview } from "./image-review-panel";
 import { ImageModelSelect } from "./image-model-select";
 import { itemStateLabel, progressLabel, progressCounts, type WorkProgress } from "../lib/work-progress";
 import "./character-studio.css";
 
 type Character = { id: string; name: string; facts: string; appearance: string; proposed: string; scene_ids: string; image_prompt: string };
-type Job = { id: string; character_id: string; version: number; model: string; character: Character; change: string; base_id: string | null; status: string; error_code: string | null; estimated_usd: string | null };
-type Project = { id: string; name: string; request_id: string; source_version: number; characters: Character[]; approved: Record<string,string>; jobs: Job[]; worker_online: boolean; excluded: string[]; work_progress: WorkProgress };
+type Job = ImageJob & { review_error_code?:string|null; id: string; character_id: string; version: number; model: string; character: Character; change: string; base_id: string | null; status: string; error_code: string | null; estimated_usd: string | null };
+type Project = { reviews: AssetReview[]; review_config: {agent_ref:string;mode:string}|null; id: string; name: string; request_id: string; source_version: number; characters: Character[]; approved: Record<string,string>; jobs: Job[]; worker_online: boolean; excluded: string[]; work_progress: WorkProgress };
 type Options = { agents: Tool[]; models: string[]; enabled: boolean };
 type LibraryEntry = {id:string;name:string;request_id:string;source_version:number};
 const states: Record<string,string> = {queued:"이미지 생성 대기", running:"이미지 생성 중", succeeded:"검토 가능", failed:"생성 실패", unknown:"호출 결과 확인 필요"};
@@ -113,14 +115,16 @@ function CharacterCard({character,project,options,refresh,onError}:{character:Ch
   if(excluded)return <Card><article id={`character-${character.id}`} className="character-form"><div className="character-heading"><h3>{character.name}</h3><StatusBadge>생성 대상 제외</StatusBadge></div><p className="muted">완료 조건에서 제외했습니다. 기존 이미지와 확정 기록은 보존됩니다.</p><Button variant="secondary" disabled={busy} onClick={()=>void setScope()}>생성 대상으로 복원</Button></article></Card>;
   return <Card><article id={`character-${character.id}`} className="character-form"><div className="character-heading"><h3>{character.name}</h3><StatusBadge tone={itemState==="approved"?"success":itemState==="failed" || itemState==="unknown"?"warning":"neutral"}>{itemStateLabel(itemState,"character_images")}</StatusBadge></div>
     <p className="muted">등장 장면 · {character.scene_ids}</p>
+    {latest && <ImageJobProgress approved={project.approved[character.id]===(active || latest).id && itemState==="approved"} job={active || latest} online={project.worker_online} baseVersion={jobs.find(j=>j.id===(active || latest).base_id)?.version}/>}
     <div className="character-editor-layout"><div className="character-preview character-form">
     {shown ? <><img className="character-image" src={`/api/v1/characters/images/${shown.id}/asset`} alt={`${character.name} 기준 이미지 v${shown.version}`}/>
       <label className="character-field">이미지 버전<select value={shown.id} onChange={e=>{setChosen(e.target.value);const j=success.find(j=>j.id===e.target.value);if(j)setDraft(j.character);}}>{success.map(j=><option key={j.id} value={j.id}>v{j.version}{project.approved[character.id]===j.id?" · 확정된 기준":" · 검토본"}</option>)}</select></label>
       <p className="muted">{shown.model} · 예상 비용 {shown.estimated_usd===null?"미확인":`$${Number(shown.estimated_usd).toFixed(5)}`}</p>
       <Button variant="secondary" disabled={busy || !!active || (project.approved[character.id]===shown.id && itemState==="approved")} onClick={()=>void approve()}>이 버전을 기준 이미지로 확정</Button></>
-      : <div className="character-empty">설정을 확인하고 첫 기준 이미지를 만들어 보세요.</div>}
+      : <div className="character-empty">{active ? "이미지가 완성되면 여기에 표시됩니다." : "설정을 확인하고 첫 기준 이미지를 만들어 보세요."}</div>}
     {latest?.status==="succeeded" && latest.id!==shown?.id && <Button variant="secondary" onClick={()=>{setChosen(latest.id);setDraft(latest.character);}}>새 이미지 v{latest.version} 확인</Button>}
-    {latest && latest.status!=="succeeded" && <p role="status" className="character-status">v{latest.version} · {states[latest.status]}{latest.status==="unknown" && " · 중복 과금 방지를 위해 자동 재시도하지 않습니다."}{latest.status==="failed" && ` · ${latest.error_code || "API 오류"}`}</p>}
+    {latest && !active && latest.status!=="succeeded" && <p role="status" className="character-status">v{latest.version} · {states[latest.status]}{latest.status==="unknown" && " · 중복 과금 방지를 위해 자동 재시도하지 않습니다."}{latest.status==="failed" && ` · ${latest.error_code || "API 오류"}`}</p>}
+    {shown && <ImageReviewPanel key={shown.id} imageId={shown.id} version={shown.version} character={draft} reviews={project.reviews || []} configured={!!project.review_config} online={project.worker_online} enqueueError={shown.review_error_code} refresh={refresh}/>}
     </div><details className="character-edit" open><summary>수정 및 확인</summary><div className="character-form">
     <details><summary>캐릭터 설정 확인·수정</summary><div className="character-form">
       <div className="character-reference character-form"><strong>참고 정보 · 수정 가능</strong><p className="muted">대본 해석이나 AI 제안이 맞지 않으면 고쳐 주세요. 이미지 생성 시 아래 외형·의상과 이미지 제작 지침에 어긋나지 않는 범위에서 참고합니다.</p>

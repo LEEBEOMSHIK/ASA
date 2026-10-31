@@ -1,9 +1,11 @@
+import { agentIcons } from "../lib/agent-icons";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { HelpText } from "./help-text";
 export { HelpText } from "./help-text";
 
-export function AgentIcon() {
-  return <span className="agent-avatar" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="6" width="16" height="14" rx="4"/><path d="M12 3v3M8 11v2M16 11v2M9 16h6"/></svg></span>;
+export function AgentIcon({icon="bot"}: {icon?: string}) {
+  const selected=agentIcons.find(item=>item.id===icon) || agentIcons[0];
+  return <span className="agent-avatar" aria-hidden="true" data-agent-icon={selected.id}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{selected.id==="bot" && <rect x="4" y="6" width="16" height="14" rx="4"/>}<path d={selected.path}/></svg></span>;
 }
 
 export function ExternalLink({ href, children }: { href: string; children: ReactNode }) {
