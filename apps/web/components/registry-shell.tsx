@@ -9,11 +9,11 @@ import { ThemeSelect } from "./theme-provider";
 const DirtyContext = createContext<(value: boolean) => void>(() => {});
 export function useDirtyGuard() { return useContext(DirtyContext); }
 
-export function RegistryShell({ children }: { children: ReactNode }) {
+export function RegistryShell({ children, adminOnly=false }: { children: ReactNode; adminOnly?:boolean }) {
   const sidebar = useSidebarCollapse();
   const pathname = usePathname();
-  const active = pathname.startsWith("/characters") ? "/characters" : pathname.startsWith("/models") ? "/models" : pathname.startsWith("/monitoring") ? "/monitoring" : pathname.startsWith("/automations") ? "/automations" : pathname.startsWith("/agents") ? "/agents" : "/tools";
-  const title = active === "/characters" ? "캐릭터 보관함" : active === "/models" ? "AI 모델 관리" : active === "/monitoring" ? "AI 사용량·비용" : active === "/automations" ? "자동화 빌더" : active === "/agents" ? "에이전트" : "도구 라이브러리";
+  const active = pathname.startsWith("/admin/agents") ? "/admin/agents" : pathname.startsWith("/characters") ? "/characters" : pathname.startsWith("/models") ? "/models" : pathname.startsWith("/monitoring") ? "/monitoring" : pathname.startsWith("/automations") ? "/automations" : pathname.startsWith("/agents") ? "/agents" : "/tools";
+  const title = active === "/admin/agents" ? "에이전트 관리" : active === "/characters" ? "캐릭터 보관함" : active === "/models" ? "AI 모델 관리" : active === "/monitoring" ? "AI 사용량·비용" : active === "/automations" ? "자동화 빌더" : active === "/agents" ? "에이전트" : "도구 라이브러리";
   const [roleLabel, setRoleLabel] = useState("");
   const [admin, setAdmin] = useState(false);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
@@ -59,7 +59,7 @@ export function RegistryShell({ children }: { children: ReactNode }) {
           <Button disabled={busy} onClick={() => logout(true)}>변경을 버리고 로그아웃</Button></div></section>}
       {status === "loading" ? <p role="status">작업 공간을 여는 중입니다…</p> : status === "error" ?
         <><p role="alert">{error}</p><Button onClick={() => window.location.reload()}>다시 시도</Button></> :
-        <>{error && <p role="alert">{error}</p>}{children}</>}
+        <>{error && <p role="alert">{error}</p>}{adminOnly && !admin ? <p role="alert">관리자만 접근할 수 있는 화면입니다.</p> : children}</>}
     </main>
     </div></div>
   </DirtyContext.Provider>;

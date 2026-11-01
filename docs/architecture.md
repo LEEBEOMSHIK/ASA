@@ -293,3 +293,14 @@ AgentDraft.requires_approval은 기본 false이며 등록 버전의 definition�
 ASA-127: 모든 등록 에이전트 버전을 연결 후보로 표시한다(자기 자신 제외). 별도 이미지 입력 필드가 없어도 검수 연결의 이미지 전달 경로를 사용하며, 일반 실행용 input_schema를 검수 입력으로 오인하지 않도록 화면에 설명한다. 도구가 연결된 에이전트는 현재 검수에서 도구 실행을 지원하지 않아 명시적 오류를 반환한다. 검수 대상 이미지는 같은 workspace의 완료된 이미지 자산이 있어야 접수 가능하다. 기존 연결/등록 버전/자산은 변경하지 않는다.
 
 ASA-130: 이미지 검수 호출은 사용자 output_schema의 value와 별도의 report를 한 응답에서 받는다. report에는 근거가 있는 requirements/상태, issues/위치·심각도·범위·수정방향, edit_instruction, human_checks를 담고 양쪽 계약을 검증한다. 저장 결과는 format=image_review_v1/answer/report이며 과거 문자열 결과는 그대로 보존·호환 표시한다. 추가 모델 호출 없이 동일 호출의 사용량에 기록한다. 등록 에이전트 정의/불변 버전은 변경하지 않는다.
+
+
+## 확정 캐릭터 전달 (ASA-140)
+- 캐릭터 결과의 /projects/{id}/handoff와 asa.characters.approved:1 도구가 같은 workspace 범위에서 확정 전달 데이터를 만든다. repeatable read로 제외·확정·이미지 설정을 함께 읽는다.
+- 모든 비제외 항목의 작업 상태가 approved일 때만 전체 전달 가능하다. 전부 제외하면 빈 characters를 명시적으로 반환한다. 확정 작업의 character 스냅샷/image_change/image_id/image_version을 사용한다. 저장되지 않은 입력은 전달하지 않는다.
+- 대본/장면은 이 계약에 포함하거나 수정하지 않는다. 호출자가 별도 원문 입력으로 연결한다.
+- 자동화에서 도구 전체 결과를 다음 AI의 객체 입력에 연결하면 envelope를 인식하여 실제 이미지 bytes를 HumanMessage에 첨부한다. 문자열화하거나 characters만 분리하면 이미지 첨부 계약이 아니다. 비전 지원을 공식 메타데이터로 검증하며 웹 검색 동시 모드는 미지원이다.
+- 모델 호출 직전 현재 전달 계약과 비교한다. 제외/확정이 변경된 오래된 전달 데이터는 거부하여 자동화 재실행으로 새 데이터를 읽게 한다. 같은 workspace의 자산만 읽고 임의 URL은 가져오지 않는다. 요청과 결과에는 이미지 ID만 기록하고 base64는 모델 전송 메시지에만 넣는다.
+- 이 기능은 캐릭터 생성의 자동 승인이나 다음 에이전트 자동 선택 기능이 아니다. 자동화 연결은 사용자가 구성한다. 샘플 실행은 실데이터를 읽지 않고 샘플 출력을 요구한다.
+
+ASA-142: agent_categories는 workspace별 카테고리 순서/명칭과 agent ID 단일 소속을 보관한다. GET은 인증 사용자 조회, PUT은 owner/admin 전용. revision 잠금으로 충돌을 차단하고 같은 workspace의 agent ID만 허용한다. 삭제는 해당 소속 제거로 미분류 이동; 지침·불변 실행 버전을 수정하지 않는다. 관리 화면 DnD/키보드 이동은 서버 저장 성공 후 반영하며 일반 실행 화면은 같은 분류를 조회한다.

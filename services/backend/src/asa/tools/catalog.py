@@ -1,5 +1,6 @@
 from typing import Any
 
+from asa.tools.character_handoff import handoff_tool
 from asa.tools.search import search_tool
 
 
@@ -89,5 +90,6 @@ def builtin_tools() -> list[dict[str, Any]]:
         "example_output": {"id": "이미지 작업 ID", "status": "queued"},
         "dependencies": [], "side_effect": "write", "cost": "paid",
     })
+    items.append(handoff_tool())
     items.append(search_tool())
     return items

@@ -1,12 +1,13 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { api, message, type Tool } from "../lib/registry";
-import { Button, Card, StatusBadge } from "./ui";
+import { Button, Card, StatusBadge, Switch } from "./ui";
 import { ImageJobProgress, type ImageJob } from "./image-job-progress";
 import { ImageReviewPanel, type AssetReview } from "./image-review-panel";
 import { ImageModelSelect } from "./image-model-select";
 import { itemStateLabel, progressLabel, progressCounts, type WorkProgress } from "../lib/work-progress";
 import "./character-studio.css";
+import { CharacterHandoff } from "./character-handoff";
 
 type Character = { id: string; name: string; facts: string; appearance: string; proposed: string; scene_ids: string; image_prompt: string };
 type Job = ImageJob & { review_error_code?:string|null; id: string; character_id: string; version: number; model: string; character: Character; change: string; base_id: string | null; status: string; error_code: string | null; estimated_usd: string | null };
@@ -66,6 +67,7 @@ export function CharacterResults({requestId,version}:{requestId:string;version:n
     {project && <><div className="character-overview">
       <div className="character-heading"><h3>캐릭터 선택 · {project.characters.length}명</h3><StatusBadge tone={project.worker_online?"success":"warning"}>{project.worker_online?"이미지 워커 연결됨":"이미지 워커 연결 대기"}</StatusBadge></div>
       <div className="character-progress" role="status"><strong>{progressLabel(project.work_progress)}</strong><p>{progressCounts(project.work_progress)}</p></div>
+      <CharacterHandoff project={project}/>
       <nav className="character-picker" aria-label="작업할 캐릭터">{project.characters.map(c=>{
         const state=project.work_progress.items.find(i=>i.id===c.id)?.state || "pending";
         return <button type="button" key={c.id} aria-pressed={currentId===c.id} onClick={()=>setActiveId(c.id)}><strong>{c.name}</strong><span>{itemStateLabel(state,"character_images")}</span></button>;
@@ -112,8 +114,10 @@ function CharacterCard({character,project,options,refresh,onError}:{character:Ch
     try {await api(`/characters/images/${shown.id}/approve`,"POST",{expected:project.approved[character.id] || null,expected_latest_version:latest?.version});await refresh();}
     catch(e){onError(message(e));await refresh().catch(()=>{});}finally{setBusy(false);}
   }
-  if(excluded)return <Card><article id={`character-${character.id}`} className="character-form"><div className="character-heading"><h3>{character.name}</h3><StatusBadge>생성 대상 제외</StatusBadge></div><p className="muted">완료 조건에서 제외했습니다. 기존 이미지와 확정 기록은 보존됩니다.</p><Button variant="secondary" disabled={busy} onClick={()=>void setScope()}>생성 대상으로 복원</Button></article></Card>;
-  return <Card><article id={`character-${character.id}`} className="character-form"><div className="character-heading"><h3>{character.name}</h3><StatusBadge tone={itemState==="approved"?"success":itemState==="failed" || itemState==="unknown"?"warning":"neutral"}>{itemStateLabel(itemState,"character_images")}</StatusBadge></div>
+  const heading=<div className="character-heading"><div className="character-name-controls"><h3>{character.name}</h3><Switch checked={!excluded} disabled={busy || !!active} label="이 캐릭터 사용" describedBy={`scope-help-${character.id}`} onChange={()=>void setScope()}/></div><StatusBadge tone={excluded?"neutral":itemState==="approved"?"success":itemState==="failed" || itemState==="unknown"?"warning":"neutral"}>{excluded?"사용 안 함":itemStateLabel(itemState,"character_images")}</StatusBadge></div>;
+  const scopeHelp=<p id={`scope-help-${character.id}`} className="muted">{active?"이미지 생성 중에는 사용 여부를 변경할 수 없습니다.":excluded?"완료 조건과 다음 단계 전달 대상에서 제외했습니다. 다시 켜면 기존 설정과 확정 이미지를 이어서 사용합니다.":"끄면 완료 조건과 다음 단계 전달 대상에서 제외됩니다. 대본·장면 원문과 기존 이미지·확정 기록은 보존됩니다."}</p>;
+  if(excluded)return <Card><article id={`character-${character.id}`} className="character-form">{heading}{scopeHelp}</article></Card>;
+  return <Card><article id={`character-${character.id}`} className="character-form">{heading}{scopeHelp}
     <p className="muted">등장 장면 · {character.scene_ids}</p>
     {latest && <ImageJobProgress approved={project.approved[character.id]===(active || latest).id && itemState==="approved"} job={active || latest} online={project.worker_online} baseVersion={jobs.find(j=>j.id===(active || latest).base_id)?.version}/>}
     <div className="character-editor-layout"><div className="character-preview character-form">
@@ -136,7 +140,6 @@ function CharacterCard({character,project,options,refresh,onError}:{character:Ch
     {shown && <label className="character-field">v{shown.version}에서 바꿀 부분<textarea rows={3} maxLength={3000} value={change} onChange={e=>setChange(e.target.value)} placeholder="예: 얼굴과 의상은 유지하고 모자 색만 파란색으로 바꿔 주세요."/></label>}
     <Button disabled={busy || !!active || !options.enabled || !model || (!!shown && !change.trim())} onClick={()=>void generate()}>{active?states[active.status]:shown?`v${shown.version} 이미지를 바탕으로 수정 요청`:"기준 이미지 생성"}</Button>
     <p className="muted">1024 × 1024 · 보통 품질 · 1장 · 유료 API 호출</p>
-    <div className="character-scope"><Button variant="secondary" disabled={busy || !!active} onClick={()=>void setScope()}>생성 대상에서 제외</Button><p className="muted">{active?"진행 중인 생성이 끝난 뒤 제외할 수 있습니다.":"이미지가 필요 없는 인물만 제외하세요. 기존 결과는 삭제되지 않습니다."}</p></div>
     </div></details></div>
     {shown && <ImageReviewPanel key={shown.id} imageId={shown.id} version={shown.version} character={draft} reviews={project.reviews || []} configured={!!project.review_config} online={project.worker_online} enqueueError={shown.review_error_code} refresh={refresh}/>}
   </article></Card>;

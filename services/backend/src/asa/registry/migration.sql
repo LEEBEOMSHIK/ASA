@@ -262,3 +262,9 @@ BEGIN
       'FOR EACH ROW EXECUTE FUNCTION asa_notify_change()', tab);
   END LOOP;
 END $$;
+
+CREATE TABLE IF NOT EXISTS agent_categories (
+ workspace_id uuid PRIMARY KEY REFERENCES registry_workspaces(id),
+ revision integer NOT NULL DEFAULT 0,
+ content jsonb NOT NULL DEFAULT '{"categories":[],"assignments":{}}'::jsonb
+);

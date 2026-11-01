@@ -149,7 +149,7 @@ class RunRepository(RegistryRepository):
                     if not search_ready(self.settings):
                         raise RegistryError(422, "runtime_search_unconfigured")
                     tool["search_provider"] = self.settings.search_provider
-                elif step.tool_id != "asa.text.inspect:1":
+                elif step.tool_id not in ("asa.text.inspect:1", "asa.characters.approved:1"):
                     raise RegistryError(422, "runtime_tool_unavailable")
                 manifest.append(tool)
             if ai_count > 20:

@@ -1783,7 +1783,20 @@ def test_followup_history_scope_completion_and_version_isolation(client, db):
     assert history.history(0)['items'][0]['work_progress']['status'] == 'review'
     repo.approve(body.id, None, 1)
     assert history.history(0)['items'][0]['work_progress']['status'] == 'pending'
+
+    from asa.tools.character_handoff import read_handoff, image_content
+    with pytest.raises(RegistryError, match='character_handoff_not_ready'):
+        read_handoff(repo, str(pid))
     repo.set_scope(pid, 'other', ItemScope(excluded=True, expected=False))
+    payload = read_handoff(repo, str(pid))
+    assert [c['id'] for c in payload['characters']] == ['hana']
+    assert payload['characters'][0]['image_id'] == str(body.id)
+    assert payload['characters'][0]['appearance'] == 'coat'
+    assert image_content(repo, {'cast': payload})[1]['image_url']['url'].endswith('ZmFrZQ==')
+    assert client.get(f'/api/v1/characters/projects/{pid}/handoff').json() == payload
+    with pytest.raises(RegistryError):
+        read_handoff(CharacterRepository(dsn, uuid4()), str(pid))
+
     assert history.history(0)['items'][0]['work_progress']['status'] == 'complete'
     assert client.get(f"/api/v1/work-requests/{work['id']}").json()['work_progress']['counts']['excluded'] == 1
     with pytest.raises(RegistryError, match='work_scope_changed'):
@@ -1793,6 +1806,9 @@ def test_followup_history_scope_completion_and_version_isolation(client, db):
     with pytest.raises(RegistryError):
         CharacterRepository(dsn, uuid4()).set_scope(pid, 'other', ItemScope(excluded=False, expected=True))
     repo.set_scope(pid, 'other', ItemScope(excluded=False, expected=True))
+    with pytest.raises(RegistryError):
+        image_content(repo, payload)
+
     assert history.history(0)['items'][0]['work_progress']['status'] == 'pending'
     # Revisions reopen review; user can explicitly retain the older approved image.
     edit = body.model_copy(update={'id': uuid4(), 'base_id': body.id, 'change': 'blue'})
@@ -2147,3 +2163,53 @@ def test_single_save_api_applies_and_rejects_stale_edit(client):
                       headers={**headers, 'If-Match': '1'}).status_code == 409
     assert client.put(f"/api/v1/agents/{agent['id']}/save", json=definition(),
                       headers=headers).status_code == 428
+
+
+def test_categories_admin_save_move_delete_conflict_and_isolation(client, db):
+    from asa.registry.categories import read
+    headers = login(client)
+    agent = client.post("/api/v1/agents", json=definition(), headers=headers).json()
+    original = client.get(f"/api/v1/agents/{agent['id']}").json()
+    url = "/api/v1/agent-categories"
+    first = client.get(url).json()
+    assert first["revision"] == 0 and first["can_manage"]
+    one, two = str(uuid4()), str(uuid4())
+    body = {"revision": 0, "categories": [{"id": one, "name": "대본"}, {"id": two, "name": "검수"}],
+            "assignments": {agent["id"]: one}}
+    assert client.put(url, json=body).status_code == 403
+    saved = client.put(url, json=body, headers=headers).json()
+    assert saved["revision"] == 1
+    assert client.put(url, json=body, headers=headers).status_code == 409
+    saved["assignments"][agent["id"]] = two
+    saved["categories"].reverse()
+    saved = client.put(url, json=saved, headers=headers).json()
+    assert saved["assignments"][agent["id"]] == two
+    saved["categories"] = [c for c in saved["categories"] if c["id"] != two]
+    saved["assignments"] = {}
+    saved = client.put(url, json=saved, headers=headers).json()
+    assert saved["assignments"] == {}
+    assert client.get(f"/api/v1/agents/{agent['id']}").json() == original
+    other = uuid4()
+    migrate(db[0], other)
+    assert read(RegistryRepository(db[0], other))["categories"] == []
+    saved["assignments"][str(uuid4())] = one
+    assert client.put(url, json=saved, headers=headers).status_code == 422
+
+
+def test_categories_member_can_read_not_write(db, monkeypatch):
+    from asa.auth.session import OwnerSessions, Principal
+    monkeypatch.setattr(OwnerSessions, "principal", lambda self: Principal(
+        user_id="member", workspace_id=db[1], roles=("member",)))
+    with TestClient(create_app(Settings(_env_file=None, database_url=db[0]))) as member:
+        data = member.get("/api/v1/agent-categories").json()
+        assert data["can_manage"] is False
+        assert member.put("/api/v1/agent-categories", json=data).status_code == 403
+
+
+def test_categories_reject_duplicate_or_invalid_names(client):
+    headers = login(client)
+    one, two = str(uuid4()), str(uuid4())
+    for names in [("같음", "같음"), ("  ", "다름")]:
+        body = {"revision": 0, "categories": [{"id": one, "name": names[0]},
+                 {"id": two, "name": names[1]}], "assignments": {}}
+        assert client.put("/api/v1/agent-categories", json=body, headers=headers).status_code == 422

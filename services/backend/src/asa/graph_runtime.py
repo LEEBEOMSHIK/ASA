@@ -11,6 +11,7 @@ from asa.registry.graph_automation import Evaluator, GraphDefinition
 from asa.registry.runtime import RunRepository
 from asa.telemetry import observed_generate
 from asa.tools.catalog import inspect_text
+from asa.tools.character_handoff import HANDOFF_ID, read_handoff
 from asa.tools.search import SEARCH_ID, search_ready, web_search
 
 
@@ -113,9 +114,12 @@ def execute_graph_run(
                         output = observed_generate(repo, run, tool, row["id"], actual, generate)
                         row.update(provider=tool["provider"], model=tool["model"])
                 else:
-                    if n.tool_id != "asa.text.inspect:1":
+                    if n.tool_id == HANDOFF_ID:
+                        output = read_handoff(repo, actual["project_id"])
+                    elif n.tool_id == "asa.text.inspect:1":
+                        output = inspect_text(actual["text"], actual["limit"])
+                    else:
                         raise ValueError("unsupported_tool")
-                    output = inspect_text(actual["text"], actual["limit"])
                 if not accepts(output, tool["output_schema"]):
                     raise ValueError("invalid_output")
             row.update(ev.advance(actual, output))

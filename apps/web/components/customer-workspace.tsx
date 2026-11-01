@@ -1,4 +1,5 @@
 "use client";
+import { AgentGroups } from "./agent-groups";
 import { SidebarToggle, useSidebarCollapse } from "./sidebar-toggle";
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError, message, setCsrf, type Tool, type WorkDetail } from "../lib/registry";
@@ -97,7 +98,7 @@ export function CustomerWorkspace() {
         {status === "error" && <Button variant="secondary" onClick={() => setRetry(value => value + 1)}>다시 불러오기</Button>}
         {status === "ready" && <><div className="section-heading"><div><h2>함께할 에이전트</h2><p className="muted">새 작업은 에이전트의 최신 저장 설정으로 시작합니다.</p></div><StatusBadge>{tools.length}개</StatusBadge></div>
           {tools.length === 0 ? <Card><h3>아직 준비된 에이전트가 없어요.</h3><p>관리자 화면에서 에이전트를 만들고 ‘에이전트 등록’하면 여기에 표시됩니다.</p><a href="/agents">관리자 화면으로 이동 →</a></Card> :
-          <div className="catalog-grid">{tools.map((tool) => <Card key={tool.id} className="customer-agent"><div className="card-heading"><AgentIcon icon={tool.icon}/><StatusBadge>실행 가능</StatusBadge></div><h3>{tool.name}</h3><p className="muted">{tool.description || "필요한 내용을 입력하고 이 에이전트에게 작업을 맡겨 보세요."}</p><Button variant="secondary" disabled={!tool.input_schema?.type} onClick={() => setSelected(tool)} aria-label={`${tool.name} 선택하기`}>이 에이전트 선택 →</Button></Card>)}</div>}
+          <AgentGroups items={tools.map(t=>({id:t.agent_id!,name:t.name}))} render={id=>{const tool=tools.find(t=>t.agent_id===id)!;return <Card key={tool.id} className="customer-agent"><div className="card-heading"><AgentIcon icon={tool.icon}/><StatusBadge>실행 가능</StatusBadge></div><h3>{tool.name}</h3><p className="muted">{tool.description || "필요한 내용을 입력하고 이 에이전트에게 작업을 맡겨 보세요."}</p><Button variant="secondary" disabled={!tool.input_schema?.type} onClick={() => setSelected(tool)} aria-label={`${tool.name} 선택하기`}>이 에이전트 선택 →</Button></Card>;}}/>}
           <p className="customer-footnote">저장한 요청은 왼쪽 최근 작업에서 다시 확인할 수 있습니다. 답변 생성은 대기 순서에 따라 실행되며, 결과는 최근 작업에서 확인할 수 있습니다.</p></>}
       </>}
     </main></div>

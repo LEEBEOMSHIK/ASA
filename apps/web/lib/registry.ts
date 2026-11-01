@@ -50,6 +50,8 @@ export async function api<T>(path: string, method = "GET", body?: unknown, revis
 export function message(error: unknown): string {
   if (!(error instanceof ApiError)) return "서버에 연결할 수 없습니다. 잠시 후 다시 시도하세요.";
   const messages: Record<string, string> = {
+    category_conflict: "다른 관리자가 분류를 변경했습니다. 최신 목록을 불러왔으니 다시 시도해 주세요.",
+    category_agent_missing: "에이전트 목록이 변경되었습니다. 다시 확인해 주세요.",
     review_image_required: "이미지 검수 에이전트는 캐릭터 이미지 결과의 AI 검수 요청으로 실행하세요.",
     review_not_configured: "이 작업의 에이전트 등록 버전에 이미지 검수 연결이 없습니다. 설정에서 연결한 새 버전으로 시작하세요.",
     review_already_running: "이 이미지의 AI 검수가 이미 대기하거나 진행 중입니다.",
@@ -63,6 +65,9 @@ export function message(error: unknown): string {
     image_reference_required: "수정할 이전 이미지를 먼저 선택해 주세요.",
     image_approval_changed: "다른 곳에서 기준 이미지를 바꿨습니다. 새로 확인한 후 확정해 주세요.",
     image_review_changed: "새 이미지 버전이 추가됐습니다. 최신 이미지를 확인한 뒤 다시 확정해 주세요.",
+    character_handoff_not_ready: "사용할 캐릭터의 이미지를 모두 확정한 뒤 전달해 주세요.",
+    character_handoff_changed: "캐릭터 설정이나 확정 이미지가 바뀌었습니다. 전달 데이터를 다시 가져와 주세요.",
+    character_handoff_image_missing: "확정 이미지 파일을 찾을 수 없습니다. 이미지를 확인해 주세요.",
     character_plan_invalid: "캐릭터 설정 답변 형식이 맞지 않습니다. 에이전트의 답변 항목을 확인해 주세요.",
     character_plan_not_ready: "캐릭터 설정 답변이 아직 완료되지 않았습니다.",
     model_already_registered: "이미 등록된 모델입니다. 저장된 목록을 다시 확인하세요.",

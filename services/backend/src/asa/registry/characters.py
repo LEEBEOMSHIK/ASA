@@ -438,6 +438,11 @@ def character_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
     def detail(project_id: UUID, r: CharacterRepository = Depends(repo)) -> dict[str, Any]:
         return r.project(project_id)
 
+    @router.get("/projects/{project_id}/handoff")
+    def export_handoff(project_id: UUID, r: CharacterRepository = Depends(repo)) -> dict[str, Any]:
+        from asa.tools.character_handoff import read_handoff
+        return read_handoff(r, str(project_id))
+
     @router.get("/projects/{project_id}/events")
     def events(project_id: UUID, request: Request,
                r: CharacterRepository = Depends(repo)) -> StreamingResponse:

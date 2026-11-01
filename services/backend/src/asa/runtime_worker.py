@@ -5,6 +5,7 @@ import time
 from typing import Any, TypedDict
 
 from langchain.chat_models import init_chat_model
+from langchain_core.messages import HumanMessage
 from langgraph.graph import END, START, StateGraph
 from langsmith import tracing_context
 from psycopg.types.json import Jsonb
@@ -17,6 +18,7 @@ from asa.registry.model_catalog import effective_settings
 from asa.registry.runtime import RunRepository
 from asa.telemetry import call_config, observed_generate
 from asa.tools.catalog import inspect_text
+from asa.tools.character_handoff import HANDOFF_ID, image_content, read_handoff
 from asa.tools.model_search import search_answer
 from asa.tools.search import SEARCH_ID, search_ready, web_search
 
@@ -28,6 +30,12 @@ class State(TypedDict):
 
 def generate(repo: RunRepository, tool: dict[str, Any], value: Any) -> Any:
     settings = repo.settings
+    attachments = image_content(repo, value)
+    if attachments:
+        from asa.registry.review_connection import validate_review_model
+        validate_review_model(settings, {"provider": tool["provider"], "model": tool["model"]})
+        if tool.get("web_search"):
+            raise ValueError("character_handoff_search_unsupported")
     search = bool(tool.get("web_search"))
     if search and (not repo.model_available(tool) or tool["output_schema"].get("type") != "string"):
         raise ValueError("web_search_unavailable")
@@ -44,11 +52,12 @@ def generate(repo: RunRepository, tool: dict[str, Any], value: Any) -> Any:
             return search_answer(model, tool, value)
     schema = {"title": "AutomationAnswer", "type": "object",
               "properties": {"value": tool["output_schema"]}, "required": ["value"]}
+    text = json.dumps({"input": value, "input_schema": tool["input_schema"]}, ensure_ascii=False)
+    request: Any = (HumanMessage(content=[{"type": "text", "text": text}, *attachments])
+                    if attachments else ("human", text))
     with tracing_context(enabled=False):
         result = model.with_structured_output(schema).invoke([
-            ("system", tool["definition"]["instructions"]),
-            ("human", json.dumps({"input": value, "input_schema": tool["input_schema"]},
-                                 ensure_ascii=False)),
+            ("system", tool["definition"]["instructions"]), request,
         ], **call_config())
     if not isinstance(result, dict):
         raise ValueError("invalid_output")
@@ -161,7 +170,8 @@ def process(repo: RunRepository) -> bool:
                     row.update(provider=tool["provider"], model=tool["model"])
             else:
                 assert isinstance(actual, dict)
-                output = inspect_text(actual["text"], actual["limit"])
+                output = (read_handoff(repo, actual["project_id"]) if tool["id"] == HANDOFF_ID
+                          else inspect_text(actual["text"], actual["limit"]))
             if not accepts(output, tool["output_schema"]):
                 raise ValueError("invalid_output")
             row.update(status="succeeded", output=output)
