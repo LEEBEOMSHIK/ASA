@@ -50,17 +50,18 @@ export function AgentGroups({items,render,manage=false}:{items:{id:string;name:s
   if(!catalog)return <p role={error?"alert":"status"}>{error || "카테고리를 불러오는 중입니다…"}</p>;
   const groups=[{id:"",name:"미분류"},...catalog.categories];
   return <div className="agent-groups">
-    <div className="category-toolbar"><label>에이전트 검색<input value={search} onChange={e=>setSearch(e.target.value)} placeholder="이름으로 검색"/></label><label>카테고리<select value={filter} onChange={e=>setFilter(e.target.value)}><option value="*">전체</option>{groups.map(g=><option key={g.id} value={g.id}>{g.name}</option>)}</select></label></div>
+    <div className="category-toolbar"><label>에이전트 검색<input value={search} onChange={e=>setSearch(e.target.value)} placeholder="이름으로 검색"/></label><label>카테고리<select value={filter} onChange={e=>setFilter(e.target.value)}><option value="*">전체</option>{groups.filter(g=>admin || g.id).map(g=><option key={g.id} value={g.id}>{g.name}</option>)}</select></label></div>
     {admin && <form className="category-create" onSubmit={e=>{e.preventDefault();if(name.trim())void save({...catalog,categories:[...catalog.categories,{id:crypto.randomUUID(),name:name.trim()}]},"카테고리를 추가했습니다.").then(()=>setName(""));}}><label>새 카테고리<input maxLength={60} value={name} onChange={e=>setName(e.target.value)} placeholder="예: 대본 작성"/></label><Button type="submit" disabled={busy || !name.trim()}>카테고리 추가</Button><p className="muted">카드를 잡아 원하는 그룹에 놓으세요. 카드의 ⋯ 메뉴로도 이동할 수 있습니다. 변경하면 바로 저장됩니다.</p></form>}
     {error && <p role="alert">{error}</p>}<p className="category-notice" role="status">{busy?"분류를 저장하는 중…":notice}</p>
     {groups.filter(g=>filter==="*" || filter===g.id).map(group=>{
       const index=catalog.categories.findIndex(c=>c.id===group.id);
       const members=items.filter(a=>(catalog.assignments[a.id] || "")===group.id && a.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
-      return <section key={group.id} className={`agent-group ${over===group.id?"is-drop-target":""}`} aria-label={group.name}
+      if(!admin && !group.id && !members.length)return null;
+      return <section key={group.id} className={`agent-group ${over===group.id?"is-drop-target":""}`} aria-label={!admin && !group.id?"에이전트":group.name}
         onDragOver={e=>{if(admin && drag && !busy && (drag.kind==="agent" || group.id)){e.preventDefault();setOver(group.id);e.dataTransfer.dropEffect="move";}}}
         onDragLeave={e=>{if(!e.currentTarget.contains(e.relatedTarget as Node))setOver(null);}}
         onDrop={e=>{e.preventDefault();if(!admin || !drag || busy)return;if(drag.kind==="agent")moveAgent(drag.id,group.id);else if(group.id)reorder(drag.id,group.id);setDrag(null);setOver(null);}}>
-        <div className="category-heading"><h2>{group.name} <span className="muted">{members.length}개</span></h2>
+        {(admin || group.id) && <div className="category-heading"><h2>{group.name} <span className="muted">{members.length}개</span></h2>
           {admin && group.id && <div className="category-actions">
             <button type="button" className="category-handle" draggable={!busy} disabled={busy} aria-label={`${group.name} 순서 드래그`} onDragStart={e=>{setDrag({kind:"category",id:group.id});e.dataTransfer.setData("text/plain",group.id);e.dataTransfer.effectAllowed="move";}} onDragEnd={()=>{setDrag(null);setOver(null);}}>⠿ 순서</button>
             <Button variant="secondary" disabled={busy || index===0} onClick={()=>reorder(group.id,catalog.categories[index-1].id)} aria-label={`${group.name} 위로 이동`}>↑</Button>
@@ -68,7 +69,7 @@ export function AgentGroups({items,render,manage=false}:{items:{id:string;name:s
             <Button variant="secondary" disabled={busy} onClick={()=>{setEditing(group.id);setRenamed(group.name);}}>이름 변경</Button>
             <Button variant="secondary" disabled={busy} onClick={()=>{if(!window.confirm("카테고리를 삭제할까요? 포함된 에이전트는 미분류로 이동합니다."))return;const assignments=Object.fromEntries(Object.entries(catalog.assignments).filter(([,v])=>v!==group.id));setFilter("*");void save({...catalog,categories:catalog.categories.filter(c=>c.id!==group.id),assignments},"카테고리를 삭제하고 에이전트를 미분류로 이동했습니다.");}}>삭제</Button>
           </div>}
-        </div>
+        </div>}
         {editing===group.id && group.id && <form className="category-create" onSubmit={e=>{e.preventDefault();void save({...catalog,categories:catalog.categories.map(c=>c.id===group.id?{...c,name:renamed.trim()}:c)},"이름을 저장했습니다.");}}><label>카테고리 이름<input value={renamed} maxLength={60} onChange={e=>setRenamed(e.target.value)}/></label><Button type="submit" disabled={busy || !renamed.trim()}>저장</Button><Button variant="secondary" onClick={()=>setEditing("")}>취소</Button></form>}
         {over===group.id && <p className="category-drop-hint">여기에 놓으면 {drag?.kind==="category"?"이 그룹 앞으로 이동합니다.":"이 그룹으로 분류합니다."}</p>}
         <div className="catalog-grid">{members.map(a=><div key={a.id}

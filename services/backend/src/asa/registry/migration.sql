@@ -268,3 +268,10 @@ CREATE TABLE IF NOT EXISTS agent_categories (
  revision integer NOT NULL DEFAULT 0,
  content jsonb NOT NULL DEFAULT '{"categories":[],"assignments":{}}'::jsonb
 );
+
+CREATE TABLE IF NOT EXISTS workspace_branding (
+ workspace_id uuid PRIMARY KEY REFERENCES registry_workspaces(id),
+ revision integer NOT NULL DEFAULT 0,
+ name text NOT NULL DEFAULT 'AI Shorts Studio',
+ logo text
+);

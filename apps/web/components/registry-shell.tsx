@@ -1,4 +1,5 @@
 "use client";
+import { StudioBrand } from "./studio-brand";
 import { SidebarToggle, useSidebarCollapse } from "./sidebar-toggle";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
@@ -12,8 +13,8 @@ export function useDirtyGuard() { return useContext(DirtyContext); }
 export function RegistryShell({ children, adminOnly=false }: { children: ReactNode; adminOnly?:boolean }) {
   const sidebar = useSidebarCollapse();
   const pathname = usePathname();
-  const active = pathname.startsWith("/admin/agents") ? "/admin/agents" : pathname.startsWith("/characters") ? "/characters" : pathname.startsWith("/models") ? "/models" : pathname.startsWith("/monitoring") ? "/monitoring" : pathname.startsWith("/automations") ? "/automations" : pathname.startsWith("/agents") ? "/agents" : "/tools";
-  const title = active === "/admin/agents" ? "에이전트 관리" : active === "/characters" ? "캐릭터 보관함" : active === "/models" ? "AI 모델 관리" : active === "/monitoring" ? "AI 사용량·비용" : active === "/automations" ? "자동화 빌더" : active === "/agents" ? "에이전트" : "도구 라이브러리";
+  const active = pathname.startsWith("/admin/branding") ? "/admin/branding" : pathname.startsWith("/admin/agents") ? "/admin/agents" : pathname.startsWith("/characters") ? "/characters" : pathname.startsWith("/models") ? "/models" : pathname.startsWith("/monitoring") ? "/monitoring" : pathname.startsWith("/automations") ? "/automations" : pathname.startsWith("/agents") ? "/agents" : "/tools";
+  const title = active === "/admin/branding" ? "브랜드 설정" : active === "/admin/agents" ? "에이전트 관리" : active === "/characters" ? "캐릭터 보관함" : active === "/models" ? "AI 모델 관리" : active === "/monitoring" ? "AI 사용량·비용" : active === "/automations" ? "자동화 빌더" : active === "/agents" ? "에이전트" : "도구 라이브러리";
   const [roleLabel, setRoleLabel] = useState("");
   const [admin, setAdmin] = useState(false);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
@@ -46,7 +47,7 @@ export function RegistryShell({ children, adminOnly=false }: { children: ReactNo
   return <DirtyContext.Provider value={setUnsaved}>
     <a className="skip-link" href="#main">본문으로 건너뛰기</a>
     <div className={`studio-app ${sidebar.collapsed ? "is-sidebar-collapsed" : ""}`}>
-      <aside id="studio-navigation" className="studio-sidebar" aria-label="작업 탐색"><SidebarToggle collapsed={sidebar.collapsed} toggle={sidebar.toggle} controls="studio-navigation"/><a className="brand sidebar-brand" href="/"><span className="brand-mark" aria-hidden="true">A</span>AI Shorts Studio</a>
+      <aside id="studio-navigation" className="studio-sidebar" aria-label="작업 탐색"><SidebarToggle collapsed={sidebar.collapsed} toggle={sidebar.toggle} controls="studio-navigation"/><StudioBrand ready={status === "ready"}/>
         <a href="/" className="button button--primary studio-new">＋ 새 작업</a><StudioNavigation active={active} includeAdmin={admin}/>
         <div className="studio-sidebar-note"><strong>내 작업 공간</strong><p>에이전트를 준비하고<br/>나만의 작업 흐름을 만드세요.</p></div>
         <div className="sidebar-footer"><ThemeSelect />{status === "ready" && <Button variant="secondary" disabled={busy} onClick={() => logout()}>로그아웃</Button>}</div>

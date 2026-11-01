@@ -1,4 +1,5 @@
 "use client";
+import { StudioBrand } from "./studio-brand";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, message, type WorkItem } from "../lib/registry";
 import { workStatus } from "./work-history";
@@ -77,7 +78,7 @@ export function CustomerSidebar({ roles, ready, saving, view, activeId, refreshK
     return () => events.close();
   }, [ready, Math.ceil(items.length / 20)]);
   return <div className="customer-sidebar-content">
-    <a className="brand sidebar-brand" href="/"><span className="brand-mark" aria-hidden="true">A</span><span>AI Shorts Studio</span></a>
+    <StudioBrand ready={ready}/>
     <nav aria-label="작업 메뉴" className="sidebar-navigation">
       <button className="sidebar-link sidebar-new" disabled={!ready || saving} aria-current={view === "new" ? "page" : undefined} onClick={onNew}><span aria-hidden="true">＋</span>새 작업</button>
     </nav>

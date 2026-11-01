@@ -9,5 +9,5 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="ko" suppressHydrationWarning><head><script dangerouslySetInnerHTML={{ __html: `(function(){var p='light';try{p=localStorage.getItem('asa-theme')||'light'}catch(e){}document.documentElement.dataset.theme=p==='dark'||(p==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light'})();` }} /></head><body><ThemeProvider>{children}</ThemeProvider></body></html>;
+  return <html lang="ko" suppressHydrationWarning><head><link id="asa-favicon" rel="icon" type="image/svg+xml" href="/icons/asa.svg"/><script dangerouslySetInnerHTML={{ __html: `(function(){var p='light';try{p=localStorage.getItem('asa-theme')||'light'}catch(e){}document.documentElement.dataset.theme=p==='dark'||(p==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light'})();` }} /></head><body><ThemeProvider>{children}</ThemeProvider></body></html>;
 }

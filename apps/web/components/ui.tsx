@@ -22,7 +22,7 @@ export function StudioNavigation({ active, includeHome = true, includeAdmin = fa
     { href: "/agents", label: "에이전트", icon: "agent" },
     { href: "/characters", label: "캐릭터 보관함", icon: "agent" },
     { href: "/tools", label: "도구 라이브러리", icon: "tools" },
-    ...(includeAdmin ? [{ href: "/admin/agents", label: "에이전트 관리", icon: "agent" }, { href: "/models", label: "AI 모델 관리", icon: "tools" }, { href: "/monitoring", label: "AI 사용량·비용", icon: "usage" }] : []),
+    ...(includeAdmin ? [{ href: "/admin/agents", label: "에이전트 관리", icon: "agent" }, { href: "/models", label: "AI 모델 관리", icon: "tools" }, { href: "/monitoring", label: "AI 사용량·비용", icon: "usage" }, { href: "/admin/branding", label: "브랜드 설정", icon: "tools" }] : []),
   ];
   return <nav className="studio-navigation" aria-label="스튜디오 메뉴">
     <p className="studio-nav-label">{includeAdmin ? "사용자" : "스튜디오"}</p>

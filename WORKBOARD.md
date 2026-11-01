@@ -494,3 +494,43 @@ ASA-146 DONE: 미분류 최상단 고정(관리/에이전트/실행 공통), 카
 ASA-147 IN PROGRESS: 다크/모바일 메뉴 구분·접기·카드 메뉴 검증, ASA137–146 변경 선별 및 커밋/푸시.
 
 ASA-147 DONE: 데스크톱 다크 메뉴 사용자/관리자 구분·로고행 버튼 스크린샷 및 접기/열기 확인. viewport390x844/324x720(사용자 확대배율 유지, 실제 CSS433/360)에서 모바일 접이식 메뉴 열기/닫기·사용자/관리자 구분·카드 메뉴 확인. CSS360 document343, 메뉴 left74.8/right294.8, 항목44px; 가로 넘침 없음. 모바일 스크린샷 API 반복 시간초과로 픽셀 시각 검증 미완료(DOM/요소 경계 검증 완료), 실제 iOS/Safari 미검증. 화면모드 밝게·viewport 원복, 데이터 이동/유료호출 없음. 최종 코드 검증 ASA146 backend242 tests/ruff/mypy46 및 frontend typecheck/build 통과 이후 제품 코드 변경 없음. ASA137–146 코드/테스트/문서26개 선별, 사용자자료·생성이미지·DB·비밀·캐시 제외/로컬 보존, 파일 삭제0.
+
+ASA-148 IN PROGRESS: 작업 공간·사용자 에이전트의 미분류 제목/필터 제거, 에이전트 접근 유지 및 관리자 미분류 유지.
+
+ASA-148 DONE: 공통 AgentGroups에서 사용자 화면 미분류 제목/필터 제거, 빈 미분류 영역 숨김. 미분류 에이전트 자체는 전체/검색에서 유지하고 관리자 미분류 그룹·이동 대상 유지. 실제 작업 공간/에이전트 DOM 확인, 관리자 미분류 0개 유지 확인. 에이전트 다크 화면 스크린샷 및 카드6개/카테고리3개/가로 넘침 없음 확인. 현재 미분류0개이므로 미분류 카드 존재 상태와 모바일/밝은 테마 재검증은 미실행(조건부 렌더링 변경, CSS 불변). pytest242 passed87.79s, backend src ruff 및 mypy46, frontend typecheck/build 통과. 전체 backend ruff는 기존 테스트 파일71건 오류로 실패(이번 변경 없음). 샌드박스 uv 캐시/DB/빌드복사 제약은 기존 venv 및 승인된 로컬 실행으로 재검증. 사용자 데이터 변경·유료 호출·커밋 없음.
+
+ASA-149 IN PROGRESS: 관리자 브랜드 설정(이름/로고) 추가, 이미지 드롭/파일선택·미리보기·DB 저장 및 공통 GNB 반영. workspace/관리자/CSRF/충돌/이미지 검증.
+
+ASA-149 DONE: 관리자 /admin/branding 메뉴·서비스 이름·PNG/JPG/WebP 5MB 드롭/선택·96px 비율유지 PNG 변환·미리보기·저장·문자 로고 복원 구현. workspace_branding DB 저장/revision409/관리자 권한/CSRF/PNG CRC·크기·압축 검증. 작업 공간/RegistryShell 공통 StudioBrand 반영, 주기조회 없음. 기본 로고/이름은 변경하지 않음. API8127만 재시작 및 추가 테이블 적용, 워커 유지. 테스트251개87.80s 통과, 이미지 저장/재조회 보강 후 관련2개 재통과. src ruff/new unit ruff/mypy47/typecheck/build 통과. 기존 전체 tests lint71건은 별개로 남음. 실제 파일 선택→미리보기→기본문자 복원 확인, 다크 데스크톱/밝은 모바일450CSS폭 스크린샷 및 넘침 없음 확인. 실제 OS 파일 드롭 제스처·사용자 workspace 저장은 미실행(DB저장은 테스트 schema), 기존 테마dark/viewport 원복. 문서 갱신, 사용자 이미지/비밀 커밋 없음. ASA148 미커밋 변경 유지.
+
+ASA-150 IN PROGRESS: 브랜드 설정 전용900px 폭 제한 제거, 공통 관리자 컨테이너 폭 사용 및 실제 경계 확인.
+
+ASA-150 DONE: brand-settings의900px max-width 제거, width100%/min-width0으로 공통 본문 폭 사용. 실제 다크 데스크톱 max-width none/내용폭1473.26px/가로넘침 없음 스크린샷 확인, 모바일 CSS450px/내용399.26px 넘침 없음 DOM확인·viewport 원복. 미리보기 내부 로고만 실제 메뉴 크기 유지. 디자인 시스템 관리자 임의 폭 제한 금지 명시. pytest251 passed85.89s, src ruff/mypy47/typecheck/build/diff-check 통과. 기존 테스트 lint71건은 이전 기록대로 미해결. 데이터/로고 변경 및 커밋 없음.
+
+ASA-151 IN PROGRESS: 로고 드롭 영역 내 선택 이미지 썸네일·교체 안내·이미지 변경 버튼 추가. 기존 사용자 선택값 유지.
+
+ASA-151 DONE: 드롭 영역 내 선택 로고96px 썸네일/선택 상태/교체 안내·이미지 변경 버튼 추가. 동일 draft.logo를 사용해 하단 메뉴 미리보기와 일치. 실제 사용자 선택 이미지 로딩·두 이미지src 일치·96px/16px 간격·가로넘침 없음 스크린샷/DOM 검증. 사용자 미저장 이미지와 입력 유지, 저장/파일교체/화면이동 안함. src ruff/mypy47/frontend typecheck/build/diff-check 통과. 모바일/밝은 테마 이번 변경 재확인 없음. 디자인시스템 업로드 영역 직접 미리보기 규칙 추가.
+ASA-151 검증 추가: pytest251 passed84.77s. 기존 테스트 파일 lint71건은 이전 작업 기록과 동일하게 미해결.
+
+### ASA152 · 브랜드 설정 변경 취소 (진행 중)
+- 이미지 변경 취소와 전체 변경 취소를 추가. 이미지 처리 중 취소 시 늦게 완료된 결과가 다시 적용되지 않도록 무효화.
+- 실제 화면 및 필수 검사 확인 예정.
+
+ASA152 DONE: 이미지 변경 취소(이름 유지) 및 전체 변경 취소(마지막 저장 상태 복원) 구현. 비동기 이미지 변환 결과 무효화. 별도 실제 브라우저 탭에서 파일 선택→이미지만 취소→이름 유지→전체 취소→원래 이름/저장 비활성 확인, 다크 화면 버튼 정렬 확인. 사용자 탭 미저장 이미지 보존, DB 저장 없음. pytest251 passed84.96s, src ruff/mypy47/typecheck 통과. 기존 테스트 lint71건은 별개 미해결. 모바일 이번 변경 미검증.
+ASA152 검증 추가: frontend production build 및 git diff --check 통과.
+
+ASA153 IN PROGRESS: 브랜드 이미지/전체 변경 취소를 18px 되돌리기 아이콘·44px 클릭 영역으로 변경, hover/focus 설명과 접근성 이름 유지.
+
+ASA153: 아이콘 취소 UI 적용. 실제 다크 데스크톱 전체 취소 44px 클릭영역/18px SVG/텍스트 없음 확인. 사용자 데이터 변경 없음. 이미지 취소는 같은 컴포넌트 사용, 모바일 및 hover/focus 직접 조작 이번 변경 미검증. typecheck/build/src ruff/mypy47/diff-check 통과. 전체 pytest 진행 중.
+ASA153 DONE: 전체 pytest251 passed86.04s. 기존 테스트 파일 lint71건은 이전 기록대로 별개 미해결.
+
+ASA154 IN PROGRESS: 저장된 작업 공간 로고를 favicon에 반영. 기본 A 아이콘 및 로그아웃/미설정 fallback, 저장 이벤트로 갱신. 미저장 선택은 적용하지 않음.
+
+ASA154 DONE: 저장된 logo PNG를 favicon 링크로 적용, 변경 이벤트 재조회 후 갱신 및 unmount 정리. 기본 SVG A 아이콘 제공. 실제 새 브라우저 화면에서 favicon href와 sidebar logo src 동일 확인. DB 변경/로고 저장 없음. pytest251 passed83.72s, src ruff/mypy47/typecheck/build/diff-check 통과. 기존 테스트 lint71건 별개. 저장/로그아웃 조작 이번 검증 미실행.
+
+ASA155 IN PROGRESS: favicon 기본 SVG/사용자 PNG 중복 등록으로 기본 A가 선택되는 문제. metadata 별도 icon 제거하고 head 단일 asa-favicon 링크를 갱신/복원하도록 수정.
+
+ASA156 IN PROGRESS: ASA148~155 변경 범위 검토 후 커밋/푸시. 현재 사용자 탭 favicon 단일 PNG 링크와 메뉴 로고 일치, 로딩 완료 및 console error/warn 없음 확인. 사용자 자료/로컬캐시 제외.
+
+ASA155 DONE: Next head 재조정 시 기본 아이콘 재삽입까지 처리하도록 MutationObserver로 icon href/type을 저장된 로고로 동기화. 값이 다를 때만 변경하고 cleanup 시 observer 해제/기본값 복원. 사용자 화면 및 브랜드 설정 DOM에서 모든 icon 링크가 메뉴 PNG와 동일 확인. 실제 탭 표시 사용자 확인. 로그인 화면 fallback 재검증은 브라우저 CDP timeout으로 미완료.
+ASA156 검증 완료: pytest251 passed87.54s, frontend typecheck/build, backend src ruff 및 mypy47, diff-check 통과. 전체 backend ruff 기존 테스트71건 잔존 재확인. 사용자 데이터 저장/변경 없음. ASA148~155 코드/테스트/문서19파일만 포함, .env/.local/.next/.venv 제외 확인. 삭제0건. 커밋/푸시 진행.

@@ -304,3 +304,8 @@ ASA-130: 이미지 검수 호출은 사용자 output_schema의 value와 별도�
 - 이 기능은 캐릭터 생성의 자동 승인이나 다음 에이전트 자동 선택 기능이 아니다. 자동화 연결은 사용자가 구성한다. 샘플 실행은 실데이터를 읽지 않고 샘플 출력을 요구한다.
 
 ASA-142: agent_categories는 workspace별 카테고리 순서/명칭과 agent ID 단일 소속을 보관한다. GET은 인증 사용자 조회, PUT은 owner/admin 전용. revision 잠금으로 충돌을 차단하고 같은 workspace의 agent ID만 허용한다. 삭제는 해당 소속 제거로 미분류 이동; 지침·불변 실행 버전을 수정하지 않는다. 관리 화면 DnD/키보드 이동은 서버 저장 성공 후 반영하며 일반 실행 화면은 같은 분류를 조회한다.
+
+## 작업 공간 브랜드 설정 (ASA-149)
+- workspace_branding에 이름·96px PNG 로고·revision을 저장한다. 인증 사용자 조회, owner/admin만 변경하며 기존 CSRF와 크기 제한을 적용한다. revision 충돌은409로 막는다.
+- 브라우저에서 PNG/JPG/WebP(5MB 이하)를 비율 유지해96px PNG로 변환한다. 서버는 PNG 크기/청크 CRC/압축 해제 크기를 검증한다. 원본 이미지는 서버나 Git에 저장하지 않는다.
+- 작업 공간/RegistryShell 공통 StudioBrand를 사용한다. 저장 이벤트 때 현재 화면 갱신, 다른 열린 화면은 새로고침시 반영한다. 로그인 전과 브라우저 title은 기본명 유지. 주기적 DB 폴링 없음.

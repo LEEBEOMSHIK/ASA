@@ -10,6 +10,7 @@ from asa.auth.session import OwnerSessions
 from asa.config import Settings
 from asa.database import close_database, connection
 from asa.registry.automations import automation_router
+from asa.registry.branding import branding_router
 from asa.registry.categories import category_router
 from asa.registry.characters import character_router
 from asa.registry.history import history_router
@@ -40,6 +41,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(model_catalog_router(settings, sessions))
     app.include_router(character_router(settings, sessions))
     app.include_router(category_router(settings, sessions))
+    app.include_router(branding_router(settings, sessions))
 
     @app.middleware("http")
     async def request_limits(

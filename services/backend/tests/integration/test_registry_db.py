@@ -2213,3 +2213,38 @@ def test_categories_reject_duplicate_or_invalid_names(client):
         body = {"revision": 0, "categories": [{"id": one, "name": names[0]},
                  {"id": two, "name": names[1]}], "assignments": {}}
         assert client.put("/api/v1/agent-categories", json=body, headers=headers).status_code == 422
+
+
+def test_branding_save_conflict_isolation_and_csrf(client, db):
+    from asa.registry.branding import read
+
+    url = "/api/v1/branding"
+    assert client.get(url).status_code == 401
+    headers = login(client)
+    original = client.get(url).json()
+    logo = ("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0k"
+            "AAAAEUlEQVR4nGNocPj/H4QZYAwAXlIK+eiZmxgAAAAASUVORK5CYII=")
+    body = {**original, "name": "테스트 스튜디오", "logo": logo}
+    assert client.put(url, json=body).status_code == 403
+    result = client.put(url, json=body, headers=headers)
+    assert result.status_code == 200
+    assert result.json()["revision"] == 1
+    assert client.get(url).json()["name"] == "테스트 스튜디오"
+    assert client.get(url).json()["logo"] == logo
+    assert client.put(url, json=body, headers=headers).status_code == 409
+    bad = {**result.json(), "logo": "data:image/svg+xml;base64,PHN2Zz4="}
+    assert client.put(url, json=bad, headers=headers).status_code == 422
+    other = uuid4()
+    migrate(db[0], other)
+    assert read(RegistryRepository(db[0], other)) == original
+
+
+def test_branding_member_read_only(db, monkeypatch):
+    from asa.auth.session import OwnerSessions, Principal
+
+    monkeypatch.setattr(OwnerSessions, "principal", lambda self: Principal(
+        user_id="member", workspace_id=db[1], roles=("member",)))
+    with TestClient(create_app(Settings(_env_file=None, database_url=db[0]))) as member:
+        data = member.get("/api/v1/branding").json()
+        assert data["name"] == "AI Shorts Studio"
+        assert member.put("/api/v1/branding", json=data).status_code == 403
