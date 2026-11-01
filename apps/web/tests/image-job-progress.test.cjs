@@ -76,3 +76,29 @@ test('agent icon defaults to a compact display with optional change and shared h
  const chosen=renderToStaticMarkup(React.createElement(AgentIcon,{icon:'shield'}));
  assert.ok(chosen.includes('data-agent-icon="shield"'));
 });
+
+test('review prose renders headings and lists while keeping model HTML inert',()=>{
+ const {ReviewAnswer}=require('../components/review-answer.tsx');
+ const html=renderToStaticMarkup(React.createElement(ReviewAnswer,{value:'### 검토 요약\n안내\n\n### 문제점\n- **후면**: 돌기\n- <script>alert(1)</script>\n\n1. 확인\n2. 수정'}));
+ assert.ok(html.includes('<h5>검토 요약</h5>'));
+ assert.ok(html.includes('<strong>후면</strong>'));
+ assert.ok(html.includes('<ul>')); assert.ok(html.includes('<ol>'));
+ assert.ok(html.includes('&lt;script&gt;')); assert.ok(!html.includes('<script>'));
+ assert.ok(!html.includes('###'));
+});
+
+test('legacy review dashboard never fabricates compliance or severity',()=>{
+ const {ReviewDashboard,reviewReport}=require('../components/review-dashboard.tsx');
+ const value='### 검토 요약\n설정 비교\n### 확인된 문제와 위치\n- 후면: 흰 돌기\n- 발: 페인트\n### 수정 요청 제안\n- 돌기 확인\n### 사람이 확인할 부분\n- 꼬리 여부';
+ assert.equal(reviewReport(value).report.issues.length,2);
+ const html=renderToStaticMarkup(React.createElement(ReviewDashboard,{value}));
+ assert.ok(html.includes('미집계')); assert.ok(html.includes('확인 의견 1.'));
+ assert.ok(!html.includes('심각도:')); assert.ok(html.includes('수정 지시 복사'));
+ assert.equal(reviewReport('자유로운 검수 의견'),null);
+});
+test('structured review dashboard derives counts from actual requirement verdicts',()=>{
+ const {ReviewDashboard}=require('../components/review-dashboard.tsx');
+ const value={format:'image_review_v1',answer:'원래 답변',report:{summary:'검토',requirements:[{label:'색상',status:'met',evidence:'확인'},{label:'후면',status:'unknown',evidence:'가림'}],issues:[],edit_instruction:'',human_checks:[]}};
+ const html=renderToStaticMarkup(React.createElement(ReviewDashboard,{value}));
+ assert.ok(html.includes('1 / 2')); assert.ok(html.includes('사람 확인 필요')); assert.ok(!html.includes('수정 지시 복사'));
+});

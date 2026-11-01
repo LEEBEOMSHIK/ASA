@@ -1,9 +1,10 @@
 "use client";
+import { ReviewConnectionStatus } from "./review-connection-status";
 import { AgentIconPicker } from "./agent-icon-picker";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { api, ApiError, message, type Agent, type Definition, type Issue, type Tool, type Version, type SchemaNode } from "../lib/registry";
+import { latestAgentTools, currentAgentRef, api, ApiError, message, type Agent, type Definition, type Issue, type Tool, type SchemaNode } from "../lib/registry";
 import { AgentIcon, Button, Card, Field, StatusBadge, HelpText } from "./ui";
 import { ExecutionExample, GroupedTools, FriendlyFields, starters, starterDefinition } from "./agent-guide";
 import { AgentRunPreview } from "./agent-run-preview";
@@ -29,7 +30,6 @@ export function AgentEditor({ id }: { id?: string }) {
   }, [preview]);
   const [selectedStarter, setSelectedStarter] = useState<number | null>(null);
   const [revision, setRevision] = useState(0);
-  const [versions, setVersions] = useState<Version[]>([]);
   const [models, setModels] = useState<{id:string;label:string;provider:"openai"|"anthropic"}[]>([]);
   const [defaultModel, setDefaultModel] = useState<string | null>(null);
   const [tools, setTools] = useState<Tool[]>([]);
@@ -45,8 +45,8 @@ export function AgentEditor({ id }: { id?: string }) {
   useEffect(() => {
     let active = true;
     Promise.all([api<{models: typeof models;default_model:string|null}>("/ai-models"), api<Tool[]>("/tools"), id ? api<Agent>(`/agents/${id}`) : Promise.resolve(null)])
-      .then(([modelCatalog, catalog, agent]) => { if (!active) return; setModels(modelCatalog.models); setDefaultModel(modelCatalog.default_model); setTools(catalog);
-        if (agent) { setDraft(agent.draft); setRevision(agent.revision); setVersions(agent.versions || []); }
+      .then(([modelCatalog, catalog, agent]) => { if (!active) return; setModels(modelCatalog.models); setDefaultModel(modelCatalog.default_model); setTools(latestAgentTools(catalog));
+        if (agent) { setDraft({...agent.draft, tools: [...new Set(agent.draft.tools.map(ref => currentAgentRef(ref, catalog)))], after_tasks: {image_review: agent.draft.after_tasks?.image_review ? {...agent.draft.after_tasks.image_review, agent_ref: currentAgentRef(agent.draft.after_tasks.image_review.agent_ref, catalog)} : null}}); setRevision(agent.revision); }
       }).catch(e => { if (active) { setError(message(e)); setFailedLoad(true); } })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -62,21 +62,13 @@ export function AgentEditor({ id }: { id?: string }) {
     };
     edit({ ...draft, output_schema });
   }
-  async function action(kind: "save" | "validate" | "publish") {
+  async function action(kind: "save") {
     setBusy(true); setError(""); setNotice(""); setIssues([]);
     try {
-      if (kind === "save") {
-        const saved = await api<Agent>(id ? `/agents/${id}/draft` : "/agents", id ? "PATCH" : "POST", draft, id ? revision : undefined);
-        setRevision(saved.revision); setDraft(saved.draft); setDirty(false); setUnsaved(false);
-        if (!id) router.replace(`/agents/${saved.id}`); else setNotice("초안을 저장했습니다.");
-      } else if (kind === "validate") {
-        const result = await api<{ issues: Issue[] }>(`/agents/${id}/validate`, "POST");
-        setIssues(result.issues); setNotice(result.issues.length ? "수정할 항목이 있습니다." : "저장된 초안의 검증을 통과했습니다.");
-      } else {
-        await api(`/agents/${id}/publish`, "POST", {}, revision);
-        const saved = await api<Agent>(`/agents/${id}`);
-        setVersions(saved.versions || []); setNotice("에이전트 버전을 등록했습니다. 등록만으로 AI가 실행되지는 않습니다.");
-      }
+      const saved = await api<Agent>(id ? `/agents/${id}/save` : "/agents/save", id ? "PUT" : "POST", draft, id ? revision : undefined);
+      setRevision(saved.revision); setDraft(saved.draft); setDirty(false); setUnsaved(false);
+      setNotice("저장했습니다. 이후 새로 접수하는 작업에 적용됩니다.");
+      if (!id) router.replace(`/agents/${saved.id}`);
     } catch (e) { setError(message(e)); if (e instanceof ApiError) setIssues(e.issues); }
     finally { setBusy(false); }
   }
@@ -87,8 +79,8 @@ export function AgentEditor({ id }: { id?: string }) {
     <a className="back-link" href="/agents">← 나의 에이전트</a>
     <div className="page-heading"><div><p className="eyebrow">AGENT WORKSPACE</p><h1>{id ? draft.name || "에이전트 편집" : "어떤 일을 맡겨볼까요?"}</h1>
       <p className="muted">에이전트는 반복할 일을 맡아주는 AI 도우미예요. 역할과 필요한 정보를 정해 주세요.</p></div>
-      <StatusBadge tone={dirty ? "warning" : "neutral"}>{dirty ? "저장 전 변경 있음" : id ? "초안 저장됨" : "새 에이전트"}</StatusBadge></div>
-    <form onInvalidCapture={e => {
+      <StatusBadge tone={dirty ? "warning" : "neutral"}>{dirty ? "저장 전 변경 있음" : id ? "저장된 설정" : "새 에이전트"}</StatusBadge></div>
+    <form className="agent-editor-form" onInvalidCapture={e => {
       if (e.target instanceof HTMLElement) {
         let parent = e.target.parentElement;
         while (parent) { if (parent instanceof HTMLDetailsElement) parent.open = true; parent = parent.parentElement; }
@@ -102,21 +94,20 @@ export function AgentEditor({ id }: { id?: string }) {
           {dirty && <p className="helper-text">다른 예시를 선택하면 작성 중인 내용이 해당 예시로 바뀝니다.</p>}
         </section>}
         <details className="advanced editor-section"><summary>AI에 어떤 내용이 전달되나요?</summary>
-          <ul><li><strong>에이전트 지침:</strong> 실행에 선택된 등록 버전의 지침을 전달합니다. 편집 중인 초안이 바로 적용되지는 않습니다.</li>
+          <ul><li><strong>에이전트 지침:</strong> 새 작업을 접수할 때 최신 저장 지침을 고정해 전달합니다. 저장 전 편집 내용은 적용되지 않습니다.</li>
           <li><strong>사용자 입력:</strong> 실행 화면에 입력한 주제·자료 등 실제 값이 전달됩니다. 이 화면에서는 입력 항목을 설정합니다.</li>
           <li><strong>답변 형식:</strong> 개별 실행과 자동화 모두 등록한 답변 형식을 사용합니다. 자유로운 답변은 글로, 항목별 답변은 설정한 항목으로 받습니다.</li>
           <li><strong>대본 수정:</strong> 이전 대본과 수정 요청도 함께 전달됩니다. 서비스가 정한 대본 작성 범위와 기본 지침도 포함됩니다.</li>
           <li><strong>관리용 설정:</strong> 이름·한 줄 소개는 현재 생성 프롬프트에 포함되지 않습니다. 모델 선택과 실행 한도는 호출을 제어하는 설정입니다.</li></ul>
-          <p className="muted">저장·등록·화면 미리보기만으로는 AI에 전송하지 않습니다. 실제 실행 시 선택한 공급자의 API로 전달됩니다. 자동화의 도구 결과는 다음 블록의 입력으로 연결한 경우 전달됩니다.</p>
+          <p className="muted">저장·화면 미리보기만으로는 AI에 전송하지 않습니다. 실제 실행 시 선택한 공급자의 API로 전달됩니다. 자동화의 도구 결과는 다음 블록의 입력으로 연결한 경우 전달됩니다.</p>
         </details>
         <div className="guided-layout"><div className="stack">
           <section id="role" className="editor-section"><div className="section-heading"><span className="step-number">1</span><div><h2>에이전트 기본 설정</h2><p className="muted">이름을 붙이고, 에이전트가 실행할 때마다 따를 지침을 적어 주세요.</p></div></div>
             <Field id="agent-name" label="에이전트 이름" annotation="관리용">{p => <input {...p} required maxLength={80} placeholder="예: 우리 채널의 쇼츠 작가" value={draft.name} onChange={e => edit({ ...draft, name: e.target.value })} />}</Field>
             <AgentIconPicker value={draft.icon} onChange={icon=>edit({...draft,icon})}/>
             <Field id="agent-description" label="한 줄 소개" annotation="관리용" hint="어떤 상황에 쓰는 도우미인지 알아볼 수 있게 적어 주세요.">{p => <input {...p} maxLength={400} placeholder="예: 어려운 과학 이야기를 30초 대본으로 바꿔요." value={draft.description} onChange={e => edit({ ...draft, description: e.target.value })} />}</Field>
-            <Field id="agent-purpose" label="에이전트 용도" hint="이미지 검수는 이미지 결과 화면에서 실행합니다. 이미지를 볼 수 있는 모델을 선택하세요.">{p=><select {...p} value={draft.purpose || "general"} onChange={e=>edit({...draft,purpose:e.target.value as "general"|"image_review"})}><option value="general">일반 에이전트</option><option value="image_review">이미지 검수 에이전트</option></select>}</Field>
             <Field id="agent-instructions" label="에이전트 지침" annotation="AI에 전달" help="이 에이전트가 매번 지킬 작업 규칙입니다. 예: ‘30초 대본을 쓰고, 첫 문장은 질문으로 시작하세요.’ ‘고양이가 상자를 좋아하는 이유’ 같은 이번 주제는 여기 대신 실행 화면에 입력하세요." hint="매번 실행할 때 적용할 역할, 말투, 꼭 지킬 규칙을 적어 주세요. 주제처럼 실행마다 달라지는 내용은 실행 화면에서 입력합니다.">{p => <textarea {...p} required rows={6} maxLength={8000} placeholder="예: 주어진 주제로 30초 대본을 써 주세요. 첫 문장은 질문으로 시작하고, 전문 용어는 쉽게 풀어 주세요." value={draft.instructions} onChange={e => edit({ ...draft, instructions: e.target.value })} />}</Field>
-            <Field id="model-profile" label="사용할 AI 모델" annotation="호출 설정" help="누가 답변을 만들지 선택합니다. 기본 모델은 관리자가 정한 현재 모델을 따르고, 특정 모델을 고르면 그 모델을 계속 사용합니다. 모델에 따라 답변 특성·속도·비용이 달라집니다. 새 버전을 등록해도 이전 작업의 기록은 바뀌지 않습니다." hint="기본 모델을 선택하면 새 실행 시 작업 공간의 현재 기본 모델을 따릅니다. 특정 모델을 선택하면 해당 모델을 사용합니다. 선택을 변경한 뒤에는 초안 저장 후 새 버전을 등록하세요.">{p => <select {...p} value={draft.model ? `${draft.provider}:${draft.model}` : ""} onChange={e => { const selected = models.find(m => `${m.provider}:${m.id}` === e.target.value); edit({ ...draft, provider: selected?.provider ?? null, model: selected?.id ?? null }); }}><option value="">작업 공간 기본 모델{defaultModel ? ` · ${defaultModel}` : " · 관리자 설정 필요"}</option>{draft.model && !models.some(m => m.id === draft.model && m.provider === draft.provider) && <option value={`${draft.provider}:${draft.model}`}>{draft.model} · 사용할 수 없음</option>}{models.map(m => <option key={`${m.provider}:${m.id}`} value={`${m.provider}:${m.id}`}>{m.provider === "openai" ? "OpenAI" : "Claude"} · {m.label}</option>)}</select>}</Field>
+            <Field id="model-profile" label="사용할 AI 모델" annotation="호출 설정" help="누가 답변을 만들지 선택합니다. 기본 모델은 관리자가 정한 현재 모델을 따르고, 특정 모델을 고르면 그 모델을 계속 사용합니다. 모델에 따라 답변 특성·속도·비용이 달라집니다. 설정을 저장해도 이전 작업의 기록은 바뀌지 않습니다." hint="기본 모델을 선택하면 새 실행 시 작업 공간의 현재 기본 모델을 따릅니다. 특정 모델을 선택하면 해당 모델을 사용합니다. 선택을 변경한 뒤에는 저장하세요.">{p => <select {...p} value={draft.model ? `${draft.provider}:${draft.model}` : ""} onChange={e => { const selected = models.find(m => `${m.provider}:${m.id}` === e.target.value); edit({ ...draft, provider: selected?.provider ?? null, model: selected?.id ?? null }); }}><option value="">작업 공간 기본 모델{defaultModel ? ` · ${defaultModel}` : " · 관리자 설정 필요"}</option>{draft.model && !models.some(m => m.id === draft.model && m.provider === draft.provider) && <option value={`${draft.provider}:${draft.model}`}>{draft.model} · 사용할 수 없음</option>}{models.map(m => <option key={`${m.provider}:${m.id}`} value={`${m.provider}:${m.id}`}>{m.provider === "openai" ? "OpenAI" : "Claude"} · {m.label}</option>)}</select>}</Field>
           </section>
           <section id="information" className="editor-section"><div className="section-heading"><span className="step-number">2</span><div><h2>실행할 때 쓸 입력 양식과 결과 항목</h2><p className="muted">1번은 ‘항상 지킬 작업 지침’, 2번은 ‘실행할 때마다 바뀔 정보’를 정하는 곳이에요.</p></div></div>
             <div className="run-preview-entry"><div><strong>직접 입력해 보면 더 쉬워요</strong><p className="muted">현재 작성한 항목으로 실행 화면을 열어 봅니다. 저장하지 않은 설정도 반영되며, 실제 AI 호출은 하지 않아요.</p></div>
@@ -131,14 +122,15 @@ export function AgentEditor({ id }: { id?: string }) {
                   <span><strong>항목별로 받기</strong><span className="muted">AI가 채워줄 답변 항목을 정하세요. 예: 제목 · 대본 · 해시태그</span></span></label>
               </fieldset>
               {draft.output_schema.type !== "string" && <><p className="muted">예를 들어 ‘제목’, ‘대본’, ‘해시태그’를 항목으로 정하면, 실행할 때 AI가 각 항목에 맞는 내용을 작성해요. 아래에는 답변 자체가 아니라 AI가 작성할 항목의 설명을 적어 주세요.</p><FriendlyFields kind="output" value={draft.output_schema} onChange={output_schema => edit({ ...draft, output_schema })} /></>}</div>
-            <div className="approval-setting"><div className="help-row"><h3>답변 확인과 확정</h3><HelpText label="사용자 확정 필요">개별 실행의 답변을 사용자가 확인한 뒤 완료하도록 설정합니다. 대본, 장면 구성 등 답변 종류와 관계없이 적용됩니다. 자동화의 진행 승인은 자동화 빌더의 검토 단계에서 설정하세요.</HelpText></div><label className="checkbox"><input type="checkbox" checked={Boolean(draft.requires_approval)} onChange={e=>edit({...draft,requires_approval:e.target.checked})}/>사용자 확정 필요</label><p className="muted">켜면 답변이 나와도 ‘검토 필요’로 표시됩니다. 사용자가 확정해야 완료되고, 수정하거나 다시 생성하면 재검토가 필요합니다.</p><p className="helper-text">초안 저장 후 새 버전을 등록하면 이후 해당 버전으로 실행하는 작업에 적용됩니다. 이전 작업의 설정은 바뀌지 않습니다.</p></div>
+            <div className="approval-setting"><div className="help-row"><h3>답변 확인과 확정</h3><HelpText label="사용자 확정 필요">개별 실행의 답변을 사용자가 확인한 뒤 완료하도록 설정합니다. 대본, 장면 구성 등 답변 종류와 관계없이 적용됩니다. 자동화의 진행 승인은 자동화 빌더의 검토 단계에서 설정하세요.</HelpText></div><label className="checkbox"><input type="checkbox" checked={Boolean(draft.requires_approval)} onChange={e=>edit({...draft,requires_approval:e.target.checked})}/>사용자 확정 필요</label><p className="muted">켜면 답변이 나와도 ‘검토 필요’로 표시됩니다. 사용자가 확정해야 완료되고, 수정하거나 다시 생성하면 재검토가 필요합니다.</p><p className="helper-text">저장하면 이후 새로 접수하는 작업에 적용됩니다. 이전 작업의 설정은 바뀌지 않습니다.</p></div>
             <details className="advanced"><summary>구체적인 입력값과 결과 예시 더 보기</summary><ExecutionExample /></details>
           </section>
-          {draft.purpose!=="image_review" && <section className="editor-section after-task-settings"><h2>답변 이후 작업</h2>
+          {<section className="editor-section after-task-settings"><h2>답변 이후 작업</h2>
             <p className="muted">캐릭터 이미지 결과에서 사용할 검수 에이전트를 연결합니다. 이미지 생성·사람의 확정과는 별개이며, 검수가 없어도 작업할 수 있습니다.</p>
-            <Field id="image-review-agent" label="이미지 검수 에이전트" hint="검수 에이전트를 먼저 만들고 버전을 등록하면 목록에 나타납니다.">{p=><select {...p} value={draft.after_tasks?.image_review?.agent_ref || ""} onChange={e=>edit({...draft,after_tasks:{image_review:e.target.value?{agent_ref:e.target.value,mode:draft.after_tasks?.image_review?.mode || "manual"}:null}})}><option value="">사용 안 함 · 직접 확인</option>{tools.filter(t=>t.purpose==="image_review" && t.agent_id!==id).map(t=><option key={t.id} value={t.id}>{t.name} · v{t.version}</option>)}</select>}</Field>
+            <Field id="image-review-agent" label="이미지 검수 에이전트" hint="등록한 에이전트를 선택하면 이미지 입력과 모델 지원 여부를 확인합니다.">{p=><select {...p} value={draft.after_tasks?.image_review?.agent_ref || ""} onChange={e=>edit({...draft,after_tasks:{image_review:e.target.value?{agent_ref:e.target.value,mode:draft.after_tasks?.image_review?.mode || "manual"}:null}})}><option value="">사용 안 함 · 직접 확인</option>{tools.filter(t=>t.kind==="agent" && t.agent_id!==id).map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select>}</Field>
+            {draft.after_tasks?.image_review && <ReviewConnectionStatus agentRef={draft.after_tasks.image_review.agent_ref}/>}
             {draft.after_tasks?.image_review && <Field id="image-review-mode" label="검수 실행 시점">{p=><select {...p} value={draft.after_tasks!.image_review!.mode} onChange={e=>edit({...draft,after_tasks:{image_review:{...draft.after_tasks!.image_review!,mode:e.target.value as "manual"|"automatic"}}})}><option value="manual">이미지에서 ‘AI 검수 요청’을 누를 때</option><option value="automatic">이미지가 생성되면 자동으로</option></select>}</Field>}
-            <p className="helper-text">검수도 별도 API 비용이 발생합니다. 자동 재생성·자동 확정은 하지 않습니다. 초안 저장 후 새 버전을 등록하면 새 작업에 적용되며, 이전 요청과 자동화 블록에는 소급 적용되지 않습니다.</p>
+            <p className="helper-text">검수도 별도 API 비용이 발생합니다. 자동 재생성·자동 확정은 하지 않습니다. 저장하면 새 작업에 적용됩니다. 새 검수 요청은 연결된 검수 에이전트의 최신 저장 설정을 사용하며, 이미 접수된 검수는 바뀌지 않습니다.</p>
           </section>}
           <section id="tools" className="editor-section"><div className="section-heading"><span className="step-number">3</span><div><div className="help-row"><h2>사용할 도구와 에이전트</h2><HelpText label="사용할 도구와 에이전트">ASA 기본 도구는 길이 검사 같은 기능이고, 내가 만든 에이전트는 지침과 모델을 등록한 AI 도우미입니다. 선택은 자동화의 실행 순서를 정하는 것이 아닙니다. 현재는 연결 설정만 저장되며, 실행 중 이들을 호출하는 기능은 아직 지원하지 않습니다.</HelpText></div><p className="muted">선택 사항 · {draft.tools.length}개 선택됨</p></div></div>
             <p className="muted">현재는 연결 설정만 저장됩니다. 에이전트가 실행 중 도구나 다른 에이전트를 호출하는 기능은 아직 지원하지 않습니다. 선택하지 않아도 등록할 수 있습니다.</p>
@@ -150,16 +142,20 @@ export function AgentEditor({ id }: { id?: string }) {
           </details>
         </div><aside className="editor-summary"><Card><p className="eyebrow">한눈에 보기</p><AgentIcon icon={draft.icon}/><h2>{draft.name || "나의 새 에이전트"}</h2><p className="muted">{draft.description || "에이전트의 역할과 지침을 설정해 주세요."}</p>
           <div className="summary-flow"><span>사용자가 입력할 항목</span><p>{Object.entries(draft.input_schema.properties || {}).map(([k, v]) => v.description || k).join(" · ") || "세부 형식 참고"}</p><span className="flow-arrow" aria-hidden="true">↓</span><span>답변 받는 방식</span><p>{draft.output_schema.type === "string" ? "자유로운 답변" : "항목별 답변 · " + (Object.entries(draft.output_schema.properties || {}).map(([k, v]) => v.description || k).join(" · ") || "사용자 지정 형식")}</p></div>
-          <p className="muted">선택한 도구·에이전트 {draft.tools.length}개</p><div className="notice"><strong>현재 초안 요약</strong><p>초안 저장은 편집 내용을 보관하고, 버전 등록은 실행에 사용할 설정을 확정합니다. 실제 AI 호출은 별도의 실행 요청과 워커 처리가 필요합니다.</p></div>
-        </Card><div className="save-guide"><div className="help-row"><strong>작성한 다음에는</strong><HelpText label="초안 저장과 버전 등록">초안 저장은 작성 중인 설정을 보관합니다. 에이전트 등록 또는 새 버전 등록은 실행에 사용할 설정을 확정합니다. 수정 후에는 두 단계를 모두 진행하세요. 등록만으로 작업이 실행되거나 AI 비용이 발생하지 않으며, 이전 버전은 유지됩니다.</HelpText></div><ol><li>초안을 저장해 내용을 보관하세요.</li><li>처음에는 에이전트를 등록하고, 수정 후에는 새 버전을 등록하세요.</li></ol><p>등록해도 외부에 공개되지 않습니다.</p></div></aside></div>
-        <div className="editor-actions"><div><strong>{dirty ? "변경 내용을 저장해 주세요" : id ? "초안이 저장되어 있어요" : "준비되면 초안을 저장하세요"}</strong><p className="muted">{!id || dirty ? "초안을 저장한 다음 에이전트 버전을 등록할 수 있어요." : "등록된 버전은 보관되며, 초안을 수정해도 바뀌지 않아요."}</p></div>
-          <div className="badge-row"><Button variant="secondary" type="submit" disabled={busy}>{busy ? "처리 중…" : "초안 저장"}</Button><Button disabled={!id || dirty || busy} onClick={() => action("publish")}>{versions.length ? "새 버전 등록" : "에이전트 등록"}</Button></div>
-        </div>
+          <p className="muted">선택한 도구·에이전트 {draft.tools.length}개</p><div className="notice"><strong>현재 설정 요약</strong><p>저장하면 이후 새 작업에 적용됩니다. 저장만으로 AI가 실행되거나 비용이 발생하지 않습니다.</p></div>
+        </Card></aside></div>
+
       </fieldset>
-      <div className="editor-feedback" aria-live="polite">{error && <p role="alert" className="field-error">{error}</p>}{notice && <p role="status">{notice}</p>}
+      <div id="agent-save-feedback" className="editor-feedback" aria-live="polite">{error && <p role="alert" className="field-error">{error}</p>}{notice && <p role="status">{notice}</p>}
         {issues.length > 0 && <ul role="alert" className="validation-list">{issues.map((issue, i) => <li key={i}><a href={issue.field_path.includes("schema") ? "#information" : "#role"}>설정 확인</a>: {issue.message} <small>({issue.field_path})</small></li>)}</ul>}</div>
+      <div className="editor-actions agent-save-bar" aria-label="에이전트 저장">
+        <div className="agent-save-status" role="status" aria-live="polite">
+          <strong>{busy ? "변경 내용을 저장하고 있습니다" : error ? "저장하지 못했습니다" : dirty ? "저장하지 않은 변경이 있습니다" : notice ? "저장되었습니다" : "설정을 수정하고 저장하세요"}</strong>
+          {error ? <a href="#agent-save-feedback">오류 내용 확인 →</a> : <p className="muted">{dirty ? "저장하면 이후 새 작업에 적용됩니다." : "기존 작업과 답변 수정은 당시 설정을 유지합니다."}</p>}
+        </div>
+        <Button type="submit" disabled={busy}>{busy ? "저장 중…" : "저장"}</Button>
+      </div>
     </form>
-    <details className="version-section advanced"><summary>에이전트 버전 이력 <span>{versions.length}개</span></summary>{versions.length === 0 ? <p className="muted">에이전트 버전을 등록하면 이곳에서 등록한 설정을 확인할 수 있어요.</p> : versions.map(v =>
-      <div key={v.version} className="version-card"><h3>버전 {v.version} · {v.definition.name}</h3><p>{v.definition.description}</p><p className="muted">이 버전은 보관되어 있으며 현재 초안 수정의 영향을 받지 않습니다.</p><details><summary>설정 원본 보기(JSON)</summary><pre>{JSON.stringify(v.definition, null, 2)}</pre></details></div>)}</details>
+
   </>;
 }

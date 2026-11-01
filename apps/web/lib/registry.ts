@@ -88,6 +88,9 @@ export function message(error: unknown): string {
     invalid_access_key: "접근 키가 올바르지 않습니다.",
     not_found: "개발용 로그인이 비활성화되었습니다. 접근 키로 로그인하세요.",
     login_rate_limited: "로그인 시도가 많습니다. 1분 후 다시 시도하세요.",
+    review_model_image_unsupported: "선택한 모델은 이미지 입력을 지원하지 않습니다. 연결할 에이전트의 모델을 바꾸고 새 버전을 등록하세요.",
+    review_model_image_unknown: "공식 문서에서 이 모델의 이미지 입력 지원 여부를 확인하지 못했습니다. 지원이 확인된 모델로 변경하거나 잠시 후 다시 확인하세요.",
+    review_tools_unsupported: "연결한 에이전트에 별도 도구가 설정되어 있습니다. 현재 이미지 검수에서는 연결 도구 실행을 지원하지 않으므로 도구를 해제한 버전을 선택하세요.",
     owner_login_unconfigured: "로컬 소유자 로그인 설정이 필요합니다.",
     registry_database_unavailable: "저장소 연결 또는 초기화가 필요합니다. 입력은 유지됩니다.",
     login_required: "로그인이 만료되었습니다. 현재 입력을 보관한 뒤 다시 로그인하세요.",
@@ -108,4 +111,12 @@ export function message(error: unknown): string {
     payload_too_large: "설정 크기가 64 KiB 제한을 초과했습니다.",
   };
   return messages[error.code] || "요청을 처리하지 못했습니다. 입력값과 연결 상태를 확인하세요.";
+}
+
+export function latestAgentTools(tools: Tool[]): Tool[] {
+  return tools.filter(t => t.kind !== "agent" || !tools.some(other => other.agent_id === t.agent_id && other.version > t.version));
+}
+export function currentAgentRef(ref: string, tools: Tool[]): string {
+  if (!ref.startsWith("agent:")) return ref;
+  return latestAgentTools(tools).find(t => t.agent_id === ref.split(":")[1])?.id || ref;
 }

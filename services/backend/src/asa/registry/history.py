@@ -92,6 +92,25 @@ class HistoryRepository(RegistryRepository):
 
     def save(self, body: WorkRequest) -> dict[str, Any]:
         with self._connect() as conn:
+            conn.execute("SELECT id FROM registry_workspaces WHERE id=%s FOR UPDATE",
+                         (self.workspace_id,))
+            existing = conn.execute(
+                "SELECT agent_id,version,input,source_id,is_test FROM customer_requests "
+                "WHERE workspace_id=%s AND id=%s", (self.workspace_id, body.id),
+            ).fetchone()
+            if existing:
+                if (existing["agent_id"] != body.agent_id or existing["input"] != body.input
+                        or existing["source_id"] != body.source_id
+                        or existing["is_test"] != body.is_test):
+                    raise RegistryError(409, "work_conflict")
+                body = body.model_copy(update={"version": existing["version"]})
+            elif not body.source_id:
+                latest = conn.execute(
+                    "SELECT version FROM registry_versions WHERE workspace_id=%s AND agent_id=%s "
+                    "ORDER BY version DESC LIMIT 1", (self.workspace_id, body.agent_id),
+                ).fetchone()
+                if latest:
+                    body = body.model_copy(update={"version": latest["version"]})
             version = conn.execute(
                 "SELECT v.definition FROM registry_versions v JOIN registry_agent_tools t "
                 "USING(workspace_id,agent_id,version) "
@@ -100,8 +119,6 @@ class HistoryRepository(RegistryRepository):
             ).fetchone()
             if version is None:
                 raise RegistryError(404, "tool_not_found")
-            if version["definition"].get("purpose") == "image_review":
-                raise RegistryError(422, "review_image_required")
             if not valid_input(body.input, version["definition"]["input_schema"]):
                 raise RegistryError(422, "invalid_work_input")
             if body.source_id:

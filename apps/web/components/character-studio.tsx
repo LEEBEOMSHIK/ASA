@@ -60,7 +60,7 @@ export function CharacterResults({requestId,version}:{requestId:string;version:n
   },[project?.id]);
   const activeIndex=Math.max(0,project?.characters.findIndex(c=>c.id===activeId) ?? 0);
   const currentId=project?.characters[activeIndex]?.id;
-  return <section id="followup-character_images" className="character-studio" aria-label="등장인물과 기준 이미지"><div className="character-heading"><h2>등장인물과 기준 이미지</h2><a href="/characters">보관함</a></div>
+  return <section id="followup-character_images" className="character-studio" aria-label="등장인물과 기준 이미지"><div className="character-heading"><h2>등장인물과 기준 이미지</h2><a className="button button--secondary" href="/characters">캐릭터 보관함</a></div>
     {error && <p role="alert" className="notice">{error}{!project && <Button variant="secondary" onClick={()=>setRetry(n=>n+1)}>다시 불러오기</Button>}</p>}
     {!project && !error && <p role="status">등장인물을 불러오는 중…</p>}
     {project && <><div className="character-overview">
@@ -124,7 +124,6 @@ function CharacterCard({character,project,options,refresh,onError}:{character:Ch
       : <div className="character-empty">{active ? "이미지가 완성되면 여기에 표시됩니다." : "설정을 확인하고 첫 기준 이미지를 만들어 보세요."}</div>}
     {latest?.status==="succeeded" && latest.id!==shown?.id && <Button variant="secondary" onClick={()=>{setChosen(latest.id);setDraft(latest.character);}}>새 이미지 v{latest.version} 확인</Button>}
     {latest && !active && latest.status!=="succeeded" && <p role="status" className="character-status">v{latest.version} · {states[latest.status]}{latest.status==="unknown" && " · 중복 과금 방지를 위해 자동 재시도하지 않습니다."}{latest.status==="failed" && ` · ${latest.error_code || "API 오류"}`}</p>}
-    {shown && <ImageReviewPanel key={shown.id} imageId={shown.id} version={shown.version} character={draft} reviews={project.reviews || []} configured={!!project.review_config} online={project.worker_online} enqueueError={shown.review_error_code} refresh={refresh}/>}
     </div><details className="character-edit" open><summary>수정 및 확인</summary><div className="character-form">
     <details><summary>캐릭터 설정 확인·수정</summary><div className="character-form">
       <div className="character-reference character-form"><strong>참고 정보 · 수정 가능</strong><p className="muted">대본 해석이나 AI 제안이 맞지 않으면 고쳐 주세요. 이미지 생성 시 아래 외형·의상과 이미지 제작 지침에 어긋나지 않는 범위에서 참고합니다.</p>
@@ -139,5 +138,6 @@ function CharacterCard({character,project,options,refresh,onError}:{character:Ch
     <p className="muted">1024 × 1024 · 보통 품질 · 1장 · 유료 API 호출</p>
     <div className="character-scope"><Button variant="secondary" disabled={busy || !!active} onClick={()=>void setScope()}>생성 대상에서 제외</Button><p className="muted">{active?"진행 중인 생성이 끝난 뒤 제외할 수 있습니다.":"이미지가 필요 없는 인물만 제외하세요. 기존 결과는 삭제되지 않습니다."}</p></div>
     </div></details></div>
+    {shown && <ImageReviewPanel key={shown.id} imageId={shown.id} version={shown.version} character={draft} reviews={project.reviews || []} configured={!!project.review_config} online={project.worker_online} enqueueError={shown.review_error_code} refresh={refresh}/>}
   </article></Card>;
 }

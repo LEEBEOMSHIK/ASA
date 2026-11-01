@@ -82,7 +82,8 @@ class RunRepository(RegistryRepository):
         )
 
     def snapshot(self, automation_id: UUID, revision: int,
-                 connection: psycopg.Connection[dict[str, Any]] | None = None
+                 connection: psycopg.Connection[dict[str, Any]] | None = None,
+                 saved_definition: dict[str, Any] | None = None
                  ) -> tuple[dict[str, Any], list[Any]]:
         with nullcontext(connection) if connection is not None else self._connect() as conn:
             self.settings = effective_settings(self.base_settings, conn)
@@ -92,10 +93,10 @@ class RunRepository(RegistryRepository):
             ).fetchone()
             if not row:
                 raise RegistryError(404, "automation_not_found")
-            if row["revision"] != revision:
+            if saved_definition is None and row["revision"] != revision:
                 raise RegistryError(409, "revision_conflict")
-            draft = Automation.model_validate(row["draft"])
-            tools = self._tools(conn)
+            draft = Automation.model_validate(saved_definition or row["draft"])
+            tools = self.latest_tools(conn)
             issues = check_flow(draft, tools, self.settings)
             if issues:
                 raise RegistryError(422, "invalid_definition", issues)
@@ -125,8 +126,6 @@ class RunRepository(RegistryRepository):
                     assert agent
                     tool["definition"] = agent["definition"]
                 if tool["kind"] == "agent":
-                    if tool["definition"].get("purpose") == "image_review":
-                        raise RegistryError(422, "review_image_required")
                     if tool["definition"]["tools"]:
                         raise RegistryError(422, "runtime_nested_tools_unsupported")
                     selected = (
@@ -353,6 +352,25 @@ class RunRepository(RegistryRepository):
                     (self.workspace_id, row["automation_id"]),
                 ).fetchone()
                 note = "이전 작업이 진행 중이어서 이번 예약을 건너뛰었습니다." if active else ""
+                if not active:
+                    try:
+                        previous_manifest = row["manifest"]
+                        row["definition"], row["manifest"] = self.snapshot(
+                            row["automation_id"], row["definition_revision"], conn,
+                            row["definition"],
+                        )
+                        pinned_inline = {t.get("node_id", t["id"]): t
+                                         for t in previous_manifest if not t.get("agent_id")}
+                        row["manifest"] = [pinned_inline.get(t.get("node_id", t["id"]), t)
+                                           for t in row["manifest"]]
+                    except RegistryError:
+                        conn.execute(
+                            "UPDATE automation_schedules SET enabled=false,note=%s "
+                            "WHERE workspace_id=%s AND automation_id=%s",
+                            ("최신 에이전트 설정과 연결을 확인해 주세요.",
+                             self.workspace_id, row["automation_id"]),
+                        )
+                        continue
                 ai_blocked = any(
                     t["kind"] == "agent" and not self.model_available(t) for t in row["manifest"]
                 )

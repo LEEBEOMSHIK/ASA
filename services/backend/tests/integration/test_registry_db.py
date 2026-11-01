@@ -512,6 +512,11 @@ def test_generic_answer_approval_setting_is_versioned_and_resets(client):
     agent_url = f"/api/v1/agents/{agent['id']}"
     assert client.post(agent_url + "/publish", headers={
         **headers, "If-Match": '"1"'}).status_code == 201
+    original_id = str(uuid4())
+    original = client.post("/api/v1/work-requests", headers=headers, json={
+        "id": original_id, "agent_id": agent["id"], "version": 1,
+        "input": {"topic": "장면 구성 검토"},
+    }).json()
     changed = client.patch(agent_url + "/draft", json={**draft, "requires_approval": True},
                            headers={**headers, "If-Match": '"1"'})
     assert changed.status_code == 200
@@ -522,6 +527,8 @@ def test_generic_answer_approval_setting_is_versioned_and_resets(client):
             "id": str(uuid4()), "agent_id": agent["id"], "version": version,
             "input": {"topic": "장면 구성 검토"},
         }).json()
+        if version == 1:
+            work = original
         url = f"/api/v1/work-requests/{work['id']}"
         stage = url + "/script"
         assert client.get(stage).json()["requires_approval"] is (version == 2)
@@ -1960,7 +1967,8 @@ def test_standby_automation_worker_does_not_spin_on_overdue_schedule(client, db)
     assert not repo.worker_lock_busy
 
 
-def test_image_review_queue_snapshot_auto_and_isolation(db, monkeypatch):
+@pytest.mark.parametrize("legacy", [True, False])
+def test_image_review_queue_snapshot_auto_and_isolation(db, monkeypatch, legacy):
     from psycopg.types.json import Jsonb
     from asa.registry.characters import Character, CharacterRepository, ImageRequest
     from asa.registry.image_reviews import enqueue_review, enqueue_automatic, process_review
@@ -1968,7 +1976,7 @@ def test_image_review_queue_snapshot_auto_and_isolation(db, monkeypatch):
     dsn, workspace = db
     repo = CharacterRepository(dsn, workspace)
     reviewer = repo.create(AgentDraft.model_validate({**definition(), 'name': 'Image reviewer',
-                         'purpose': 'image_review', 'output_schema': {'type': 'string'}}))
+                         **({'purpose': 'image_review'} if legacy else {}), 'output_schema': {'type': 'string'}}))
     repo.publish(reviewer['id'], 1)
     ref = f"agent:{reviewer['id']}:1"
     maker = repo.create(AgentDraft.model_validate({**definition(),
@@ -1986,6 +1994,15 @@ def test_image_review_queue_snapshot_auto_and_isolation(db, monkeypatch):
     settings = Settings(_env_file=None,database_url=dsn,workspace_id=workspace,
                         image_ai_enabled=True,ai_api_key='test-only',ai_model='test-model',
                         ai_models=['test-model'], ai_prices={'openai:test-model':{'input':1,'output':2,'label':'test rate'}})
+    from asa.registry.model_discovery import ModelMetadata
+    from asa.registry.review_connection import connection_status
+    monkeypatch.setattr('asa.registry.review_connection.image_metadata',
+                        lambda *a: ModelMetadata(checked_at='test', image_input_supported=True))
+    monkeypatch.setattr('asa.registry.review_connection.effective_settings', lambda s,*a:s)
+    assert connection_status(repo,settings,ref)['compatible']
+    assert next(t for t in repo.tools() if t['id']==ref)['available']
+    with pytest.raises(RegistryError):
+        connection_status(CharacterRepository(dsn,uuid4()),settings,ref)
     # Effective model resolution is isolated from global admin catalog in this test.
     monkeypatch.setattr('asa.registry.image_reviews.effective_settings',lambda s,*a:s)
     image = ImageRequest(id=uuid4(),character=char,model='gpt-image-2.5-sunburst')
@@ -1997,6 +2014,7 @@ def test_image_review_queue_snapshot_auto_and_isolation(db, monkeypatch):
     enqueue_automatic(repo,image.id,settings)
     snapshot = repo.project(project)
     assert len(snapshot['reviews']) == 1 and snapshot['review_config']['agent_ref'] == ref
+    repo.save_settings(AgentDraft.model_validate({**reviewer['draft'], 'instructions': 'updated review'}), reviewer['id'], 1)
     calls=[]
     def fake(config,definition,character,change,png,reference):
         from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
@@ -2010,6 +2028,7 @@ def test_image_review_queue_snapshot_auto_and_isolation(db, monkeypatch):
     assert process_review(repo,settings)
     assert not process_review(repo,settings)
     assert calls[0][2] == b'png-test'
+    assert calls[0][0]['instructions'] != 'updated review'
     assert repo.project(project)['approved'] == {}
     assert repo.project(project)['reviews'][0]['result'] == '발이 설정과 다릅니다.'
     changed = {**char.model_dump(),'appearance':'green coat'}
@@ -2028,6 +2047,7 @@ def test_image_review_queue_snapshot_auto_and_isolation(db, monkeypatch):
         events=conn.execute("SELECT * FROM ai_usage_events WHERE step_name='이미지 검수'").fetchall()
         assert len(events)==2 and all(str(e['request_id'])==str(request) for e in events)
         assert all(e['usage']['input_tokens']==100 and e['estimated_usd']>0 for e in events)
+    assert calls[1][0]['instructions'] == 'updated review'
     retry=enqueue_review(repo,image.id,uuid4(),changed,settings)
     with repo._connect() as conn:
         conn.execute("UPDATE asset_reviews SET status='running' WHERE id=%s", (retry['id'],))
@@ -2048,3 +2068,82 @@ def test_agent_icon_saved_published_and_version_preserved(db):
     assert v1['definition']['icon']=='pen' and v2['definition']['icon']=='film'
     icons={t['version']:t['icon'] for t in repo.tools() if t.get('agent_id')==agent['id']}
     assert icons=={1:'pen',2:'film'}
+
+def test_single_save_atomic_and_latest_requests(db):
+    from asa.registry.schemas import RegistryError
+    from asa.registry.history import HistoryRepository, WorkRequest
+    repo = RegistryRepository(*db)
+    first = repo.save_settings(AgentDraft.model_validate(definition()))
+    assert first['versions'][0]['version'] == 1
+    history = HistoryRepository(*db)
+    body = WorkRequest(id=uuid4(), agent_id=first['id'], version=1, input={'topic': 'cat'})
+    original = history.save(body)
+    assert original['version'] == 1
+    second = repo.save_settings(AgentDraft.model_validate({**definition(), 'instructions': 'new instructions'}), first['id'], first['revision'])
+    assert second['versions'][0]['version'] == 2
+    assert second['versions'][1]['definition']['instructions'] == definition()['instructions']
+    with pytest.raises(RegistryError):
+        repo.save_settings(AgentDraft.model_validate(definition()), first['id'], first['revision'])
+    assert repo.get(first['id'])['revision'] == second['revision']
+
+    assert history.save(body)['version'] == 1  # idempotent retry after settings change
+    fresh = history.save(body.model_copy(update={'id': uuid4()}))
+    assert fresh['version'] == 2
+    repeated = history.save(body.model_copy(update={'id': uuid4(), 'source_id': body.id}))
+    assert repeated['version'] == 1
+    invalid = AgentDraft.model_validate({**definition(), 'tools': ['asa.missing:1']})
+    with pytest.raises(RegistryError):
+        repo.save_settings(invalid, first['id'], second['revision'])
+    assert repo.get(first['id'])['revision'] == second['revision']
+
+def test_latest_agent_in_automation_and_schedule_preserves_queued(client, db):
+    from asa.registry.runtime import RunInput, RunRepository, ScheduleInput
+    from datetime import UTC, datetime, timedelta
+    repo = RegistryRepository(*db)
+    agent = repo.save_settings(AgentDraft.model_validate(definition()))
+    headers = login(client)
+    aid = uuid4()
+    draft = {'name': 'latest settings', 'steps': [
+        {'id': 'writer', 'label': 'writer', 'tool_id': f"agent:{agent['id']}:1",
+         'bindings': {'topic': {'source': 'input'}}}]}
+    assert client.post('/api/v1/automations', headers=headers,
+                       json={'id': str(aid), 'revision': 0, 'draft': draft}).status_code == 200
+    runtime = RunRepository(Settings(_env_file=None, database_url=db[0], workspace_id=db[1],
+        automation_ai_enabled=True, ai_model='mock-only', ai_api_key='not-a-real-key'))
+    old = RunInput(id=uuid4(), revision=1, prompt='cat')
+    runtime.enqueue(aid, old)
+    runtime.save_schedule(aid, ScheduleInput(revision=1, schedule_revision=0, enabled=True,
+                          kind='daily', time='09:00', prompt='cat'))
+    repo.save_settings(AgentDraft.model_validate({**definition(), 'instructions': 'new settings'}),
+                       agent['id'], agent['revision'])
+    runtime.enqueue(aid, old)
+    fresh = RunInput(id=uuid4(), revision=1, prompt='cat')
+    runtime.enqueue(aid, fresh)
+    with repo._connect() as conn:
+        rows = conn.execute('SELECT id,manifest FROM automation_runs WHERE workspace_id=%s',
+                            (db[1],)).fetchall()
+        by_id = {r['id']: r['manifest'][0]['definition']['instructions'] for r in rows}
+        assert by_id[old.id] == definition()['instructions']
+        assert by_id[fresh.id] == 'new settings'
+        conn.execute("UPDATE automation_runs SET status='succeeded' WHERE workspace_id=%s", (db[1],))
+    assert runtime.dispatch_due(datetime.now(UTC) + timedelta(days=2)) == 1
+    with repo._connect() as conn:
+        scheduled = conn.execute('SELECT manifest FROM automation_runs WHERE schedule_id=%s',
+                                 (aid,)).fetchone()
+        assert scheduled['manifest'][0]['definition']['instructions'] == 'new settings'
+
+def test_single_save_api_applies_and_rejects_stale_edit(client):
+    headers = login(client)
+    created = client.post('/api/v1/agents/save', json=definition(), headers=headers)
+    assert created.status_code == 201
+    agent = created.json()
+    assert len(agent['versions']) == 1
+    changed = client.put(f"/api/v1/agents/{agent['id']}/save",
+                         json={**definition(), 'instructions': 'changed instruction'},
+                         headers={**headers, 'If-Match': '1'})
+    assert changed.status_code == 200
+    assert changed.json()['versions'][0]['definition']['instructions'] == 'changed instruction'
+    assert client.put(f"/api/v1/agents/{agent['id']}/save", json=definition(),
+                      headers={**headers, 'If-Match': '1'}).status_code == 409
+    assert client.put(f"/api/v1/agents/{agent['id']}/save", json=definition(),
+                      headers=headers).status_code == 428

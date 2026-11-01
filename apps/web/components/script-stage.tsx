@@ -132,7 +132,7 @@ export function ScriptStage({ requestId, onDirtyChange }: { requestId: string; o
     </Card><div className="stack"><Card><details open={stage.head_version === 0}><summary>{stage.head_version ? "AI에게 수정 요청" : "에이전트에 답변 요청"}</summary><p className="muted">{selected ? `v${selected}을 기준으로 원하는 변경을 적어 주세요.` : "원래 요청을 바탕으로 원하는 길이와 분위기를 적어 주세요."}</p>
       <form onSubmit={e => { e.preventDefault(); void mutate("/generate", { expected_revision: stage.revision, base_version: selected, instruction, acknowledge_unknown: acknowledged }, true); }}><fieldset className="request-fields" disabled={busy || Boolean(active) || !stage.tools_supported || !stage.model_configured || !stage.execution_enabled}>
         <Field id="script-revision-request" label="어떻게 작성하거나 고칠까요?" hint="예: 핵심 내용은 유지하고, 구체적인 예시를 더해 주세요.">{props => <textarea {...props} required maxLength={2000} rows={5} value={instruction} onChange={e => setInstruction(e.target.value)} />}</Field>
-        <p className="helper-text">같은 에이전트의 지침으로 새 답변을 만듭니다. 원래 요청과 이전 답변은 보존됩니다.</p>
+        <p className="helper-text">이 작업을 처음 요청했을 때의 에이전트 지침으로 새 답변을 만듭니다. 최신 저장 지침은 새 작업에 적용됩니다. 원래 요청과 이전 답변은 보존됩니다.</p>
         {unknown && <label className="script-ack"><input type="checkbox" checked={acknowledged} onChange={e => setAcknowledged(e.target.checked)} />이전 호출 결과·사용량을 확인했으며 새 요청에서 중복 비용이 발생할 수 있음을 확인했습니다.</label>}
         <Button type="submit" disabled={dirty || !instruction.trim() || Boolean(unknown && !acknowledged)}>{selected ? "수정 요청 보내기" : "답변 요청 보내기"}</Button>
       </fieldset></form>

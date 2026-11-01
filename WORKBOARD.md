@@ -415,3 +415,38 @@ ASA-125 DONE: 기본 아이콘 표시 + 선택적 아이콘 변경 펼침, 관�
 ASA-125 검증: backend218 tests/ruff src/mypy42 files, frontend8 tests/typecheck/build 통과. 실제 브라우저 기본 로봇·접힘·변경 펼침12종·다시 접기·공통 관리용 아이콘 및 주변 정렬 확인. screenshot .local/verification/agent-icon-default.png. API 실행에 루트 .env를 명시하여 테스트 로그인 복구. 사용자 DB 내용 변경/유료 호출/커밋 없음.
 
 ASA-126 커밋 준비 완료: ASA-121~125 이미지 진행·경과 시간, 선택적 이미지 검수 큐/연결/사용량, 에이전트 아이콘 기본값·선택 UI와 공통 도움말을 하나의 기능 묶음으로 정리. 코드·테스트·템플릿·문서만 포함. 사용자 자료/생성 이미지/DB/.env/.local/캐시는 보존·제외, 실제 삭제 없음. 직전 backend218 tests/ruff src/mypy 및 frontend8 tests/typecheck/build 결과 재사용(이후 실행 코드 변경 없음). 실제 유료 검수 품질과 미기록 테마/모바일 상태는 미검증. 사용자 요청에 따라 main 커밋 및 origin push 진행.
+
+ASA-127 DONE: 용도 선택/역할 기반 제한 제거, 검수 연결에서 실제 이미지 전달 및 공식 모델 이미지 입력 지원 검증. 기존 purpose 필드는 읽기 호환만 유지.
+
+ASA-127 검증: backend227 tests 통과(기존 purpose=image_review/신규 purpose 없는 연결의 큐·자동접수·멱등·결과·사용량·격리, 미지원/미확인/비활성 모델, 기본 모델 변경, 실제 이미지 전달 모의 검증); ruff src/mypy43 files, frontend8 tests/typecheck/build 통과. 실제 DB 기존 연결1건 읽기 전용 검증 True/gpt-6.1-terra, 공식 이미지 입력 지원 확인. 실제 브라우저 용도 필드0개, 전체 등록 에이전트 후보·기존 선택·지원상태 확인(.local/verification/review-connection-capability.png). API/이미지 워커 재시작, 실행 중 작업0 확인. 유료 검수 품질/다크/모바일 미검증. 사용자 데이터/연결/이미지 확정 변경 없음, 커밋 없음.
+
+ASA-128 IN PROGRESS: 뭉실이 v1 실제 검수 요청. 과거 요청v1에는 연결이 없어 검증 명령에서만 현재 검수자v1을 명시(연결 조회 함수만 일회성 대체, 실제 모델·이미지·큐 검증과 워커 호출 유지). 과거 등록 버전/이미지/확정 상태 보존. 결과 및 사용량 확인 진행.
+ASA-128 DONE: 뭉실이 v1 실제 유료 이미지 검수 1회 성공. review=5c142d68-d7bf-4829-be2a-95bd503a002e, usage=b3c69f14-aa0e-4765-a502-f1d8c28dae19. gpt-6.1-terra 입력2055/출력566/합계2621 tokens, 예상 USD0.004885(estimated), 모델 호출10.285초/전체약12.9초. 원래 request c408792f-432e-4485-ba40-11b8ecd991ba와 검수step 연결 확인. 설정에 없는 후면 흰 돌기, 후면 페인트 식별성, 요청보다 확장된 시트 구성을 지적; 원본 이미지 육안 비교와 대체로 일치. 자동 품질 보증은 아니며 사람이 최종 판단. 실제 브라우저 뭉실이 선택 후 v1 검수 의견 도착/결과/기록1건 확인. 과거 요청의 연결은 변경하지 않아 미연결 안내는 유지됨(이번 요청만 명시적 검수자 지정). 이미지 재생성/확정 변경 없음. 실행 코드 변경 없이 실제 호출 검증만 수행하여 전체 테스트 재실행 없음.
+
+ASA-129 IN PROGRESS: 보관함 공통 버튼, 검수 의견 제목/목록 표시 및 실행 이력 설명, 요청 원문 기본 접힘. 저장 데이터·유료 호출 변경 없이 UI 개선 및 실제 화면 검증.
+ASA-129 DONE: 보관함 공통 secondary 버튼, 검수 제목/목록/강조의 안전한 텍스트 렌더링, 실행 이력 횟수 설명·당시 설정·최신 의견 중복 제거, 과거 검수와 미연결 상태 안내 구분. 내가 보낸 요청 기본 접힘/내용 펼치기·접기와 원문 보존. backend227 tests(79.83s)/ruff src/mypy43files, frontend typecheck/build/9 tests 통과. build 파일복사 sandbox EPERM 후 권한 실행 통과. 실제 뭉실이 화면 제목4/목록9, 12px gap, 보관함 밑줄없음/47.5px 높이, 요청 Enter 펼침/접힘·4개 입력 원문 확인. 밝은/어두운 테마 검수 표시 및 실행 이력 설명 확인. 좁은 화면 실측433px에서 넘침없음/summary44px/토글 확인; 모바일 스크린샷은 CDP timeout으로 전체 시각 검증 미완료. 임시 화면 크기·밝은 테마 복원. 증거 .local/verification/asa129-review.png, asa129-request.png. 유료 호출/사용자 데이터 변경/커밋 없음.
+
+ASA-130 IN PROGRESS: 요청 토글 오른쪽 정렬, 검수 전체폭 대시보드/기존결과 호환/수정지시 복사, 새 검수 구조화 보고서 추가. 기존 지침·답변 계약 보존.
+ASA-130 DONE: 우측 토글 화살표/포커스 유지, 이미지 아래 전체폭 검수 대시보드, 기존 결과 미집계·의견3개/별도 수정지시 복사, 새 검수 report 계약+사용자 answer 보존 및 검증. backend228 tests/ruff src/mypy44files, frontend typecheck/build/11 tests 통과. 실제 뭉실이 기존결과 전체폭1022px·지표2열·의견3개·24px gap, 밝은/어두운 테마 하단까지 확인. Enter 토글 회전, 복사 성공 UI 확인(브라우저 clipboard 읽기 값은 빈값으로 내용 재검증 미완료). 좁은 화면600px 지표1열·가로넘침없음 실측, 스크린샷 CDP timeout으로 모바일 시각검증 미완료. 크기 override reset/밝은 테마 복원. 증거 asa130-review.png/asa130-toggle.png. 큐/실행0건 확인 후 이미지 워커 재시작 적용. 실제 유료 새 구조화 응답 호출은 미실행, 단위 테스트로 계약·이미지·사용자지침 전달 검증. 사용자 이미지/확정/등록버전 변경 없음. 커밋 없음.
+
+ASA-131 IN PROGRESS: 검수 확인 필요 배지·의견 수·의견 카드에 공통 warning 색상과 테두리 강조 적용. 의미/판정 데이터는 보존.
+
+ASA-131 DONE: 확인 필요/검수 도착 warning 배지, 의견 수 주의 배경·테두리, 의견 카드 주의 제목·느낌표·4px 강조선 적용. 실제 뭉실이 밝은/어두운 화면에서 토큰 색·카드 gap16px·넘침없음 확인, 테마 복원. 증거 .local/verification/asa131-light.png. backend228 tests(79.57s)/ruff src/mypy44files, frontend11 tests/typecheck/build 통과. 모바일 재검증 미실행(레이아웃 구조 유지), 데이터/유료호출/확정 변경 없음, 커밋 없음.
+
+ASA-132 IN PROGRESS: 캐릭터 설정 지침 DB 초안/v1/v2 동일 확인. 에이전트 카드에 초안의 이미지 검수 연결 이름·버전·수동/자동 표시.
+
+ASA-132 DONE: 카드에 이미지 검수 연결 대상·버전·수동/자동 방식 표시, 호출 도구 수와 구분. DB 읽기 전용 확인: 캐릭터 설정 초안/v1/v2 지침 동일, 초안/v2 검수자v1 수동 연결. 지침/DB 변경 없음. backend228 tests(72.18s)/ruff src/mypy44files, frontend typecheck/build 통과. 실제 목록 밝은 화면 연결 표시·정렬 확인, 증거 .local/verification/asa132-card.png. 다크/모바일 전체 시각 검증 미완료. 유료 호출/커밋 없음.
+
+ASA-133 IN PROGRESS: 목록 연결 상세 박스 제거, 호출 도구/연결 에이전트 개수만 표시. 에이전트 ID 중복 제거.
+
+ASA-133 DONE: 목록은 호출 도구/연결 에이전트 수만 표시, 상세 박스·전용 CSS 제거. 연결 에이전트는 호출 참조와 검수 참조의 ID를 중복 제거. 실제 브라우저 캐릭터 카드 0개/1개 표시 확인. backend228 tests(72.83s)/ruff/mypy44files, frontend typecheck/build 통과(초기 sandbox DB/빌드 권한 오류 후 권한 실행 성공). 상세 화면·지침·DB 변경 없음. 모바일 시각 검증 미실행.
+
+ASA-134 IN PROGRESS: 단일 저장·신규 접수 최신 에이전트 설정·기존 접수 snapshot 보존. 계획 docs/superpowers/plans/2026-11-01-agent-save.md.
+
+ASA-134 DONE: 단일 저장 API(초안+불변 실행 기록 원자 저장/충돌·검증 실패 롤백), 편집 버튼 저장1개·버전 관리 제거, 신규 요청 최신 설정/기존 요청 재접수·수정 고정. 자동화 기존 참조 최신 해석·스키마 검증, 예약 흐름/직접 AI 설정 유지·연결 에이전트 매 접수 최신 적용, 새 검수 대상 최신 지침·모델 snapshot 및 기존 검수 보존. 이전 미등록 초안 일괄 적용 없음. backend231 tests(78.99s)/ruff/mypy44 files, frontend11 tests/typecheck/build 통과. 실제 캐릭터 편집 화면 저장 버튼1개·안내·간격 확인. 진행 작업0 확인 후 API/자동화/이미지 워커 재시작, 개발 테스트 로그인 확인. 기존 사용자 지침·이미지·확정 변경/유료 호출/커밋 없음. 다크/모바일 재검증 미실행.
+
+ASA-135 IN PROGRESS: 에이전트 저장 바 하단 sticky, 변경/저장/오류 상태와 저장 버튼 항상 접근, 입력 스크롤 여백 및 모바일 배치.
+
+ASA-135 DONE: 편집 폼 하단 sticky 저장 바, 변경/저장 중/성공/실패 상태 및 오류 이동 링크, 모바일 가로 배치·입력 scroll-margin 적용. 실제 지침 입력 위치에서 밝은/어두운 테마 저장 버튼 노출·간격 확인 후 밝게 복원. backend231 tests(80.36s)/ruff/mypy, frontend typecheck/build 통과. 사용자 지침 저장/유료 호출 없음. 모바일 실기기·가상 키보드 검증 미실행.
+
+ASA-136 DONE: 모바일 저장 바 검증 및 ASA127–135 커밋 준비. Chrome viewport 설정 390x844/360x500 및 실제 CSS 360x800에서 지침 편집 중 sticky 저장 버튼 확인. CSS360 화면 document 폭343px로 가로 넘침 없음, 저장 버튼73.3x47.5px·하단16px 여유, Tab 포커스 표시 확인. 낮은 높이에서도 저장 버튼 노출 확인. 브라우저 기존 확대 배율 유지, viewport 복원. 사용자 설정 저장/유료 호출 없음. 실제 모바일 OS 키보드·Safari는 미검증. 기존 전체검증 backend231 tests/ruff/mypy 및 frontend11 tests/typecheck/build 통과 기록 확인. 캐시·사용자 자료·이미지는 커밋 제외.

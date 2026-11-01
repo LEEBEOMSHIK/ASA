@@ -73,6 +73,15 @@ def registry_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
             settings.model_copy(update={"workspace_id": repository.workspace_id})
         )
         validate_selection(config, body.provider, body.model)
+        if body.after_tasks.image_review:
+            from asa.registry.review_connection import connection_status
+            connection_status(repository, settings, body.after_tasks.image_review.agent_ref)
+
+    @router.get("/review-connection")
+    def review_connection(agent_ref: str, repository: RegistryRepository = Depends(repo)
+                          ) -> dict[str, Any]:
+        from asa.registry.review_connection import connection_status
+        return connection_status(repository, settings, agent_ref)
 
     @router.get("/tools")
     def tools(repository: RegistryRepository = Depends(repo)) -> list[dict[str, Any]]:
@@ -94,6 +103,18 @@ def registry_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
         check_model(body, repository)
         return repository.create(body)
 
+    @router.post("/agents/save", status_code=201)
+    def save_new(body: AgentDraft, repository: RegistryRepository = Depends(repo)
+                 ) -> dict[str, Any]:
+        check_model(body, repository)
+        return repository.save_settings(body)
+
+    @router.put("/agents/{agent_id}/save")
+    def save_settings(agent_id: UUID, body: AgentDraft, expected: int = Depends(revision),
+                      repository: RegistryRepository = Depends(repo)) -> dict[str, Any]:
+        check_model(body, repository)
+        return repository.save_settings(body, str(agent_id), expected)
+
     @router.get("/agents/{agent_id}")
     def get(agent_id: UUID, repository: RegistryRepository = Depends(repo)) -> dict[str, Any]:
         return repository.get(str(agent_id))
@@ -110,6 +131,7 @@ def registry_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
 
     @router.post("/agents/{agent_id}/validate")
     def validate(agent_id: UUID, repository: RegistryRepository = Depends(repo)) -> dict[str, Any]:
+        check_model(AgentDraft.model_validate(repository.get(str(agent_id))["draft"]), repository)
         return {"issues": repository.validate(str(agent_id))}
 
     @router.post("/agents/{agent_id}/publish", status_code=201)

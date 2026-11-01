@@ -1,6 +1,6 @@
 import hashlib
 import json
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, nullcontext
 from importlib.resources import files
 from typing import Any
 from uuid import UUID, uuid4
@@ -53,9 +53,9 @@ class RegistryRepository:
                 (self.workspace_id,),
             ).fetchall()
 
-    def create(self, draft: AgentDraft) -> dict[str, Any]:
+    def create(self, draft: AgentDraft, connection: Any = None) -> dict[str, Any]:
         agent_id = str(uuid4())
-        with self._connect() as conn:
+        with nullcontext(connection) if connection is not None else self._connect() as conn:
             conn.execute(
                 "INSERT INTO registry_agents(workspace_id,id,draft) VALUES (%s,%s,%s)",
                 (self.workspace_id, agent_id, Jsonb(draft.model_dump())),
@@ -63,7 +63,10 @@ class RegistryRepository:
             return self._agent(conn, agent_id)
 
     def get(self, agent_id: str) -> dict[str, Any]:
-        with self._connect() as conn:
+        return self._get_saved(agent_id)
+
+    def _get_saved(self, agent_id: str, connection: Any = None) -> dict[str, Any]:
+        with nullcontext(connection) if connection is not None else self._connect() as conn:
             row = self._agent(conn, agent_id)
             row["versions"] = conn.execute(
                 "SELECT version,source_revision,definition,digest,created_at::text "
@@ -73,8 +76,9 @@ class RegistryRepository:
             ).fetchall()
             return row
 
-    def update(self, agent_id: str, revision: int, draft: AgentDraft) -> dict[str, Any]:
-        with self._connect() as conn:
+    def update(self, agent_id: str, revision: int, draft: AgentDraft,
+               connection: Any = None) -> dict[str, Any]:
+        with nullcontext(connection) if connection is not None else self._connect() as conn:
             row = self._agent(conn, agent_id, lock=True)
             if row["revision"] != revision:
                 raise RegistryError(409, "revision_conflict")
@@ -105,11 +109,9 @@ class RegistryRepository:
                     "name": definition["name"],
                     "icon": definition.get("icon", "bot"),
                     "description": definition["description"],
-                    "available": definition.get("purpose") != "image_review",
+                    "available": True,
                     "execution_available": False,
-                    "unavailable_reason": ("이미지 결과 화면에서 검수 요청"
-                                           if definition.get("purpose") == "image_review"
-                                           else "등록 가능 · 실행 연결은 다음 단계에서 제공"),
+                    "unavailable_reason": "",
                     "input_schema": definition["input_schema"],
                     "output_schema": definition["output_schema"],
                     "dependencies": definition["tools"],
@@ -133,8 +135,8 @@ class RegistryRepository:
                 )
             ]
 
-    def publish(self, agent_id: str, revision: int) -> dict[str, Any]:
-        with self._connect() as conn:
+    def publish(self, agent_id: str, revision: int, connection: Any = None) -> dict[str, Any]:
+        with nullcontext(connection) if connection is not None else self._connect() as conn:
             agent = self._agent(conn, agent_id, lock=True)
             if agent["revision"] != revision:
                 raise RegistryError(409, "revision_conflict")
@@ -179,3 +181,34 @@ class RegistryRepository:
                 "definition": payload,
                 "digest": digest,
             }
+
+    def save_settings(self, draft: AgentDraft, agent_id: str | None = None,
+                      revision: int | None = None) -> dict[str, Any]:
+        with self._connect() as conn:
+            # Serialize saves and latest resolution within a workspace.
+            conn.execute("SELECT id FROM registry_workspaces WHERE id=%s FOR UPDATE",
+                         (self.workspace_id,))
+            if agent_id is None:
+                row = self.create(draft, conn)
+            else:
+                if revision is None:
+                    raise RegistryError(428, "if_match_required")
+                row = self.update(agent_id, revision, draft, conn)
+            self.publish(row["id"], row["revision"], conn)
+            return self._get_saved(row["id"], conn)
+
+    def latest_tools(self, conn: Any) -> list[dict[str, Any]]:
+        tools = self._tools(conn)
+        latest: dict[str, dict[str, Any]] = {}
+        for tool in tools:
+            if tool["kind"] == "agent":
+                key = tool["agent_id"]
+                if key not in latest or latest[key]["version"] < tool["version"]:
+                    latest[key] = tool
+        # Preserve stored link IDs; resolve their contents at new-run admission.
+        return [{**latest[t["agent_id"]], "id": t["id"]}
+                if t["kind"] == "agent" else t for t in tools]
+
+    def current_tools(self) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            return self.latest_tools(conn)

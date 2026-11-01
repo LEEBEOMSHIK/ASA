@@ -239,14 +239,14 @@ def automation_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
     @router.post("/validate")
     def validate(body: Automation,
                  repository: AutomationRepository = Depends(repo)) -> dict[str, Any]:
-        return {"issues": check_flow(body, repository.tools(), effective_settings(
+        return {"issues": check_flow(body, repository.current_tools(), effective_settings(
             settings.model_copy(update={"workspace_id": repository.workspace_id}))),
                 "execution_available": False}
 
     @router.post("/preview")
     def preview(body: Preview,
                 repository: AutomationRepository = Depends(repo)) -> dict[str, Any]:
-        return {"results": preview_flow(body.draft, repository.tools(), body.prompt,
+        return {"results": preview_flow(body.draft, repository.current_tools(), body.prompt,
                                         body.samples, effective_settings(settings.model_copy(
                                             update={"workspace_id": repository.workspace_id}))),
                 "mode": "connection_test", "paid_calls": 0}

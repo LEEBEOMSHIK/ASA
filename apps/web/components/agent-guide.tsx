@@ -40,8 +40,8 @@ export function GroupedTools({ tools, selected, agentId, onChange }: {
       const group = tools.filter(tool => tool.kind === kind);
       return <details className="tool-group tool-category" key={kind}><summary>{kind === "asa" ? "ASA 기본 도구" : "내가 만든 에이전트"}
         <span className="muted"> · {group.filter(t => selected.includes(t.id)).length}개 선택</span></summary>
-        <p className="muted">{kind === "asa" ? "길이 검사처럼 ASA가 제공하는 기능이에요." : "등록된 에이전트 버전을 연결 대상으로 선택합니다. 현재는 설정만 저장됩니다."}</p>
-        {group.length === 0 ? <p className="tool-empty">{kind === "asa" ? "아직 제공된 도구가 없어요." : "아직 등록된 에이전트가 없어요. 에이전트 초안을 저장한 뒤 ‘에이전트 등록’을 눌러 주세요."}</p> :
+        <p className="muted">{kind === "asa" ? "길이 검사처럼 ASA가 제공하는 기능이에요." : "에이전트를 연결 대상으로 선택합니다. 현재는 설정만 저장됩니다."}</p>
+        {group.length === 0 ? <p className="tool-empty">{kind === "asa" ? "아직 제공된 도구가 없어요." : "아직 등록된 에이전트가 없어요. 에이전트 설정을 저장해 주세요."}</p> :
           <div className="tool-choices">{group.map(tool => {
             const self = Boolean(agentId && tool.agent_id === agentId);
             const unavailable = self || !tool.available;
@@ -49,7 +49,7 @@ export function GroupedTools({ tools, selected, agentId, onChange }: {
               <input type="checkbox" disabled={unavailable && !selected.includes(tool.id)} checked={selected.includes(tool.id)}
                 onChange={e => onChange(e.target.checked ? [...selected, tool.id] : selected.filter(t => t !== tool.id))} />
               <span><strong>{tool.name}</strong><span className="muted">{tool.description}</span>
-                {unavailable && <span className="helper-text">{self ? "자기 자신은 선택할 수 없어요." : tool.unavailable_reason}</span>}</span><small>v{tool.version}</small>
+                {unavailable && <span className="helper-text">{self ? "자기 자신은 선택할 수 없어요." : tool.unavailable_reason}</span>}</span><small>{tool.kind === "agent" ? "최신 저장 설정" : `v${tool.version}`}</small>
             </label>;
           })}</div>}
       </details>;
@@ -75,7 +75,7 @@ export const starters = [
 
 export function starterDefinition(index: number): Definition {
   const s = starters[index];
-  return { purpose: s.name === "이미지 검수 에이전트" ? "image_review" : "general", name: s.name, description: s.description, instructions: s.instructions, model_profile: "default", tools: [],
+  return { name: s.name, description: s.description, instructions: s.instructions, model_profile: "default", tools: [],
     input_schema: { type: "object", properties: { topic: { type: "string", description: s.input } }, required: ["topic"] },
     output_schema: { type: "string" },
     limits: { model_calls: 10, tool_calls: 20, depth: 2, seconds: 300 } };

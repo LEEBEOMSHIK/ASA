@@ -1,4 +1,5 @@
 "use client";
+import { latestAgentTools } from "../lib/registry";
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError, message, type Issue, type SchemaNode, type Tool } from "../lib/registry";
 import { Button, Card, Field, StatusBadge } from "./ui";
@@ -156,7 +157,7 @@ export function AutomationBuilder() {
     </>}
     <dialog ref={picker} className="flow-picker" aria-labelledby="flow-picker-title"><div className="flow-picker-heading"><div><p className="eyebrow">ADD A STEP</p><h2 id="flow-picker-title">어떤 작업을 추가할까요?</h2></div><Button variant="secondary" onClick={() => picker.current?.close()} aria-label="작업 선택 닫기">×</Button></div>
       <Field id="block-search" label="에이전트 또는 도구 찾기">{p => <input {...p} autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="이름으로 검색"/>}</Field>
-      {(["agent","asa"] as const).map(kind => <section key={kind} className="flow-picker-group"><h3>{kind === "agent" ? "내가 만든 에이전트" : "ASA 기본 도구"}</h3>{tools.filter(t => t.kind === kind && t.name.includes(search)).map(t => <button key={t.id} className="flow-picker-item" disabled={busy || !t.available} onClick={() => add(t)}><span><strong>{t.name}</strong><small>{t.description || "등록된 작업"}</small></span><span>{t.available ? "＋" : "준비 중"}</span></button>)}{!tools.some(t => t.kind === kind && t.name.includes(search)) && <p className="muted">일치하는 항목이 없어요.</p>}</section>)}
+      {(["agent","asa"] as const).map(kind => <section key={kind} className="flow-picker-group"><h3>{kind === "agent" ? "내가 만든 에이전트" : "ASA 기본 도구"}</h3>{latestAgentTools(tools).filter(t => t.kind === kind && t.name.includes(search)).map(t => <button key={t.id} className="flow-picker-item" disabled={busy || !t.available} onClick={() => add(t)}><span><strong>{t.name}</strong><small>{t.description || "등록된 작업"}</small></span><span>{t.available ? "＋" : "준비 중"}</span></button>)}{!tools.some(t => t.kind === kind && t.name.includes(search)) && <p className="muted">일치하는 항목이 없어요.</p>}</section>)}
     </dialog>
   </div>;
 }

@@ -13,6 +13,8 @@ from psycopg.types.json import Jsonb
 from asa.config import Settings
 from asa.registry.history import valid_input
 from asa.registry.model_catalog import effective_settings, validate_selection
+from asa.registry.review_connection import validate_review_model
+from asa.registry.review_report import REPORT_INSTRUCTIONS, REPORT_SCHEMA
 from asa.registry.schemas import RegistryError
 from asa.telemetry import call_config, trace_call
 
@@ -90,19 +92,23 @@ def enqueue_review(
             raise RegistryError(429, "image_daily_limit")
         _, agent, version = link["agent_ref"].split(":")
         row = conn.execute(
-            "SELECT definition FROM registry_versions WHERE workspace_id=%s "
-            "AND agent_id=%s AND version=%s",
-            (repo.workspace_id, agent, int(version)),
+            "SELECT version,definition FROM registry_versions WHERE workspace_id=%s "
+            "AND agent_id=%s ORDER BY version DESC LIMIT 1",
+            (repo.workspace_id, agent),
         ).fetchone()
-        if not row or row["definition"].get("purpose") != "image_review":
+        if not row:
             raise RegistryError(409, "review_not_configured")
+        link = {**link, "agent_ref": f"agent:{agent}:{row['version']}"}
         definition = dict(row["definition"])
+        if definition.get("tools"):
+            raise RegistryError(422, "review_tools_unsupported")
         config = effective_settings(
             settings.model_copy(update={"workspace_id": repo.workspace_id}), conn
         )
         provider = definition.get("provider") or config.ai_provider
         model = definition.get("model") or config.ai_model
         validate_selection(config, provider, model)
+        validate_review_model(config, definition)
         if not config.image_ai_enabled or not config.key_for(provider).get_secret_value():
             raise RegistryError(409, "image_not_configured")
         definition.update(provider=provider, model=model)
@@ -166,19 +172,22 @@ def review_image(
     envelope = {
         "title": "ImageReview",
         "type": "object",
-        "properties": {"value": definition["output_schema"]},
-        "required": ["value"],
+        "properties": {"value": definition["output_schema"], "report": REPORT_SCHEMA},
+        "required": ["value", "report"],
         "additionalProperties": False,
     }
     result = model.with_structured_output(envelope).invoke(
-        [SystemMessage(content=definition["instructions"]), HumanMessage(content=content)],
+        [SystemMessage(content=definition["instructions"]),
+         SystemMessage(content=REPORT_INSTRUCTIONS), HumanMessage(content=content)],
         **call_config(),
     )
     if not isinstance(result, dict) or not valid_input(
         result.get("value"), definition["output_schema"]
     ):
         raise ValueError("review_output_invalid")
-    return result["value"]
+    if not valid_input(result.get("report"), REPORT_SCHEMA):
+        raise ValueError("review_report_invalid")
+    return {"format": "image_review_v1", "answer": result["value"], "report": result["report"]}
 
 
 def process_review(repo: Any, settings: Settings) -> bool:
@@ -220,6 +229,7 @@ def process_review(repo: Any, settings: Settings) -> bool:
         config = effective_settings(settings.model_copy(update={"workspace_id": repo.workspace_id}))
         definition = review["definition"]
         validate_selection(config, definition["provider"], definition["model"])
+        validate_review_model(config, definition)
         with trace_call(
             config,
             dict(

@@ -85,6 +85,44 @@
 @media(max-width:900px) { .image-job-steps { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:480px) { .image-job-steps { grid-template-columns:minmax(0,1fr); } }
 
-.image-review { border-top: 1px solid var(--border); padding-top: 20px; margin-top: 4px; }
+.image-review { border-top: 1px solid var(--border); padding-top: var(--space-6); margin-top: var(--space-1); }
 .image-review h4 { margin: 0; }
 .image-review > .button { align-self: flex-start; }
+.review-answer { display:grid; gap:var(--space-3); line-height:1.7; overflow-wrap:anywhere; min-width:0; }
+.review-answer h5 { margin:var(--space-3) 0 0; padding:var(--space-3) var(--space-4); background:var(--surface-subtle); border-radius:var(--radius-sm); font-size:var(--font-body); }
+.review-answer h5:first-child { margin-top:0; }
+.review-answer p { margin:0; white-space:pre-wrap; }
+.review-answer ul,.review-answer ol { margin:0; padding-inline-start:var(--space-6); display:grid; gap:var(--space-2); }
+.review-history-entry { display:grid; gap:var(--space-3); border-top:1px solid var(--border); padding-top:var(--space-4); }
+.review-history-entry > .badge { justify-self:start; }
+.review-settings { display:grid; gap:var(--space-4); margin:var(--space-4) 0 0; }
+.review-settings dt { font-weight:600; margin-bottom:var(--space-2); }
+.review-settings dd { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.7; }
+.image-review details > .review-answer { margin-top:var(--space-4); }
+
+.review-dashboard { display:grid; gap:var(--space-6); min-width:0; overflow-wrap:anywhere; }
+.review-metrics { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:var(--space-4); }
+.review-metrics > div { display:grid; gap:var(--space-2); padding:var(--space-6); background:var(--surface-subtle); border-radius:var(--radius-lg); }
+.review-metrics span,.review-metrics small { color:var(--muted); }
+.review-metrics strong { font-size:var(--font-title); line-height:1.2; }
+.review-dashboard .review-summary { line-height:1.7; }
+.review-issue { display:flex; align-items:flex-start; gap:var(--space-3); padding-block:var(--space-6); border-top:1px solid var(--border); }
+.review-issue > div { display:grid; gap:var(--space-2); min-width:0; }
+.review-dashboard h5 { margin:0; font-size:var(--font-body); line-height:1.6; }
+.review-issue p { line-height:1.7; white-space:pre-wrap; }
+.review-issue-icon { border:2px solid var(--warning-fg); color:var(--warning-fg); border-radius:50%; width:22px; height:22px; flex:0 0 22px; display:inline-flex; align-items:center; justify-content:center; font-size:var(--font-small); font-weight:700; margin-top:var(--space-1); }
+.review-edit-instruction { display:grid; gap:var(--space-4); border-top:1px solid var(--border); padding-top:var(--space-6); }
+.review-edit-instruction > div { display:grid; gap:var(--space-3); padding:var(--space-6); background:var(--surface-subtle); border-radius:var(--radius-lg); }
+.review-edit-instruction p { white-space:pre-wrap; line-height:1.7; }
+.review-edit-instruction .button { justify-self:end; }
+.review-edit-instruction [role=status]:empty { display:none; }
+.review-checks { display:grid; gap:var(--space-3); padding-left:var(--space-6); margin:var(--space-4) 0 0; line-height:1.7; }
+@media(max-width:600px) { .review-metrics { grid-template-columns:1fr; } .review-metrics > div,.review-edit-instruction > div { padding:var(--space-4); } }
+
+/* Review attention is distinct from neutral metadata and confirmed errors. */
+.review-metrics > .review-metric-attention { background:var(--warning-bg); border:1px solid var(--warning-fg); }
+.review-metric-attention span,.review-metric-attention strong,.review-metric-attention small { color:var(--warning-fg); }
+.review-issues { display:grid; gap:var(--space-4); }
+.review-issue { padding:var(--space-4); border:1px solid var(--border); border-inline-start:4px solid var(--warning-fg); border-radius:var(--radius-md); background:var(--surface-subtle); }
+.review-issue h5 { color:var(--warning-fg); }
+.review-issue-icon { background:var(--warning-bg); }

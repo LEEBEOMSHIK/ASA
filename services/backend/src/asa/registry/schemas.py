@@ -33,6 +33,7 @@ class AgentDraft(BaseModel):
         "bot", "pen", "film", "image", "palette", "mic", "search", "shield",
         "sparkles", "book", "code", "person",
     ] = "bot"
+    # Legacy payload compatibility only; execution and connections never branch on this field.
     purpose: Literal["general", "image_review"] = "general"
     after_tasks: AfterTasks = Field(default_factory=AfterTasks)
     provider: Literal["openai", "anthropic"] | None = None

@@ -22,6 +22,7 @@ class ModelMetadata(BaseModel):
     sources: list[str] = Field(default_factory=list, max_length=5)
     web_search_supported: bool | None = None
     compatible: bool | None = None
+    image_input_supported: bool | None = None
     price: ModelPrice | None = None
     note: str = ""
     status: str = ""
@@ -117,6 +118,13 @@ def parse_document(
     if not re.search(rf"`{re.escape(model)}`", document):
         result.note = "공식 문서에서 이 모델 ID를 확인하지 못했습니다."
         return result
+    modalities = re.search(r"^- Input modalities: (.+)$", document, re.M)
+    if modalities:
+        result.image_input_supported = "image" in modalities[1].lower().split(", ")
+    else:
+        modalities = re.search(r"^\| Input → output\s*\| ([^→|]+)→", document, re.M)
+        if modalities:
+            result.image_input_supported = "image" in modalities[1].lower()
     tier: dict[str, Any] | None = None
     if provider == "openai":
         tools = section(document, "Supported tools")
