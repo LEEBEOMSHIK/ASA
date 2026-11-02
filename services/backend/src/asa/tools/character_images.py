@@ -71,7 +71,8 @@ def image_prompt(character: dict[str, Any], change: str) -> str:
 
 
 def generate_image(
-    settings: Settings, model: str, prompt: str, reference: bytes | None
+    settings: Settings, model: str, prompt: str, reference: bytes | list[bytes] | None,
+    *, size: str = "1024x1024"
 ) -> tuple[bytes, dict[str, Any] | None]:
     client: Any = OpenAI(
         api_key=settings.ai_api_key.get_secret_value(),
@@ -82,14 +83,17 @@ def generate_image(
         model=model,
         prompt=prompt,
         n=1,
-        size="1024x1024",
+        size=size,
         quality="medium",
         output_format="png",
         safety_identifier=hashlib.sha256(str(settings.workspace_id).encode()).hexdigest(),
     )
     try:
         result = (
-            client.images.edit(image=("reference.png", reference, "image/png"), **args)
+            client.images.edit(image=([(f"reference-{i}.png", data, "image/png")
+                                      for i, data in enumerate(reference)]
+                                     if isinstance(reference, list) else
+                                     ("reference.png", reference, "image/png")), **args)
             if reference
             else client.images.generate(**args)
         )

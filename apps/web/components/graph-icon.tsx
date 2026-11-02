@@ -1,5 +1,7 @@
 export function GraphIcon({kind}:{kind:string}) {
  const paths:Record<string,string>={
+  image:'M4 4h16v16H4V4Zm0 12 5-5 4 4 3-3 4 4M8 8h.01',
+  approve:'M9 12l2 2 4-4M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',
   workflow:'M4 3h6v6H4V3Zm10 12h6v6h-6v-6ZM10 6h7v9M7 9v9h7',
   edit:'m4 16 12-12 4 4L8 20H4v-4ZM13 7l4 4',
   clock:'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM12 7v5l3 2',

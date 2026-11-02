@@ -45,8 +45,10 @@ def validate_definition(
     def issue(code: str, path: str, message: str) -> None:
         issues.append(ValidationIssue(code=code, field_path=path, message=message))
 
-    if len(json.dumps(draft.model_dump(), ensure_ascii=False).encode()) > 65536:
-        issue("payload_size", "definition", "정의는 64 KiB 이하여야 합니다.")
+    # Instructions have their own character limit; Korean text needs multiple UTF-8 bytes.
+    settings_json = json.dumps(draft.model_dump(exclude={"instructions"}), ensure_ascii=False)
+    if len(settings_json.encode()) > 65536:
+        issue("payload_size", "definition", "지침을 제외한 설정은 64 KiB 이하여야 합니다.")
     link = draft.after_tasks.image_review
     if link:
         target = catalog.get(link.agent_ref)

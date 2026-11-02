@@ -84,7 +84,15 @@ def process(repo: CharacterRepository, settings: Settings) -> bool:
             "WHERE workspace_id=%s AND id=%s",
             (repo.workspace_id, job["id"]),
         )
-        prompt = image_prompt(job["character"], job["change"])
+        scene = job.get("scene_context")
+        if scene:
+            from asa.registry.scene_images import prompt as scene_prompt
+            prompt = scene_prompt(scene, job["character"], job["change"])
+        else:
+            prompt = image_prompt(job["character"], job["change"])
+        source = conn.execute("SELECT request_id FROM character_projects WHERE workspace_id=%s "
+                              "AND id=%s", (repo.workspace_id, job["project_id"])).fetchone()
+        assert source
         conn.execute(
             "INSERT INTO ai_usage_events(workspace_id,id,run_id,request_id,source,name,step_id,"
             "step_name,provider,model,original_request,messages,pricing,requested_at,cost_state) "
@@ -93,15 +101,16 @@ def process(repo: CharacterRepository, settings: Settings) -> bool:
                 repo.workspace_id,
                 job["id"],
                 str(job["project_id"]),
-                str(job["id"]),
+                str(source["request_id"]),
                 job["character"]["name"],
                 job["character_id"],
-                "캐릭터 이미지",
+                "씬 이미지" if scene else "캐릭터 이미지",
                 job["model"],
                 Jsonb(
                     redact(
                         {
                             "character": job["character"],
+                            "scene_context": scene,
                             "change": job["change"],
                             "base_id": str(job["base_id"]) if job["base_id"] else None,
                         },
@@ -132,9 +141,21 @@ def process(repo: CharacterRepository, settings: Settings) -> bool:
     image = None
     status, error = "succeeded", None
     try:
-        image, usage = generate_image(settings, job["model"], prompt, reference)
+        if scene:
+            from asa.registry.scene_images import reference_bytes
+            refs = reference_bytes(repo, scene)
+            if reference:
+                refs.insert(0, reference)
+            size = {"9:16": "1024x1536", "16:9": "1536x1024", "1:1": "1024x1024"}.get(
+                scene["aspect_ratio"], "1024x1536")
+            image, usage = generate_image(settings, job["model"], prompt, refs or None, size=size)
+        else:
+            image, usage = generate_image(settings, job["model"], prompt, reference)
     except Exception as exc:
         status, error = "unknown", "image_call_uncertain"
+        from asa.registry.schemas import RegistryError
+        if isinstance(exc, RegistryError):
+            status, error = "failed", "scene_reference_changed"
         code = getattr(exc, "status_code", None)
         if code in (400, 401, 403, 404, 422, 429):
             status, error = "failed", f"image_provider_{code}"

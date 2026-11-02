@@ -100,7 +100,8 @@ class CharacterRepository(RegistryRepository):
                 connection: psycopg.Connection[dict[str, Any]] | None = None) -> dict[str, Any]:
         with nullcontext(connection) if connection is not None else self._connect() as conn:
             row = conn.execute(
-                "SELECT id::text,request_id::text,source_version,name,characters,approved "
+                "SELECT id::text,request_id::text,source_version,name,characters,approved,"
+                "kind,context "
                 "FROM character_projects WHERE workspace_id=%s AND id=%s",
                 (self.workspace_id, project_id),
             ).fetchone()
@@ -153,6 +154,12 @@ class CharacterRepository(RegistryRepository):
                 set(row["excluded"]),
                 reviewed,
             )
+            if row["kind"] == "scene":
+                from asa.registry.scene_images import readiness, source_views
+                row["blocked"] = readiness(row["context"])
+                row["scene_sources"] = source_views(row["context"])
+                row["work_progress"].update(kind="scene_images", label="씬 이미지",
+                                            resume_anchor="followup-scene_images")
             return row
 
     def set_scope(self, project_id: UUID, character_id: str, body: ItemScope) -> dict[str, Any]:
@@ -204,8 +211,22 @@ class CharacterRepository(RegistryRepository):
             ).fetchone()
         if not version:
             raise RegistryError(409, "character_plan_not_ready")
+        kind, context = "character", {}
         try:
-            plan = CharacterPlan.model_validate(version["answer"])
+            if isinstance(version["answer"], dict) and "shots" in version["answer"]:
+                from asa.registry.scene_images import ScenePlan, items
+                scene_plan = ScenePlan.model_validate(version["answer"])
+                with self._connect() as conn:
+                    source = conn.execute("SELECT input FROM customer_requests WHERE "
+                                          "workspace_id=%s AND id=%s",
+                                          (self.workspace_id, body.request_id)).fetchone()
+                assert source
+                kind = "scene"
+                context = {"plan": scene_plan.model_dump(), "input": source["input"]}
+                plan_items = items(scene_plan)
+            else:
+                plan_items = CharacterPlan.model_validate(
+                    version["answer"]).model_dump()["characters"]
         except ValidationError as exc:
             raise RegistryError(422, "character_plan_invalid") from exc
         with self._connect() as conn:
@@ -227,15 +248,15 @@ class CharacterRepository(RegistryRepository):
                 return self.project(existing["id"], conn)
             conn.execute(
                 "INSERT INTO character_projects"
-                "(workspace_id,id,request_id,source_version,name,characters) "
-                "VALUES (%s,%s,%s,%s,%s,%s)",
+                "(workspace_id,id,request_id,source_version,name,characters,kind,context) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
                 (
                     self.workspace_id,
                     body.id,
                     body.request_id,
                     body.source_version,
                     body.name,
-                    Jsonb(plan.model_dump()["characters"]),
+                    Jsonb(plan_items), kind, Jsonb(context),
                 ),
             )
         return self.project(body.id)
@@ -294,6 +315,10 @@ class CharacterRepository(RegistryRepository):
                 ):
                     raise RegistryError(409, "image_id_conflict")
                 return existing
+            scene_context = None
+            if project.get("kind") == "scene":
+                from asa.registry.scene_images import snapshot
+                scene_context = snapshot(self, project["context"], body.character.id)
             if conn.execute(
                 "SELECT 1 FROM work_item_preferences WHERE workspace_id=%s AND request_id=%s "
                 "AND source_version=%s AND kind='character_images' AND item_id=%s AND excluded",
@@ -340,7 +365,8 @@ class CharacterRepository(RegistryRepository):
             assert version
             row = conn.execute(
                 "INSERT INTO character_image_jobs(workspace_id,id,project_id,character_id,"
-                "version,model,character,change,base_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+                "version,model,character,change,base_id,scene_context) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
                 f"RETURNING {JOB_COLUMNS}",
                 (
                     self.workspace_id,
@@ -351,7 +377,7 @@ class CharacterRepository(RegistryRepository):
                     body.model,
                     Jsonb(body.character.model_dump()),
                     body.change,
-                    body.base_id,
+                    body.base_id, Jsonb(scene_context),
                 ),
             ).fetchone()
             assert row
@@ -492,7 +518,7 @@ def character_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
             return conn.execute(
                 "SELECT id::text,request_id::text,source_version,name,created_at::text "
                 "FROM character_projects "
-                "WHERE workspace_id=%s ORDER BY created_at DESC LIMIT 100",
+                "WHERE workspace_id=%s AND kind='character' ORDER BY created_at DESC LIMIT 100",
                 (r.workspace_id,),
             ).fetchall()
 

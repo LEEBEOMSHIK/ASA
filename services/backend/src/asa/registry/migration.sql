@@ -293,3 +293,7 @@ CREATE TABLE IF NOT EXISTS character_reference_uploads (
  created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS character_upload_workspace ON character_reference_uploads(workspace_id);
+
+ALTER TABLE character_projects ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'character';
+ALTER TABLE character_projects ADD COLUMN IF NOT EXISTS context jsonb NOT NULL DEFAULT '{}';
+ALTER TABLE character_image_jobs ADD COLUMN IF NOT EXISTS scene_context jsonb;

@@ -75,6 +75,8 @@ export function message(error: unknown): string {
     character_handoff_not_ready: "사용할 캐릭터의 이미지를 모두 확정한 뒤 전달해 주세요.",
     character_handoff_changed: "캐릭터 설정이나 확정 이미지가 바뀌었습니다. 전달 데이터를 다시 가져와 주세요.",
     character_handoff_image_missing: "확정 이미지 파일을 찾을 수 없습니다. 이미지를 확인해 주세요.",
+    scene_references_not_ready: "이 씬에 필요한 캐릭터 기준이나 확인 사항이 부족합니다. 씬 카드의 안내를 확인해 주세요.",
+    scene_reference_changed: "참조 캐릭터의 확정 상태가 바뀌었습니다. 최신 이미지를 선택해 다시 요청하세요.",
     character_plan_invalid: "캐릭터 설정 답변 형식이 맞지 않습니다. 에이전트의 답변 항목을 확인해 주세요.",
     character_plan_not_ready: "캐릭터 설정 답변이 아직 완료되지 않았습니다.",
     model_already_registered: "이미 등록된 모델입니다. 저장된 목록을 다시 확인하세요.",

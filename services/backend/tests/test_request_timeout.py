@@ -13,7 +13,8 @@ def test_timeout_classification():
     assert is_timeout(outer)
 
 
-@pytest.mark.parametrize("error,code", [(TimeoutError(), "ai_timeout"), (ValueError(), None)])
+@pytest.mark.parametrize("error,code", [
+    (TimeoutError(), "ai_timeout"), (ValueError(), "ai_call_failed")])
 def test_execute_records_uncertain_result_without_retry(error, code):
     class Repository:
         finished = []

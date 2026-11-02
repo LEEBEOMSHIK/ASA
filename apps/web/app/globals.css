@@ -1134,3 +1134,15 @@ article.flow-library-card { display:flex; flex-direction:column; gap:0; padding:
 .input-history-setting { display:grid; gap:var(--space-2); }
 .input-history-setting p { margin:0; }
 .agent-group .catalog-grid { grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr)); }
+
+/* Answer actions and approval are separate decisions. */
+.answer-management + .answer-approval { margin-top: var(--space-6); }
+.scene-preflight { display: grid; gap: var(--space-4); }
+
+.scene-blocked { padding:var(--space-4); border-radius:var(--radius-sm); background:var(--warning-bg); color:var(--warning-fg); }
+.scene-blocked ul { margin:var(--space-2) 0 0; padding-left:var(--space-6); }
+
+.scene-preparation-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr)); gap:var(--space-3); margin-top:var(--space-6); }
+.scene-preparation-item { display:flex; flex-direction:column; gap:var(--space-2); padding:var(--space-4); border:1px solid var(--border); border-radius:var(--radius-md); background:var(--surface-subtle); min-width:0; }
+.scene-preparation-item strong { overflow-wrap:anywhere; }
+.scene-preparation-item .helper-text { margin:0; }

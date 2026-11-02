@@ -395,6 +395,44 @@ def test_previous_answer_sources_versions_search_and_isolation(client, db):
     assert client.get(url + '/' + str(uuid4())).status_code == 404
 
 
+def test_automation_answer_sources_filter_and_exact_step(client, db):
+    from psycopg.types.json import Jsonb
+    from asa.registry.answer_sources import answer_sources, automation_answer
+    from asa.registry.schemas import RegistryError
+    headers, saved = runtime_flow(client)
+    repo = RegistryRepository(*db)
+    writer, scenes, run_id = uuid4(), uuid4(), uuid4()
+    original = '**제목: 이하나와 웃음 도둑의 발자국**\n\n원문 대본'
+    manifest = [dict(node_id='writer', agent_id=str(writer), name='작가', output_schema={}),
+                dict(node_id='scenes', agent_id=str(scenes), name='장면', output_schema={})]
+    steps = [dict(id='writer:1', node_id='writer', status='succeeded', output=original),
+             dict(id='scenes:2', node_id='scenes', status='succeeded',
+                  output='# 이하나와 웃음 도둑의 발자국 — 장면 구성\n장면 원문'),
+             dict(id='scenes:3', node_id='scenes', status='failed', output='실패 부분'),
+             dict(id='end:4', node_id='end', status='succeeded', output=original)]
+    with repo._connect() as conn:
+        conn.execute('INSERT INTO automation_runs(workspace_id,id,automation_id,revision,'
+                     'definition,manifest,prompt,status,steps) VALUES (%s,%s,%s,1,%s,%s,%s,%s,%s)',
+                     (db[1], run_id, saved['id'], Jsonb({'name': '동화 자동화'}),
+                      Jsonb(manifest), '하나', 'failed', Jsonb(steps)))
+    url = '/api/v1/work-requests/answer-sources'
+    items = client.get(url, params={'agent_id': str(writer), 'q': '웃음 도둑'}).json()['items']
+    assert len(items) == 1
+    assert items[0]['title'] == '이하나와 웃음 도둑의 발자국'
+    assert items[0]['source_kind'] == 'automation' and items[0]['step_index'] == 0
+    detail = client.get(f'{url}/{run_id}', params={'source_kind': 'automation', 'step_index': 0})
+    assert detail.status_code == 200
+    assert detail.json()['versions'][0]['answer'] == original
+    assert len(answer_sources(repo, agent_id=scenes)['items']) == 1
+    assert answer_sources(repo, agent_id=uuid4())['items'] == []
+    assert answer_sources(RegistryRepository(db[0], uuid4()))['items'] == []
+    with pytest.raises(RegistryError):
+        automation_answer(RegistryRepository(db[0], uuid4()), run_id, 0)
+    for index in [2, 3, 999]:
+        assert client.get(f'{url}/{run_id}', params={
+            'source_kind': 'automation', 'step_index': index}).status_code == 404
+
+
 def runtime_flow(client, review=False):
     headers = login(client)
     body = {"id": str(uuid4()), "revision": 0, "draft": {"name": "실행 검증", "steps": [
@@ -2182,7 +2220,8 @@ def test_standby_automation_worker_does_not_spin_on_overdue_schedule(client, db)
 
 
 @pytest.mark.parametrize("legacy", [True, False])
-def test_image_review_queue_snapshot_auto_and_isolation(db, monkeypatch, legacy):
+@pytest.mark.parametrize("scene", [True, False])
+def test_image_review_queue_snapshot_auto_and_isolation(db, monkeypatch, legacy, scene):
     from psycopg.types.json import Jsonb
     from asa.registry.characters import Character, CharacterRepository, ImageRequest
     from asa.registry.image_reviews import enqueue_review, enqueue_automatic, process_review
@@ -2219,10 +2258,26 @@ def test_image_review_queue_snapshot_auto_and_isolation(db, monkeypatch, legacy)
         connection_status(CharacterRepository(dsn,uuid4()),settings,ref)
     # Effective model resolution is isolated from global admin catalog in this test.
     monkeypatch.setattr('asa.registry.image_reviews.effective_settings',lambda s,*a:s)
+    if scene:
+        from asa.registry.scene_images import ScenePlan, items
+        from asa.registry.character_library import selected_handoff
+        upload = uuid4()
+        with repo._connect() as conn:
+            conn.execute("INSERT INTO character_reference_uploads(id,workspace_id,character,image,filename) "
+                         "VALUES (%s,%s,%s,%s,'test.png')", (upload,workspace,Jsonb(char.model_dump()),b'identity'))
+        refs = selected_handoff(repo,[upload])
+        plan = ScenePlan(summary='씬',checks=[],shots=[dict(scene_id='1',shot_id='1',title='씬',
+            source_excerpt='원문',character_ids=[refs['characters'][0]['id']],
+            reference_image_ids=[str(upload)],composition='도서관',image_prompt='책 읽기',
+            continuity='의상 유지',video_notes='',review_notes='',ready=True)])
+        char = Character(**items(plan)[0])
+        with repo._connect() as conn:
+            conn.execute("UPDATE character_projects SET kind='scene',characters=%s,context=%s WHERE id=%s",
+                         (Jsonb(items(plan)),Jsonb(dict(plan=plan.model_dump(),input=dict(characters=refs,script='원문'))),project))
     image = ImageRequest(id=uuid4(),character=char,model='gpt-image-2.5-sunburst')
     repo.enqueue(project,image,settings)
     from asa.image_worker import tick
-    monkeypatch.setattr('asa.image_worker.generate_image',lambda *a:(b'png-test',None))
+    monkeypatch.setattr('asa.image_worker.generate_image',lambda *a,**kw:(b'png-test',None))
     assert tick(settings)  # Image commit and automatic review enqueue share a transaction.
     enqueue_automatic(repo,image.id,settings)
     enqueue_automatic(repo,image.id,settings)
@@ -2230,7 +2285,10 @@ def test_image_review_queue_snapshot_auto_and_isolation(db, monkeypatch, legacy)
     assert len(snapshot['reviews']) == 1 and snapshot['review_config']['agent_ref'] == ref
     repo.save_settings(AgentDraft.model_validate({**reviewer['draft'], 'instructions': 'updated review'}), reviewer['id'], 1)
     calls=[]
-    def fake(config,definition,character,change,png,reference):
+    def fake(config,definition,character,change,png,reference,**kwargs):
+        if scene:
+            assert kwargs["scene_references"] == [b"identity"]
+            assert kwargs["scene_context"]["source_input"]["script"] == "원문"
         from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
         from langchain_core.messages import AIMessage
         from asa.telemetry import call_config
@@ -2256,7 +2314,7 @@ def test_image_review_queue_snapshot_auto_and_isolation(db, monkeypatch, legacy)
     assert process_review(repo,settings)
     assert calls[-1][1]['appearance']=='green coat'
     # Frozen image settings are not overwritten by review criteria.
-    assert repo.project(project)['jobs'][0]['character']['appearance']=='coat'
+    assert repo.project(project)['jobs'][0]['character']['appearance']==('도서관' if scene else 'coat')
     with repo._connect() as conn:
         events=conn.execute("SELECT * FROM ai_usage_events WHERE step_name='이미지 검수'").fetchall()
         assert len(events)==2 and all(str(e['request_id'])==str(request) for e in events)
@@ -2269,7 +2327,7 @@ def test_image_review_queue_snapshot_auto_and_isolation(db, monkeypatch, legacy)
     assert repo.project(project)['reviews'][0]['status']=='unknown'
     # Interrupted review never prevents a human from approving the image.
     repo.approve(image.id,None,1)
-    assert repo.project(project)['approved']['cloud']==str(image.id)
+    assert repo.project(project)['approved'][char.id]==str(image.id)
 
 
 def test_agent_icon_saved_published_and_version_preserved(db):
@@ -2727,3 +2785,83 @@ def test_image_library_and_selected_handoff(client, db, monkeypatch):
                        json={'image_ids': [str(second)]}).status_code == 409
     assert client.post('/api/v1/characters/library/selection', headers=ORIGIN,
                        json={'image_ids': [str(second)]}).status_code == 403
+
+
+def test_scene_images_queue_references_batch_edit_approval_and_usage(db, monkeypatch):
+    from copy import deepcopy
+    from psycopg.types.json import Jsonb
+    from asa.registry.characters import Character, CharacterRepository, ImageRequest
+    from asa.registry.scene_images import ScenePlan, items, readiness
+    from asa.registry.character_library import selected_handoff, library
+    from asa.registry.schemas import RegistryError
+    from asa.image_worker import tick
+    repo = CharacterRepository(*db)
+    request, project, upload = uuid4(), uuid4(), uuid4()
+    char = dict(id="hana", name="하나", facts="7살", proposed="", appearance="노란 우비",
+                scene_ids="1", image_prompt="기존 외형 유지")
+    with repo._connect() as conn:
+        conn.execute("INSERT INTO character_reference_uploads(id,workspace_id,character,image,filename) "
+                     "VALUES (%s,%s,%s,%s,'test.png')", (upload, db[1], Jsonb(char), b'reference'))
+    handoff = selected_handoff(repo, [upload])
+    cid = handoff['characters'][0]['id']
+    shot = dict(scene_id='1', shot_id='1', title='도서관', source_excerpt='원문 그대로',
+                character_ids=[cid], reference_image_ids=[str(upload)], composition='도서관 전경',
+                image_prompt='책 읽는 하나', continuity='노란 우비', video_notes='천천히 이동',
+                review_notes='', ready=True)
+    plan = ScenePlan(summary='두 장면', shots=[shot, {**shot,'scene_id':'2'}], checks=[])
+    context = dict(plan=plan.model_dump(), input=dict(script='대본 전체 원문', scenes='장면 원문',
+                                                   characters=handoff, aspect_ratio='9:16'))
+    before = deepcopy(context)
+    with repo._connect() as conn:
+        conn.execute("INSERT INTO character_projects(workspace_id,id,request_id,name,characters,kind,context) "
+                     "VALUES (%s,%s,%s,'씬','[]','scene',%s)", (db[1],project,request,Jsonb(context)))
+        conn.execute("UPDATE character_projects SET characters=%s WHERE id=%s",
+                     (Jsonb(items(plan)),project))
+    settings = Settings(_env_file=None,database_url=db[0],workspace_id=db[1],
+                        image_ai_enabled=True,ai_api_key='fake')
+    bodies = [ImageRequest(id=uuid4(),character=Character(**c),model=settings.image_models[0])
+              for c in items(plan)]
+    assert readiness(context)=={'scene_1':[], 'scene_2':[]}
+    assert len(repo.enqueue_batch(project,bodies,settings))==2
+    assert repo.enqueue(project,bodies[0],settings)['id']==str(bodies[0].id)
+    with pytest.raises(RegistryError,match='image_already_running'):
+        repo.enqueue(project,bodies[0].model_copy(update={'id':uuid4()}),settings)
+    repo.cancel(bodies[1].id)
+    calls=[]
+    def fake(config, model, prompt, references, **kwargs):
+        calls.append((prompt,references,kwargs))
+        return b'generated-scene', {'input_tokens':120,'output_tokens':20,
+                                  'input_tokens_details':{'text_tokens':100,'image_tokens':20}}
+    monkeypatch.setattr('asa.image_worker.generate_image',fake)
+    assert tick(settings)
+    assert calls[0][1]==[b'reference']
+    assert calls[0][2]['size']=='1024x1536'
+    assert '대본 전체 원문' in calls[0][0] and '장면 원문' in calls[0][0]
+    repo.approve(bodies[0].id,None,1)
+    edit=bodies[0].model_copy(update={'id':uuid4(),'base_id':bodies[0].id,'change':'창문만 크게'})
+    repo.enqueue(project,edit,settings)
+    assert tick(settings)
+    assert calls[1][1]==[b'generated-scene',b'reference']
+    assert '창문만 크게' in calls[1][0]
+    repo.approve(edit.id,bodies[0].id,2)
+    state=repo.project(project)
+    assert state['kind']=='scene' and state['approved']['scene_1']==str(edit.id)
+    assert state['work_progress']['counts']['approved']==1
+    assert state['work_progress']['counts']['pending']==1
+    assert len(library(repo)['items'])==1  # Only uploaded character, never scene pictures.
+    with pytest.raises(RegistryError):
+        selected_handoff(repo,[edit.id])
+    with repo._connect() as conn:
+        events=conn.execute('SELECT * FROM ai_usage_events').fetchall()
+    assert len(events)==2
+    assert all(str(e['request_id'])==str(request) and e['estimated_usd']>0 for e in events)
+    assert all(e['step_name']=='씬 이미지' and e['duration_ms']>=0 for e in events)
+    assert context==before
+    missing=deepcopy(context)
+    missing['plan']['shots'][0]['character_ids']=['missing']
+    with repo._connect() as conn:
+        conn.execute('UPDATE character_projects SET context=%s WHERE id=%s',(Jsonb(missing),project))
+    with pytest.raises(RegistryError,match='scene_references_not_ready'):
+        repo.enqueue(project,bodies[0].model_copy(update={'id':uuid4()}),settings)
+    with pytest.raises(RegistryError):
+        CharacterRepository(db[0],uuid4()).project(project)

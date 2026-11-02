@@ -5,7 +5,9 @@ import { Button, Field, SelectCombobox, StatusBadge } from "./ui";
 import { Modal } from "./character-library";
 import "./previous-answer-input.css";
 
-type Item = {id:string;name:string;title:string;request_preview:string;version:number;is_test:boolean;created_at:string};
+type Item = {id:string;name:string;title:string;request_preview:string;version:number;is_test:boolean;created_at:string;source_kind:"agent"|"automation";step_index:number|null;automation_name:string|null;step_label:string|null};
+const itemKey=(item:Item)=>`${item.source_kind}:${item.id}:${item.step_index??""}`;
+const sourceLabel=(item:Item)=>item.source_kind==="automation"?`자동화 · ${item.automation_name} · ${item.step_label}`:item.name;
 type Answer = {version:number;answer:unknown;source:string;created_at:string};
 type Detail = {name:string;schema:SchemaNode;versions:Answer[]};
 const text = (v:unknown) => typeof v === "string" ? v : JSON.stringify(v,null,2) ?? "";
@@ -30,7 +32,7 @@ function AnswerPicker({label,replacing,maxLength,onClose,onApply,agentId}:{agent
     api<{items:Item[];has_more:boolean}>(`/work-requests/answer-sources?${new URLSearchParams({q,offset:String(offset),...(agentId?{agent_id:agentId}:{})})}`).then(d=>{if(alive){setItems(d.items);setMore(d.has_more);}}).catch(e=>{if(alive)setError(message(e));}).finally(()=>{if(alive)setLoading(false);});
   },200);return()=>{alive=false;clearTimeout(timer);};},[q,offset,retry,agentId]);
   useEffect(()=>{if(!chosen)return;let alive=true;setDetail(null);setError("");setField("");
-    api<Detail>(`/work-requests/answer-sources/${chosen.id}`).then(d=>{if(alive){setDetail(d);setVersion(String(d.versions[0]?.version??""));}}).catch(e=>{if(alive)setError(message(e));});return()=>{alive=false;};
+    api<Detail>(`/work-requests/answer-sources/${chosen.id}?${new URLSearchParams({source_kind:chosen.source_kind,...(chosen.step_index!==null?{step_index:String(chosen.step_index)}:{})})}`).then(d=>{if(alive){setDetail(d);setVersion(String(d.versions[0]?.version??""));}}).catch(e=>{if(alive)setError(message(e));});return()=>{alive=false;};
   },[chosen,retry]);
   const answer=detail?.versions.find(v=>String(v.version)===version);
   const fields=answer&&typeof answer.answer==="object"&&answer.answer!==null&&!Array.isArray(answer.answer)?Object.entries(answer.answer).filter(([,v])=>typeof v==="string"):[];
@@ -38,13 +40,13 @@ function AnswerPicker({label,replacing,maxLength,onClose,onApply,agentId}:{agent
   const tooLong=selected.length>maxLength;
   return <Modal title={`${label} · 이전 작업에서 가져오기`} onClose={onClose} footer={<>
     <Button variant="secondary" onClick={onClose}>취소</Button>
-    <Button disabled={!answer||!selected.trim()||tooLong} onClick={()=>onApply(selected,`${chosen!.title} · 답변 v${version}${field?` · ${detail?.schema.properties?.[field]?.description||field}`:""}`)}>{replacing?"현재 입력을 이 내용으로 바꾸기":"이 내용 가져오기"}</Button>
+    <Button disabled={!answer||!selected.trim()||tooLong} onClick={()=>onApply(selected,`${chosen!.title} · ${sourceLabel(chosen!)} · 답변 v${version}${field?` · ${detail?.schema.properties?.[field]?.description||field}`:""}`)}>{replacing?"현재 입력을 이 내용으로 바꾸기":"이 내용 가져오기"}</Button>
   </>}><div className="answer-picker">
-    <p className="muted">답변이 있는 작업에서 내용을 가져옵니다. 원본은 바뀌지 않으며, 가져온 뒤 직접 수정할 수 있습니다.</p>
+    <p className="muted">개별 실행과 자동화 단계에서 완료된 답변을 가져옵니다. 원본은 바뀌지 않으며, 가져온 뒤 직접 수정할 수 있습니다.</p>
     <Field id={id} label="작업 검색" hint="작업 제목이나 요청·답변 내용으로 검색하세요.">{p=><input {...p} type="search" value={q} maxLength={200} onChange={e=>{setQ(e.target.value);setOffset(0);}}/>}</Field>
     {error&&<div role="alert"><p>{error}</p><Button variant="secondary" onClick={()=>setRetry(v=>v+1)}>다시 불러오기</Button></div>}
     <div className="answer-picker-columns"><div className="answer-picker-list" aria-label="이전 작업 목록">
-      {loading?<p role="status">작업을 불러오는 중…</p>:!items.length?<p>가져올 답변이 없습니다. 검색어를 바꾸거나 연결된 에이전트의 작업을 완료해 주세요.</p>:items.map(item=><button type="button" key={item.id} className="answer-source-card" aria-pressed={chosen?.id===item.id} onClick={()=>setChosen(item)}><strong>{item.title}</strong>{item.request_preview&&<span className="answer-source-summary">{item.request_preview}</span>}<span>{new Date(item.created_at).toLocaleString("ko-KR")} · 답변 v{item.version}</span><span className="answer-source-origin">{item.name}</span>{item.is_test&&<StatusBadge>테스트 요청</StatusBadge>}</button>)}
+      {loading?<p role="status">작업을 불러오는 중…</p>:!items.length?<p>가져올 답변이 없습니다. 검색어를 바꾸거나 연결된 에이전트의 작업을 완료해 주세요.</p>:items.map(item=><button type="button" key={itemKey(item)} className="answer-source-card" aria-pressed={!!chosen&&itemKey(chosen)===itemKey(item)} onClick={()=>setChosen(item)}><strong>{item.title}</strong>{item.request_preview&&<span className="answer-source-summary">{item.request_preview}</span>}<span>{new Date(item.created_at).toLocaleString("ko-KR")} · 답변 v{item.version}</span><span className="answer-source-origin">{sourceLabel(item)}</span>{item.is_test&&<StatusBadge>테스트 요청</StatusBadge>}</button>)}
       {(offset>0||more)&&<div className="actions"><Button variant="secondary" disabled={loading||!offset} onClick={()=>setOffset(v=>v-20)}>이전</Button><span>{offset/20+1} 페이지</span><Button variant="secondary" disabled={loading||!more} onClick={()=>setOffset(v=>v+20)}>다음</Button></div>}
     </div><div className="answer-picker-preview">
       {!chosen?<p>작업을 선택하면 가져올 답변을 확인할 수 있습니다.</p>:!detail?<p role="status">답변을 불러오는 중…</p>:<>

@@ -577,3 +577,110 @@ ASA172 DONE: 이전 작업 가져오기를 입력 제목 옆18px 아이콘(44px 
 ASA173 IN PROGRESS: ASA160~172 변경을 밝은 테마/모바일에서 확인하고 코드·테스트·문서만 선별하여 커밋/푸시. 사용자 자료 및 캐시 보존.
 
 ASA173 검증 완료: ASA160~172 코드·테스트·템플릿·문서55파일 커밋 대상 확인. 밝은 데스크톱 화면 캡처로 제목/아이콘 정렬 확인(.local/import-light.png). 모바일 viewport390 설정에서 CSS width469=scrollWidth469, 아이콘44px·제목gap8px, Enter로 모달열기/작업선택/3874자 가져오기 및 출처 표시 확인. 모바일 캡처 CDP timeout으로 시각 검증 미완료. viewport reset 호출 후에도 모바일 화면이 남았고 이후 브라우저 응답 timeout으로 테마 원복 확인 불가(밝은 테마로 남을 수 있음). pytest280 passed102.09s, src ruff/mypy51/typecheck/build/diff-check 통과. 비밀패턴 검사0건. .env/.local/.next/.venv 및 사용자자료 제외·삭제0건. 유료 AI 호출 없음. main에 커밋/푸시 진행.
+
+ASA174 ANALYSIS DONE: 사용자 요청으로 지연/간격/씬 결과 읽기 전용 분석. 최근 씬 요청 b4d7d490-80dc-4cd9-977d-ecbb2b4c7816 접수16:56:40.364 시작16:56:40.689 완료16:58:05.904, 큐대기0.325초 실행85.215초. 저장 지침은 실제 생성 역할을 요구하나 tools=[]이고 현재 개별 실행은 구조화 텍스트 모델 경로. shots12개 모두 ready=false, 생성도구 미제공 및 엄마/도서관선생님/뿡이 기준누락을 결과가 명시. 씬 전용 생성/검수/결과 UI 연결 없음. 이해/방향은 같은 모델 스트림 필드가 도착해야 렌더링, 서버250ms throttle이며 최초필드 도착시각은 보존하지 않아20~30초 지연 구간 확정 불가. answer-management 하단margin0 및 인접 answer-approval 외부gap 없음 확인. 코드/사용자지침/DB 변경 및 유료호출 없음. 분석 작업이라 전체 테스트 재실행 없음.
+
+ASA175 IN PROGRESS: 씬 결과를 공통 이미지 큐에 연결. 씬별 자료 검증/개별·일괄 생성/검수/수정/확정 및 즉시 접수 안내·답변 관리 간격 수정. 사용자 지침과 원문 보존.
+
+
+ASA175 DONE: ScenePlan 어댑터 및 공통 이미지 큐 연결. 씬 카드/개별·최대12개 일괄 생성/대기 취소/검수/수정/확정, 원문·실제 캐릭터 참조 이미지 스냅샷 전달, 부족 자료 차단. 최근 작업 scene_images 진행 반영, 씬 결과는 캐릭터 보관함/전달 대상에서 분리. AI 이해 필드 도착 전 즉시 접수 안내 및 답변관리→확정 영역24px 간격 추가. 사용자 지침·대본·장면 원문 보존, runtime 시스템 안내만 추가.
+검증: pytest283 passed101.80s, src ruff/mypy52/typecheck/build/diff-check 통과. 신규 실제DB+모의API 검사로 이미지 생성·수정 base+캐릭터 bytes/일괄·중복·취소·확정·격리·토큰비용·씬 검수 참조/원문 전달 확인. 검수 테스트 확장 중 캐릭터 전용 고정 기대값2곳을 씬에도 맞게 수정한 후 전체 재통과.
+실제 화면: 기존 사용자 씬 결과12개 카드·개별 전환·일괄 생성 영역·부족자료 생성 차단 확인. 답변관리 간격 DOM23.99px/계산24px 및 밝은 화면 캡처(.local/scene-answer-spacing.jpg). 다크 전환 확인. 모바일390 override의 CSS width469=scrollWidth469 및 씬 전환 확인, 모바일 스크린샷은 CDP timeout으로 시각검증 미완료. viewport reset/밝은 테마 원복 호출 완료.
+로컬 migration 적용, API/스크립트·이미지 워커 갱신. 사용자 요청의 엄마/도서관선생님/뿡이 기준자료 부족 및 기존 ready=false 때문에 실제 유료 생성은 미실행. 데이터 보완 후 재분석 필요. 목표9:16은 공급자 원본1024x1536로 생성되므로 후속 영상 비율조정 필요를 UI/문서에 명시. 사용자자료 삭제·지침변경·커밋/푸시 없음.
+
+ASA176 ANALYSIS DONE: 사용자 지적의 이미지7개 누락 여부 읽기 전용 확인. 요청 b4d7d490 input에 이하나/구름할머니/뭉실이/생일친구/원숭이/돼지/무 7개 저장 확인, image_content 검증 결과 image_url7개. 선택 대본·씬은 '하나와 똑똑뿡 도서관의 비밀'로 엄마/도서관선생님/뿡이 등장. 첨부누락이 아니라 선택한 이야기와 캐릭터 세트 불일치이며, 기존AI ready=false 의견을 그대로 안내한 UI라 오해 유발. 과거 공급자 수신 로그 직접확인 없음. 사용자자료/코드/지침 변경 및 유료호출 없음. 분석만 수행하여 테스트 재실행 없음.
+
+ASA-177 ANALYSIS DONE: 이전 작업 가져오기에 웃음 도둑 원본이 누락된 원인 확인.
+- 자동화 실행 42cab624-714c-4733-bf71-5015208aa34c의 writer/scenes 출력에 '이하나와 웃음 도둑의 발자국' 원문이 보존되어 있음을 DB 읽기로 확인.
+- 캐릭터 테스트 스크립트와 당시 작업 기록은 해당 자동화 단계 출력을 캐릭터 요청 c408792f-432e-4485-ba40-11b8ecd991ba에 전달했음을 확인.
+- 현재 이전 답변 가져오기는 customer_requests/script_versions의 개별 실행 답변만 조회하고 자동화 단계 출력은 포함하지 않아 해당 원본이 노출되지 않음. 개별 대본·장면 답변은 다른 작품('하나와 똑똑뿡 도서관의 비밀').
+- 원본 삭제 또는 캐릭터 추출 누락으로 단정하지 않음. 원인 조사만 수행; 제품 코드·업무 데이터 변경 및 유료 호출 없음.
+
+ASA178 IN PROGRESS: 이전 작업 가져오기에 자동화 완료 단계 답변 통합. 실행 스냅샷의 에이전트 ID 필터·workspace 격리·원문 보존·출처 표시 및 실제 대본/장면 가져오기 검증.
+
+ASA178 DONE: 이전 작업 가져오기에 자동화 성공 에이전트 단계 답변 추가. 실행 당시 manifest의 agent_id 필터, workspace 격리, 실패·도구·시작/종료 단계 제외. 실행ID+단계인덱스로 상세 선택 및 원문 가져오기, 자동화 이름/단계 출처 표시. 기존 개별 답변 버전 조회 유지.
+- 실제 Chrome 밝은 화면에서 '이하나와 웃음 도둑의 발자국' 대본2581자/장면4206자 각각 검색·선택·입력 반영 및 미리보기와 입력값 완전일치 확인. 해당 에이전트만 표시 확인. 원본/사용자지침/이미지 변경 및 유료 실행 없음. 현재 입력 폼에는 두 원문을 가져온 상태를 유지(실행하지 않음).
+- 밝은 데스크톱/다크 좁은 화면 시각 확인, 카드gap8px/색상토큰/가로넘침없음 확인. 390 viewport override의 실제 CSS width487/scrollWidth469. 모바일 선택·가져오기 후 viewport reset/밝은 테마 원복. 증거 .local/automation-answer-picker.jpg, .local/automation-answer-mobile-dark.jpg (Git 제외).
+- 테스트 먼저 실패 확인 후 구현. backend284 passed104.00s, ruff/mypy52, frontend typecheck/build, diff-check 통과. ASA API만 재시작; 큐/워커 미변경. 커밋/푸시 없음.
+
+ASA179 IN PROGRESS: 씬 분석 실패와 미완성 일반 텍스트 노출 조사. 최신 요청28147cb3에서14개 shots 후 checks 문장 중단·summary 누락, 사용량unknown/공통오류 확인. 출력 예산 및 종료 원인 기록 보강, 씬 준비 UI와 실제 재실행 검증.
+
+ASA179 DONE: 씬 분석용 출력 예산24576(일반 대본8192 유지), 안전한 실패 코드(시간초과/출력한도/출력검증/호출실패) 기록. 생성 중·실패한 씬 답변은 일반 텍스트 나열 대신 장면 준비 카드로 표시하며, 미완성은 생성 버튼을 제공하지 않음. 기존 저장 지침·원문 변경 없음.
+- 실제 요청28147cb3 재분석 성공:14개 씬 저장, 입력24324/출력7966토큰, 예상$0.064154. 기존 실패는14개 shots 이후 checks 중단·summary 누락 확인; 당시 상세 예외 미기록으로 정확한 원인은 단정하지 않음.
+- 실제 Chrome에서14개 씬 선택·개별 생성·여러 씬 생성 진입점 확인. 서버검증상9개 생성 가능/5개 자료·설정 확인 필요(AI 요약의11개와 별개). 자료부족 차단을 우회하지 않음.
+- 첫 씬 '비 오는 날의 그림책방' 실제 생성 성공:21.62초, 참조 이하나 이미지1개, 입력11223(이미지1024포함)/출력343토큰, 예상$0.069477. ai_usage_events 성공 기록 및 화면 결과/검토필요1·미생성13 동기화 확인. 사용자 확정·추가13개 유료생성·AI검수·수정 재호출은 미실행. 화면 증거 .local/scene-ready-179.jpg.
+- 전체pytest286passed98.05s, ruff/mypy52/typecheck/build/diff-check 통과. 기존 일반오류 test_request_timeout 기대값을 새 안전한 코드로 갱신 후 전체재통과. 스크립트 워커만 유휴 상태 확인 후 재시작. 커밋/푸시 없음.
+
+ASA180 IN PROGRESS: 씬 이미지와 대본 대응 구간·생성 당시 장면 구성을 함께 표시. 버전별 스냅샷 사용, 미생성은 현재 설정 표시, 원문/이미지 변경 없이 UI 검증.
+
+ASA180 DONE: 씬 이미지 옆 수정 영역 밖에 '이 이미지에 담은 장면' 추가. 대본 대응 구간·장면 구도/배경/행동·해당 버전 수정요청 표시. 생성된 이미지는 shown.character 스냅샷, 미생성은 draft로 현재설정 표시. 원본대본 전체가 아니라 해당 대응구간임을 라벨로 구분. 공통토큰 padding24/gap16, 좁은화면 padding16 및 긴본문 내부스크롤 적용.
+- 실제 밝은/다크 데스크톱 확인, 첫씬 이미지와 대응 문장/구성 나란히 표시, 다음 미생성씬 전환시 현재설정 표시 확인. 390 viewport override 실제CSS469/scroll469로 넘침없음 확인; 모바일스크린샷은 캡처 영역 이상으로 시각검증 미완료. 원래씬·밝은테마·viewport 복원. 증거 .local/scene-context-light.jpg. 유료호출/데이터저장 없음.
+- pytest286passed108.80s, ruff/mypy52/typecheck/build/diff-check 통과. 최초 build는 .next mkdir EPERM으로 중단, 권한 재실행으로 정상통과. 다중 이미지버전 전환은 테스트대상에1개버전만 있어 실제다중전환 미검증. 커밋/푸시 없음.
+
+ASA181 IN PROGRESS: 씬 원본 대본·장면을 AI 이미지 구성과 분리하고 씬별 참조 캐릭터 이름·이미지 표시. 원문 정확 일치 검증 및 미매칭 시 전체 원문 제공, 원본/지침/생성자산 변경 없음.
+
+ASA181 DONE: 씬 카드에 원본 대본 대응 구간/원본 장면 구성과 AI 이미지 구성을 분리. 원본 장면의 시작·끝 인용이 대본에 유일하게 존재하면 사이 원문 그대로 표시, 아니면 정확 일치 excerpt 또는 전체 원문 fallback. 장면 번호가 불명확하면 전체 원문과 사유 표시. 씬 character_ids에 연결된 캐릭터 이름·기준 이미지 표시, 누락참조는 명시. 원본/지침/이미지/AI생성 경로 변경 없음.
+- Chrome 밝은/다크에서 첫 씬(이하나1명), 두 번째 씬(5명) 원문 펼침·전환·이미지 로딩 확인. 5개 이미지 모두 loaded, 카드 scrollWidth=clientWidth484. 원본의 순차연출과 AI의 합친구도를 구분해서 표시. 증거 .local/scene-source-cast-181.jpg. 모바일 별도검증/유료호출/이미지확정 미실행.
+- 최종 pytest288passed99.13s, src ruff/mypy52, frontend typecheck 통과. 전체 backend 디렉터리 lint 시 기존 테스트파일 포함92건 확인(이번 범위 밖); 소스 lint 통과. sandbox DB권한으로 실패한 테스트 실행은 중단 후 권한 재실행으로 전체통과. API만 재시작. 커밋/푸시 없음.
+- 최종 frontend build14routes 통과. sandbox .next mkdir EPERM 발생 후 권한 재실행 통과. git diff --check 통과.
+
+ASA182 IN PROGRESS: 씬 연결 캐릭터 영역을 기본 접힘 토글로 변경. 이름/인원수 제목 유지, 펼침·접힘과 키보드 및 테마 확인.
+
+ASA182 DONE: 씬 연결 캐릭터 영역을 기본 접힘 details/summary로 변경. 제목에 인원수를 유지하고 펼치면 기존 이름·기준이미지를 표시. 밝은/다크 실제 Chrome에서 5명 펼침 및 Enter 접기 확인, 가로 넘침 없음(483px). 스크린샷 .local/scene-cast-toggle-182.jpg. 모바일 별도 확인 미실행. pytest 288passed102.77s, src ruff/mypy52 통과, frontend typecheck/build14routes 및 diff check 통과. 유료 호출/데이터 변경/커밋 없음.
+
+ASA183 IN PROGRESS: AI 씬 준비 판단을 참고 의견으로 분리. AI ready=false만으로 차단하지 않고 실제 참조 누락·불일치 검증 유지.
+
+ASA183 DONE: AI ready=false와 review_notes는 생성 차단에서 제외. 실제 캐릭터 누락/참조ID 불일치와 실행 시 확정·권한 검증은 유지. 기존 저장 결과도 AI 참고 의견/AI 분석 요약으로 표시하고 최종 판단은 사용자임을 안내. API 재시작 후 Chrome 꼬마 유령의 정체 미생성, 생성버튼 enabled=true 확인. 유료 생성 미실행. pytest289passed108.93s, src ruff/mypy52 통과; frontend typecheck/build 통과. 모바일 별도 미검증. 증거 .local/scene-advice-183.jpg. 원문·이미지·사용자 지침 변경 및 커밋 없음.
+
+ASA184 IN PROGRESS: 개별 이미지 생성·수정 접수 후 해당 작업 진행 영역으로 한 번 스크롤/포커스. SSE 갱신 시 반복이동 방지, reduced-motion 준수.
+
+ASA184 DONE: 개별 씬/캐릭터 생성 및 수정 요청 접수 후 요청 ID가 jobs에 반영되면 진행 영역으로 한 번만 스크롤 및 포커스. 오류 시 이동하지 않고 SSE 반복이동 방지; 숨겨진 카드 포커스 방지와 reduced-motion 준수. pytest289passed99.23s, src ruff/mypy52, frontend typecheck/build14routes 통과. 유료 요청을 통한 실제 스크롤 E2E는 미실행. 커밋 없음.
+
+ASA185 IN PROGRESS: 씬 등장인물/비등장 참고이미지 역할 분리 및 선택 범위 검증, 생성 입력 합집합 전달 회귀 검증.
+
+ASA185 DONE: 등장인물과 비등장 참고이미지 분리. 사용자 입력의 전체 선택 이미지 범위에서 참조 검증; 생성 snapshot에는 등장인물 기준+명시 참조 이미지 합집합과 cast/reference_only 역할 전달. 참고용 인물 자동등장 금지/소품 소유자 변경은 충돌 아님을 이미지 실행 지침에 명시. 사용자 지침/대본/씬 원문 변경 없음. 회귀: 비등장참조 허용·실제 snapshot 포함·역할 분리·선택외 ID 거절·원문 불변. pytest290passed109.99s (종료 후 pool timeout 로그1건), src ruff 수정 후 통과/mypy52, frontend typecheck/build 통과. 이미지 큐0건 확인 후 API/이미지워커 재시작. Chrome 치즈 같은 모자 차단0/생성 enabled 확인. 유료호출 미실행. 증거 .local/scene-reference-185.jpg.
+
+ASA186 IN PROGRESS: 씬 분석 시스템 지침과 저장된 씬 이미지 에이전트 지침의 AI 판단 차단 문구 정합성 수정. 참고용 이미지/등장인물 구분, 사용자 최종 판단, 실제 자료 검증 유지.
+
+ASA186 DONE: 씬 분석 시스템 지침에서 설정·외형 충돌에 따른 차단 지시 제거. AI 의견은 참고/사용자 최종 판단, 등장인물과 비등장 참고 이미지 구분, 원문의 소품 이동 유지 명시. 저장된 씬 이미지 에이전트 지침의 충돌 ready=false 문구와 실행 전 조건/상태 설명 및 output_schema 설명을 save_settings(revision 검증)로 갱신. revision8/latest 지침 일치·다른 설정 보존 확인; 원문/기존 실행 스냅샷/생성 이미지 불변. 저장 과정 trim 정규화로 최초 동등비교 실패 후 정규화 기준 검증 통과. 백업 .local/scene-agent-before-186.json (Git 제외). 큐 대기/실행0 확인 후 대본 워커 재시작 및 프로세스 확인. pytest290passed104.39s, ruff src/mypy52/typecheck/build14routes/diff-check 통과. 실제 유료 AI 재분석은 수행하지 않았으며 기존 표시 의견을 소급 변경하지 않음. 커밋/푸시 없음.
+
+ASA187 DONE: 씬 작업의 여러 이미지 확정 패널 추가. 검토 필요 이미지 미리보기·버전·검수 의견을 확인하고 사용자가 선택한 이미지 버전만 기존 확정 API로 처리. 실행 중/제외/확정 항목 제외, 중복 클릭 방지, 부분 성공·실패 안내, 버전 변경 충돌 검증 재사용. 실제 Chrome 밝은/다크 화면에서 14개 후보 표시와 선택·해제/버튼 개수·활성 상태 확인. 사용자 이미지 확정 및 유료 AI 호출은 실행하지 않음. 검증: pytest 290 passed, ruff, mypy 52 files, frontend typecheck/build 14 routes, diff --check 통과. 모바일 실기기 및 실제 일괄 확정 클릭은 미검증. 화면 기록: .local/batch-approval-preview.png (커밋 제외).
+
+ASA188 IN PROGRESS: 생성/확정 통합 도구 영역, 한 번에 한 패널 표시, 카드 클릭/키보드 선택과 선택 테두리·배경·체크 표시.
+ASA188 DONE: 생성/확정 버튼을 하나의 가로 도구 영역으로 통합하고 한 패널씩 표시. 생성/확정 모두 체크박스 대신 aria-pressed 카드 버튼 사용, 선택 테두리·배경·체크 표시와 hover/focus 적용. 검수 의견은 선택 버튼 밖에서 별도 펼침. 실제 Chrome 밝은/다크에서 클릭 선택·Space 해제·확정 버튼 비활성·패널 전환 확인. 사용자 이미지 확정/유료 생성 미실행. pytest290passed112.10s (종료 후 pool-88 연결 timeout 로그1건), ruff/mypy52/typecheck/build14routes/diff-check 통과. 모바일 실기기 미검증. 증거 .local/batch-selection-188.png.
+
+ASA189 IN PROGRESS: 씬 이미지 관리 제목·구분선·생성/확정 아이콘, 선택 생성/선택 확정 명칭, 검수 없는 카드 반복 문구 제거.
+ASA189 DONE: 씬 이미지 관리 제목·구분선으로 도구 범위 구분. 공통 GraphIcon 이미지/확정 아이콘 추가 및 18px 버튼 아이콘 적용. 선택 생성/선택 확정과 생성 가능/검토 필요 개수 표시. 검수 없는 카드 반복 안내 제거, 검수 결과가 있을 때만 AI 검수 의견 보기 제공. Chrome 실제 제목·아이콘·간격 및 선택/해제·패널 토글·제거 문구0건 확인. 사용자 이미지 상태 변경/유료호출 없음. pytest290passed110.54s, ruff, mypy52, frontend typecheck/build14routes, diff-check 통과. 증거 .local/scene-tools-189.png. 모바일 실기기 미검증.
+
+ASA190 IN PROGRESS: 씬 이미지 관리 내부에 공통 씬 카드 목록 통합. 상세/생성/확정 선택 모드와 이미지 버전 미리보기, 기존 API 및 확정 충돌 보호 유지.
+
+ASA190 DONE: 씬 이미지 관리 안에 씬 목록 통합. 일반 모드는 상세 선택, 생성/확정 모드는 동일 공통 카드에서 다중 선택. 확정 모드는 이미지/버전/검수의견 표시, 비대상 비활성화, 생성12개 한도 및 기존 확정 snapshot 충돌검증 유지. 실제 Chrome 밝은/다크 확인, 카드 선택/Space 해제/확정버튼 개수/모드전환/상세이동 확인. 중복 목록1개만 존재. 증거 .local/scene-manager-190.png. 유료생성/사용자이미지 확정/모바일 별도검증 미실행. pytest290passed111.18s(종료 후 pool timeout로그1건), ruff src/mypy52 및 frontend typecheck/build 통과. 커밋/푸시 없음.
+
+ASA191 IN PROGRESS: 씬 관리 버튼 우측 묶음, 상태 개수 별도 요약 및 생성 대상 없음 안내.
+
+ASA191 DONE: 선택 생성/확정 버튼을 제목 우측에 묶고 상태 요약(미생성·생성중·검토필요·확정, 필요 시 대기/실패/확인필요/제외)을 아래 분리. 검토필요는 경고 색 강조. 생성 대상0이면 비활성 및 모든 생성완료/자료확인 사유 tooltip·접근성 설명 제공; 열린 패널은 대상0이 되어도 닫기 가능. 생성모드에서만 생성가능 개수 표시. Chrome 밝은/다크 및 모드토글/생성비활성/안내 확인. 증거 .local/scene-tools-191.png. 모바일 별도 미검증. pytest290passed107.39s, ruff src/mypy52/typecheck/build14routes/diff-check 통과. 유료요청·사용자이미지확정·커밋/푸시 없음.
+
+ASA192 IN PROGRESS: 이미지 작업 관리 UI 공통화. 캐릭터/씬 공통 제목·상태·선택 생성/확정·카드 선택, 향후 이미지 작업 공통 계약 문서화.
+
+ASA193 IN PROGRESS: 이미지 확정 검토 카드 최대3열 및 가용 폭 기반2/1열, 미리보기240~400px 확대. 공통 이미지 관리에 적용.
+
+- ASA193 DONE: 이미지 확정 검토 그리드 최대 3열, 가용 폭에 따라 2/1열, 미리보기 240~400px 및 원본 비율 유지. 캐릭터/씬 공통 ImageTaskManager 적용. 실제 밝은 화면 3열·400px 및 카드 선택/해제 확인, 선택 상태 복원. pytest 290 passed, ruff/mypy(52 files), typecheck/build, diff-check 통과. 모바일·다크 실제 화면은 이번 작업에서 미검증. 스크린샷: .local/image-review-grid-193.png (커밋 제외).
+- ASA192 검증 보완: 공통 이미지 관리 UI 적용 후 전체 pytest 290개 통과 확인. ASA193에서 씬 검토 화면의 공통 컴포넌트 렌더링·선택 동작 확인.
+`nASA194 IN PROGRESS: 이미지 작업의 중복 답변 확정 제거. 이미지 확정만 완료 기준으로 집계하며 일반 답변 검토는 유지.
+`nASA194 DONE: 캐릭터/씬 이미지 답변의 중복 사용자 확인 버튼 제거. 후속 이미지가 있으면 answer 승인 그룹 제외, 필요한 이미지의 확정만 완료 조건으로 사용. 일반 텍스트/다른 후속 작업 승인 유지. 기존 설정·답변 승인·이미지 기록 불변. 에이전트 설정 도움말 및 아키텍처 설명 갱신. 실패 회귀 먼저 확인 후 pytest291passed117.38s, ruff/mypy52/typecheck/build14routes/diff-check 통과. 로컬 API만 재시작, 워커 유지. 브라우저 CDP 응답 지연으로 실제 화면/테마/모바일 미검증. 커밋·푸시 없음.
+
+ASA195 IN PROGRESS: 범용 비디오 프롬프트 에이전트 지침·입력 구성 및 로컬 등록. 기존 사용자 에이전트 보존. 텍스트 계획과 실제 확정 씬 이미지 첨부를 명확히 구분하며 영상 API 호출은 범위 밖.
+
+ASA195 DONE (초기 텍스트 구성): 비디오 프롬프트 에이전트 로컬 등록(4184e76d-bd71-4ccd-97ef-3c56b4aea1dd). 대본 작가·장면 구성·씬 이미지 에이전트를 입력별 이전 답변 출처로 연결, 각각 2개 작업 조회 확인. 기존 에이전트7개 불변 검증. 범용 씬별 움직임/카메라/연속성/원문 보존/AI 제안 구분/사용자 확정 지침 및 JSON 템플릿·범위 문서 추가. 실제 확정 씬 이미지 파일 전달과 영상 API는 미연결이며 입력 설명과 지침에 명시. 유료 호출/실제 생성 품질/브라우저 UI 미검증. pytest291passed106.32s, ruff src/mypy52/typecheck/build14routes/diff-check 통과. 커밋/푸시 없음.
+
+ASA196 IN PROGRESS: 첨부 지침20713자 대비 UI/API12000자 제한 확인. 에이전트 지침65536자 확대, 자동 잘림 제거 및 글자수/초과 안내. 저장된 사용자 지침은 변경하지 않음.
+
+ASA196 DONE: 에이전트 지침 API65536자, UI maxLength 제거로 붙여넣기 원문 보존·Unicode 글자수/초과 안내·저장 차단. 전체 설정64KiB 제한에서 지침을 분리하고 기타 설정 용량 보호 유지. 경계/한글·이모지 JSON 왕복/기타설정 제한 회귀3개 통과. 첨부파일 줄바꿈 정규화19416자 전체 내용 검증·직렬화 보존 확인, DB 지침 자동교체 없음. 실행 API OpenAPI maxLength65536 확인. pytest292passed105.11s(종료 pool-88 timeout로그), ruff/mypy52/typecheck/build14routes/diff-check 통과. 브라우저 붙여넣기 실동작 및 유료AI 호출 미검증. 사용자 원문 재붙여넣기 필요. 커밋/푸시 없음.
+
+ASA197 DONE: 긴 에이전트 지침에 공통 ExpandableTextarea 집중 편집창 적용. 확대창·모바일 전체 화면 CSS·원본 실시간 동기화·닫기 시 보존·글자 수·별도 저장 안내. 실제 밝은 테마 기존 편집 화면에서 열기/배치/닫기 확인(사용자 입력 변경 및 DB 저장 없음). 모바일 실기·다크 테마는 이번에 미검증. backend pytest 292 passed(107.33s), src ruff/mypy, frontend typecheck/build, diff-check 통과.
+
+ASA198 DONE: 지침 제목·AI 도움말·크게 편집을 공통 Field 제목 행에 배치. 별도 버튼 행 제거, 작은 화면 줄바꿈 유지. 실제 밝은 화면 DOM에서 중앙 정렬 및 확대/닫기 확인, 사용자 입력·DB 변경 없음. pytest292passed111.03s(샌드박스 DB 연결 불가 실행 중단 후 로컬 접근 재실행), src ruff/mypy52, frontend typecheck/build 통과. 모바일 실화면은 이번 미검증.
+
+ASA199 DONE: 지침 제목·도움말 왼쪽, 크게 편집 버튼 오른쪽 끝 정렬. 실제 DOM에서 버튼 우측=행 우측 및 제목과 수직 중앙 일치 확인. pytest292passed111.41s, ruff/mypy52/typecheck/build 통과(초기 빌드 EPERM 후 권한 재실행 통과). 사용자 지침·DB 변경 없음.
+
+ASA200 DONE (커밋 준비): 누적 씬 이미지 생성·검수·선택 확정 및 공통 관리 UI, 이전 작업 연결, 비디오 프롬프트 초기 템플릿, 긴 지침 확대 편집 개선을 커밋 대상으로 정리. 코드·테스트·문서 46개 파일만 포함하며 사용자 자료·생성 이미지·로컬 DB·캐시는 보존/제외. 직전 동일 코드 검증: pytest 292 passed, ruff/mypy 52 files, frontend typecheck/build 통과. diff-check 및 비밀값 패턴 점검 통과. 모바일 실화면 미검증 항목은 기존 기록 유지.

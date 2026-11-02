@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     script_ai_enabled: bool = False
     script_daily_ai_calls: int = Field(default=20, ge=1, le=100)
     script_output_tokens: int = Field(default=2048, ge=256, le=8192)
+    scene_plan_output_tokens: int = Field(default=24576, ge=8192, le=32768)
     script_queue_limit: int = Field(default=100, ge=1, le=1000)
     automation_ai_enabled: bool = False
     image_ai_enabled: bool = False

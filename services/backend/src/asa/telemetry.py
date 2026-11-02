@@ -123,6 +123,7 @@ class Capture(BaseCallbackHandler):
         self.price = settings.ai_prices.get(f"{context['provider']}:{context['model']}")
         self.model_started: float | None = None
         self.model_duration: int | None = None
+        self.error_code: str | None = None
 
     def start(self) -> None:
         c = self.context
@@ -164,6 +165,8 @@ class Capture(BaseCallbackHandler):
             self.model_duration = round((time.perf_counter() - self.model_started) * 1000)
 
     def on_llm_error(self, error: BaseException, **kwargs: Any) -> None:
+        from asa.registry.script_stage import output_error_code
+        self.error_code = output_error_code(error)
         self.record_duration()  # Never store provider exception text.
 
     def save(self, status: str, finished: bool = True) -> None:
@@ -177,7 +180,8 @@ class Capture(BaseCallbackHandler):
                 (status, Jsonb(self.messages), Jsonb(self.response), Jsonb(self.usage), cost,
                  cost_state,
                  self.model_duration,
-                 finished, "call_or_output_failed" if status == "failed" else None,
+                 finished,
+                 (self.error_code or "call_or_output_failed") if status == "failed" else None,
                  self.settings.workspace_id, self.id),
             )
 

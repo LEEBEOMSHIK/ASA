@@ -8,13 +8,13 @@ export type WorkProgress = {
 };
 const states: Record<FollowupState, string> = {pending:"미진행", queued:"대기", running:"진행 중", review:"검토 필요", approved:"확정", excluded:"제외", failed:"실패", unknown:"결과 확인 필요"};
 export function itemStateLabel(state: FollowupState, kind: string) {
-  if (state === "pending") return kind === "character_images" ? "미생성" : "미진행";
-  if (state === "running" && kind === "character_images") return "이미지 생성 중";
-  if (state === "queued" && kind === "character_images") return "이미지 생성 대기";
+  if (state === "pending") return ["character_images","scene_images"].includes(kind) ? "미생성" : "미진행";
+  if (state === "running" && ["character_images","scene_images"].includes(kind)) return "이미지 생성 중";
+  if (state === "queued" && ["character_images","scene_images"].includes(kind)) return "이미지 생성 대기";
   return states[state];
 }
 export function progressLabel(p: WorkProgress) {
-  return ({pending:"작업 필요",running:p.kind === "character_images" ? "이미지 생성 중" : "작업 진행 중",review:"검토 필요",attention:"확인 필요",complete:"작업 완료",not_required:"대상 없음"})[p.status];
+  return ({pending:"작업 필요",running:["character_images","scene_images"].includes(p.kind) ? "이미지 생성 중" : "작업 진행 중",review:"검토 필요",attention:"확인 필요",complete:"작업 완료",not_required:"대상 없음"})[p.status];
 }
 export function progressCounts(p: WorkProgress): string {
   if(p.groups?.length) return p.groups.map(g=>`${g.label}: ${progressCounts(g)}`).join(" / ");

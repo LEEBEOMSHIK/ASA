@@ -1,5 +1,6 @@
 "use client";
 import { ReviewConnectionStatus } from "./review-connection-status";
+import { ExpandableTextarea } from "./expandable-textarea";
 import { AgentIconPicker } from "./agent-icon-picker";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -17,9 +18,13 @@ const initial: Definition = {
   limits: { model_calls: 10, tool_calls: 20, depth: 2, seconds: 300 },
 };
 
+const instructionLimit = 65536;
+
 export function AgentEditor({ id }: { id?: string }) {
   const router = useRouter();
   const [draft, setDraft] = useState<Definition>(initial);
+  const instructionLength = Array.from(draft.instructions).length;
+  const instructionsTooLong = instructionLength > instructionLimit;
   const outputDrafts = useRef<{ free?: SchemaNode; structured?: SchemaNode }>({});
   const [preview, setPreview] = useState(false);
   const wasPreview = useRef(false);
@@ -63,6 +68,11 @@ export function AgentEditor({ id }: { id?: string }) {
     edit({ ...draft, output_schema });
   }
   async function action(kind: "save") {
+    if (instructionsTooLong) {
+      setError("에이전트 지침은 65,536자까지 저장할 수 있습니다. 입력한 내용은 유지되며, 길이를 줄인 후 저장해 주세요.");
+      document.getElementById("agent-instructions")?.focus();
+      return;
+    }
     setBusy(true); setError(""); setNotice(""); setIssues([]);
     try {
       const saved = await api<Agent>(id ? `/agents/${id}/save` : "/agents/save", id ? "PUT" : "POST", draft, id ? revision : undefined);
@@ -106,7 +116,7 @@ export function AgentEditor({ id }: { id?: string }) {
             <Field id="agent-name" label="에이전트 이름" annotation="관리용">{p => <input {...p} required maxLength={80} placeholder="예: 우리 채널의 쇼츠 작가" value={draft.name} onChange={e => edit({ ...draft, name: e.target.value })} />}</Field>
             <AgentIconPicker value={draft.icon} onChange={icon=>edit({...draft,icon})}/>
             <Field id="agent-description" label="한 줄 소개" annotation="관리용" hint="어떤 상황에 쓰는 도우미인지 알아볼 수 있게 적어 주세요.">{p => <input {...p} maxLength={400} placeholder="예: 어려운 과학 이야기를 30초 대본으로 바꿔요." value={draft.description} onChange={e => edit({ ...draft, description: e.target.value })} />}</Field>
-            <Field id="agent-instructions" label="에이전트 지침" annotation="AI에 전달" help="이 에이전트가 매번 지킬 작업 규칙입니다. 예: ‘30초 대본을 쓰고, 첫 문장은 질문으로 시작하세요.’ ‘고양이가 상자를 좋아하는 이유’ 같은 이번 주제는 여기 대신 실행 화면에 입력하세요." hint="매번 실행할 때 적용할 역할, 말투, 꼭 지킬 규칙을 적어 주세요. 주제처럼 실행마다 달라지는 내용은 실행 화면에서 입력합니다.">{p => <textarea {...p} required rows={6} maxLength={12000} placeholder="예: 주어진 주제로 30초 대본을 써 주세요. 첫 문장은 질문으로 시작하고, 전문 용어는 쉽게 풀어 주세요." value={draft.instructions} onChange={e => edit({ ...draft, instructions: e.target.value })} />}</Field>
+            <ExpandableTextarea id="agent-instructions" aria-describedby="agent-instructions-hint" label="에이전트 지침" characterLimit={instructionLimit} required rows={6} aria-invalid={instructionsTooLong} placeholder="예: 주어진 주제로 30초 대본을 써 주세요. 첫 문장은 질문으로 시작하고, 전문 용어는 쉽게 풀어 주세요." value={draft.instructions} onChange={e => edit({ ...draft, instructions: e.target.value })} renderField={(input, action) => <Field id="agent-instructions" label="에이전트 지침" annotation="AI에 전달" help="이 에이전트가 매번 지킬 작업 규칙입니다. 예: ‘30초 대본을 쓰고, 첫 문장은 질문으로 시작하세요.’ ‘고양이가 상자를 좋아하는 이유’ 같은 이번 주제는 여기 대신 실행 화면에 입력하세요." hint={`${instructionLength.toLocaleString("ko-KR")} / 65,536자 · ${instructionsTooLong ? "저장 가능한 길이를 초과했습니다. 입력 내용은 잘리지 않았습니다. 길이를 줄인 뒤 저장해 주세요." : "역할·말투·작업 규칙을 적어 주세요. 실행마다 달라지는 내용은 실행 화면에서 입력합니다."}`} labelAction={<><HelpText ai label="에이전트 지침 · AI에 전달">이 에이전트가 매번 지킬 작업 규칙입니다. 예: ‘30초 대본을 쓰고, 첫 문장은 질문으로 시작하세요.’ ‘고양이가 상자를 좋아하는 이유’ 같은 이번 주제는 여기 대신 실행 화면에 입력하세요.</HelpText>{action}</>}>{() => input}</Field>} />
             <Field id="model-profile" label="사용할 AI 모델" annotation="호출 설정" help="누가 답변을 만들지 선택합니다. 기본 모델은 관리자가 정한 현재 모델을 따르고, 특정 모델을 고르면 그 모델을 계속 사용합니다. 모델에 따라 답변 특성·속도·비용이 달라집니다. 설정을 저장해도 이전 작업의 기록은 바뀌지 않습니다." hint="기본 모델을 선택하면 새 실행 시 작업 공간의 현재 기본 모델을 따릅니다. 특정 모델을 선택하면 해당 모델을 사용합니다. 선택을 변경한 뒤에는 저장하세요.">{p => <select {...p} value={draft.model ? `${draft.provider}:${draft.model}` : ""} onChange={e => { const selected = models.find(m => `${m.provider}:${m.id}` === e.target.value); edit({ ...draft, provider: selected?.provider ?? null, model: selected?.id ?? null }); }}><option value="">작업 공간 기본 모델{defaultModel ? ` · ${defaultModel}` : " · 관리자 설정 필요"}</option>{draft.model && !models.some(m => m.id === draft.model && m.provider === draft.provider) && <option value={`${draft.provider}:${draft.model}`}>{draft.model} · 사용할 수 없음</option>}{models.map(m => <option key={`${m.provider}:${m.id}`} value={`${m.provider}:${m.id}`}>{m.provider === "openai" ? "OpenAI" : "Claude"} · {m.label}</option>)}</select>}</Field>
           </section>
           <section id="information" className="editor-section"><div className="section-heading"><span className="step-number">2</span><div><h2>실행할 때 쓸 입력 양식과 결과 항목</h2><p className="muted">1번은 ‘항상 지킬 작업 지침’, 2번은 ‘실행할 때마다 바뀔 정보’를 정하는 곳이에요.</p></div></div>
@@ -122,7 +132,7 @@ export function AgentEditor({ id }: { id?: string }) {
                   <span><strong>항목별로 받기</strong><span className="muted">AI가 채워줄 답변 항목을 정하세요. 예: 제목 · 대본 · 해시태그</span></span></label>
               </fieldset>
               {draft.output_schema.type !== "string" && <><p className="muted">예를 들어 ‘제목’, ‘대본’, ‘해시태그’를 항목으로 정하면, 실행할 때 AI가 각 항목에 맞는 내용을 작성해요. 아래에는 답변 자체가 아니라 AI가 작성할 항목의 설명을 적어 주세요.</p><FriendlyFields kind="output" value={draft.output_schema} onChange={output_schema => edit({ ...draft, output_schema })} /></>}</div>
-            <div className="approval-setting"><div className="help-row"><h3>답변 확인과 확정</h3><HelpText label="사용자 확정 필요">개별 실행의 답변을 사용자가 확인한 뒤 완료하도록 설정합니다. 대본, 장면 구성 등 답변 종류와 관계없이 적용됩니다. 자동화의 진행 승인은 자동화 빌더의 검토 단계에서 설정하세요.</HelpText></div><label className="checkbox"><input type="checkbox" checked={Boolean(draft.requires_approval)} onChange={e=>edit({...draft,requires_approval:e.target.checked})}/>사용자 확정 필요</label><p className="muted">켜면 답변이 나와도 ‘검토 필요’로 표시됩니다. 사용자가 확정해야 완료되고, 수정하거나 다시 생성하면 재검토가 필요합니다.</p><p className="helper-text">저장하면 이후 새로 접수하는 작업에 적용됩니다. 이전 작업의 설정은 바뀌지 않습니다.</p></div>
+            <div className="approval-setting"><div className="help-row"><h3>답변 확인과 확정</h3><HelpText label="사용자 확정 필요">개별 실행의 답변을 사용자가 확인한 뒤 완료하도록 설정합니다. 대본, 장면 구성 등 텍스트 답변에 적용됩니다. 이미지 생성 작업은 별도 답변 확정 없이 필요한 이미지가 모두 확정되면 완료됩니다. 자동화의 진행 승인은 자동화 빌더의 검토 단계에서 설정하세요.</HelpText></div><label className="checkbox"><input type="checkbox" checked={Boolean(draft.requires_approval)} onChange={e=>edit({...draft,requires_approval:e.target.checked})}/>사용자 확정 필요</label><p className="muted">켜면 답변이 나와도 ‘검토 필요’로 표시됩니다. 사용자가 확정해야 완료되고, 수정하거나 다시 생성하면 재검토가 필요합니다.</p><p className="helper-text">저장하면 이후 새로 접수하는 작업에 적용됩니다. 이전 작업의 설정은 바뀌지 않습니다.</p></div>
             <details className="advanced"><summary>구체적인 입력값과 결과 예시 더 보기</summary><ExecutionExample /></details>
           </section>
           {<section className="editor-section after-task-settings"><h2>답변 이후 작업</h2>

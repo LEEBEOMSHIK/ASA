@@ -10,13 +10,28 @@ def test_generic_progress_can_describe_non_image_work():
 
 def test_all_review_groups_must_finish_before_completion():
     answer = summarize('answer', '답변 검토', 1, [{'id':'answer','name':'답변','state':'review'}])
-    images = summarize('character_images', '캐릭터 이미지', 1,
+    images = summarize('voice', '음성', 1,
                        [{'id':'hana','name':'하나','state':'approved'}])
     combined = combine_progress([answer, images])
     assert combined['status'] == 'review'
     assert combined['resume_anchor'] == 'followup-answer'
     assert combined['counts']['approved'] == 1
     assert len(combined['groups']) == 2
+
+
+def test_image_completion_does_not_require_duplicate_answer_approval():
+    answer = summarize('answer', '답변 검토', 1,
+                       [{'id': 'answer', 'name': '답변', 'state': 'review'}])
+    for kind in ('character_images', 'scene_images'):
+        for state, expected in [('approved', 'complete'), ('review', 'review'),
+                                ('pending', 'pending'), ('excluded', 'not_required')]:
+            images = summarize(kind, '이미지', 1,
+                               [{'id': 'image', 'name': '이미지', 'state': state}])
+            result = combine_progress([answer, images])
+            assert result['kind'] == kind
+            assert result['status'] == expected
+            assert result['resume_anchor'] == f'followup-{kind}'
+    assert combine_progress([answer])['status'] == 'review'
 
 
 def test_character_progress_tracks_all_required_items_and_regeneration():

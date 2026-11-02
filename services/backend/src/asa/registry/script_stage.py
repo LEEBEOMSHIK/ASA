@@ -486,8 +486,7 @@ def execute_attempt(
             result = graph.compile().invoke({"prompt": attempt["prompt"]})
             script = result["script"]
         except Exception as exc:
-            if is_timeout(exc):
-                attempt = {**attempt, "error_code": "ai_timeout"}
+            attempt = {**attempt, "error_code": output_error_code(exc)}
             repo.finish(request_id, attempt, None)
             return True
     repo.finish(request_id, attempt, script)
@@ -508,3 +507,19 @@ def is_timeout(error: BaseException) -> bool:
             return True
         current = current.__cause__ or current.__context__
     return False
+
+
+def output_error_code(error: BaseException) -> str:
+    """Persist safe classifications, never provider exception text or credentials."""
+    if is_timeout(error):
+        return "ai_timeout"
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if type(current).__name__ == "LengthFinishReasonError":
+            return "ai_output_limit"
+        if isinstance(current, ValueError) and str(current) == "invalid_agent_output":
+            return "ai_output_invalid"
+        current = current.__cause__ or current.__context__
+    return "ai_call_failed"

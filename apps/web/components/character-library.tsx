@@ -14,10 +14,10 @@ const asset = (id:string) => `/api/v1/characters/images/${id}/asset`;
 const origin = (item:ImageCard) => `/?request=${item.request_id}&answer=${item.source_version}`;
 
 function CloseIcon() {return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>;}
-export function Modal({title,onClose,children,footer}:{title:string;onClose:()=>void;children:ReactNode;footer?:ReactNode}) {
+export function Modal({title,onClose,children,footer,className=""}:{title:string;onClose:()=>void;children:ReactNode;footer?:ReactNode;className?:string}) {
   const ref=useRef<HTMLDialogElement>(null);const id=useId();
   useEffect(()=>{const dialog=ref.current;dialog?.showModal();return()=>dialog?.close();},[]);
-  return <dialog className="image-library-dialog" ref={ref} aria-labelledby={id} onCancel={e=>{e.preventDefault();onClose();}}>
+  return <dialog className={`image-library-dialog ${className}`} ref={ref} aria-labelledby={id} onCancel={e=>{e.preventDefault();onClose();}}>
     <header className="image-library-dialog-heading"><h2 id={id}>{title}</h2><Button variant="secondary" className="image-library-icon" aria-label="닫기" onClick={onClose}><CloseIcon/></Button></header>
     <div className="image-library-dialog-body">{children}</div>{footer&&<footer className="image-library-dialog-footer">{footer}</footer>}
   </dialog>;

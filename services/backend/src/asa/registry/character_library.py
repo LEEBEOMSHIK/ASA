@@ -47,7 +47,7 @@ WITH images AS (
  WHERE l.workspace_id=j.workspace_id AND l.project_id=j.project_id
  AND l.character_id=j.character_id AND l.status<>'cancelled'
  ORDER BY version DESC LIMIT 1) latest ON true
- WHERE j.workspace_id=%s AND j.status='succeeded' AND j.image IS NOT NULL
+ WHERE p.kind='character' AND j.workspace_id=%s AND j.status='succeeded' AND j.image IS NOT NULL
  UNION ALL
  SELECT u.id::text,u.id::text,u.character->>'id',1,u.character,'사용자 업로드',
  u.created_at::text,'직접 업로드',NULL::text,1,NULL::text,'직접 업로드',true,'approved'
@@ -111,6 +111,8 @@ def selected_handoff(repo: Any, image_ids: list[UUID]) -> dict[str, Any]:
                 continue
             row = indexed[image_id]
             p = projects[row['project_id']]
+            if p['kind'] != 'character':
+                raise RegistryError(422, 'character_selection_invalid')
             cid = row['character_id']
             state = next((i['state'] for i in p['work_progress']['items'] if i['id'] == cid), None)
             if state != 'approved' or p['approved'].get(cid) != str(image_id):

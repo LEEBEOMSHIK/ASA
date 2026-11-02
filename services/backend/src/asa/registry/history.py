@@ -180,8 +180,12 @@ def history_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
 
     @router.get("/answer-sources/{request_id}")
     def source_versions(request_id: UUID,
+                        source_kind: str = Query('agent', pattern='^(agent|automation)$'),
+                        step_index: int = Query(0, ge=0),
                         repository: HistoryRepository = Depends(repo)) -> dict[str, Any]:
-        from asa.registry.answer_sources import answer_versions
+        from asa.registry.answer_sources import answer_versions, automation_answer
+        if source_kind == 'automation':
+            return automation_answer(repository, request_id, step_index)
         return answer_versions(repository, request_id)
 
     @router.get("/{request_id}")

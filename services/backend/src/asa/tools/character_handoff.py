@@ -9,6 +9,8 @@ FORMAT = "asa_character_handoff_v1"
 
 
 def handoff(project: dict[str, Any]) -> dict[str, Any]:
+    if project.get("kind", "character") != "character":
+        raise RegistryError(422, "character_selection_invalid")
     excluded = set(project["excluded"])
     states = {i["id"]: i["state"] for i in project["work_progress"]["items"]}
     characters = []

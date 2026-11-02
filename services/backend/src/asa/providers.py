@@ -51,13 +51,6 @@ def make_agent_generator(
     """Execute the immutable agent contract without adding a domain-specific role."""
     if not settings.ai_model or not settings.key_for(settings.ai_provider).get_secret_value():
         raise ValueError("model_not_configured")
-    model = init_chat_model(
-        settings.ai_model, model_provider=settings.ai_provider,
-        api_key=settings.key_for(settings.ai_provider).get_secret_value(),
-        timeout=settings.ai_timeout_seconds, max_retries=0,
-        max_tokens=settings.script_output_tokens,
-    )
-
     def generate(prompt: str) -> AgentAnswer:
         contract = json.loads(prompt)
         attachments = []
@@ -69,6 +62,14 @@ def make_agent_generator(
             if attachments:
                 validate_review_model(settings, {})
         schema = contract['output_schema']
+        scene_plan = {'shots', 'checks', 'summary'} <= set(schema.get('properties', {}))
+        model = init_chat_model(
+            settings.ai_model, model_provider=settings.ai_provider,
+            api_key=settings.key_for(settings.ai_provider).get_secret_value(),
+            timeout=settings.ai_timeout_seconds, max_retries=0,
+            max_tokens=(settings.scene_plan_output_tokens if scene_plan
+                        else settings.script_output_tokens),
+        )
         envelope = {"title": "AgentAnswer", "type": "object",
                     "properties": {"value": schema}, "required": ["value"],
                     "additionalProperties": False}
@@ -90,6 +91,22 @@ def make_agent_generator(
             ("system", contract['agent_instructions']),
             human,
         ]
+        if scene_plan:
+            messages.insert(1, ("system",
+                "이 실행은 씬 분석 단계입니다. 완성된 shots는 씬별 이미지 생성·검수·수정·확정 "
+                "화면에 연결되며 이미지 API는 사용자가 생성 버튼을 누르면 호출됩니다. "
+                "지금 이미지 도구를 호출할 수 없다는 이유만으로 ready=false로 설정하지 마세요. "
+                "필수 기준 이미지 누락처럼 실제 자료 문제가 있을 때만 false로 하고 "
+                "review_notes에 구체적으로 적으세요. 누락된 캐릭터도 character_ids에서 "
+                "생략하지 마세요. 참조 ID를 임의로 만들거나 다른 인물로 대체하지 마세요. "
+                "설정·외형 차이에 대한 AI 해석은 참고 의견이며 생성 차단 근거가 아닙니다. "
+                "이러한 차이만으로 ready=false나 BLOCKED를 설정하지 마세요. "
+                "최종 판단은 사용자입니다. "
+                "character_ids에는 실제 등장인물만 기록하고, reference_image_ids에는 사용자가 "
+                "선택한 이미지 중 소품·의상·형태 참고용 비등장 인물 이미지도 포함할 수 있습니다. "
+                "참고용 인물을 장면에 추가하지 말고 참고 목적을 image_prompt에 명시하세요. "
+                "대본·장면에서 소품을 가져가거나 돌려주는 것은 동일 소품의 이동이며 "
+                "소유자가 달라졌다는 이유로 충돌로 판단하지 마세요. 원문은 변경하지 마세요."))
         if on_progress is None:
             result = model.with_structured_output(envelope).invoke(messages, **call_config())
         else:

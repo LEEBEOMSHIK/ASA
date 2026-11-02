@@ -73,6 +73,10 @@ def character_progress(
 
 
 def combine_progress(groups: list[dict[str, Any]]) -> dict[str, Any]:
+    # Image approval is the final human decision for image-producing answers.
+    # Keep saved answer approval records, but do not require a duplicate decision.
+    if any(group["kind"] in ("character_images", "scene_images") for group in groups):
+        groups = [group for group in groups if group["kind"] != "answer"]
     if len(groups) == 1:
         return groups[0]
     result = summarize("followup", "후속 작업", groups[0]["source_version"], [
@@ -93,7 +97,7 @@ def attach_progress(
     if not rows:
         return
     data = conn.execute(
-        "SELECT r.id::text, s.version, s.answer, p.characters, p.approved, "
+        "SELECT r.id::text, s.version, s.answer, p.characters, p.approved, p.kind, "
         "v.definition->>'requires_approval' AS requires_approval, st.approved_version, "
         "COALESCE((SELECT jsonb_agg(jsonb_build_object('id',j.id,'character_id',j.character_id,"
         "'version',j.version,'status',j.status)) FROM character_image_jobs j "
@@ -127,7 +131,19 @@ def attach_progress(
                 ),
             }]))
         answer = record["answer"]
-        chars = record["characters"] or (
+        scene = record["kind"] == "scene"
+        if isinstance(answer, dict) and "shots" in answer:
+            from pydantic import ValidationError
+
+            from asa.registry.scene_images import ScenePlan, items
+            try:
+                scene_items = items(ScenePlan.model_validate(answer))
+                scene = True
+            except ValidationError:
+                scene_items = []
+        else:
+            scene_items = []
+        chars = record["characters"] or scene_items or (
             answer.get("characters") if isinstance(answer, dict) else None
         )
         if (
@@ -139,14 +155,18 @@ def attach_progress(
                 for c in chars
             )
         ):
-            groups.append(character_progress(
+            image_progress = character_progress(
                 record["version"],
                 chars,
                 record["jobs"],
                 record["approved"] or {},
                 set(record["excluded"]),
                 record["reviewed"],
-            ))
+            )
+            if scene:
+                image_progress.update(kind="scene_images", label="씬 이미지",
+                                      resume_anchor="followup-scene_images")
+            groups.append(image_progress)
         if groups:
             progress[record["id"]] = combine_progress(groups)
     for row in rows:

@@ -137,6 +137,8 @@ def review_image(
     change: str,
     image: bytes,
     reference: bytes | None,
+    scene_context: dict[str, Any] | None = None,
+    scene_references: list[bytes] | None = None,
 ) -> Any:
     model = init_chat_model(
         definition["model"],
@@ -152,14 +154,21 @@ def review_image(
             "text": json.dumps(
                 {
                     "character": character,
+                    "scene_context": scene_context,
                     "requested_change": change,
-                    "image_order": "1: 검수 대상 이미지, 2가 있으면 수정 전 기준 이미지",
+                    "image_order": {
+                        "target": 1,
+                        "base_before_edit": 2 if reference else None,
+                        "character_references_start": (3 if reference else 2)
+                        if scene_references else None,
+                        "reference_identity_order": "scene_context.references.characters",
+                    },
                 },
                 ensure_ascii=False,
             ),
         }
     ]
-    for data in [image, reference]:
+    for data in [image, reference, *(scene_references or [])]:
         if data:
             content.append(
                 {
@@ -210,7 +219,7 @@ def process_review(repo: Any, settings: Settings) -> bool:
             (repo.workspace_id, review["id"]),
         )
         job = conn.execute(
-            "SELECT j.image,j.base_id,p.request_id FROM character_image_jobs j "
+            "SELECT j.image,j.base_id,j.scene_context,p.request_id FROM character_image_jobs j "
             "JOIN character_projects p ON p.workspace_id=j.workspace_id AND p.id=j.project_id "
             "WHERE j.workspace_id=%s AND j.id=%s",
             (repo.workspace_id, review["image_id"]),
@@ -249,6 +258,11 @@ def process_review(repo: Any, settings: Settings) -> bool:
                 },
             ),
         ):
+            extra = {}
+            if job.get("scene_context"):
+                from asa.registry.scene_images import reference_bytes
+                extra = {"scene_context": job["scene_context"],
+                         "scene_references": reference_bytes(repo, job["scene_context"])}
             result = review_image(
                 config,
                 definition,
@@ -256,6 +270,7 @@ def process_review(repo: Any, settings: Settings) -> bool:
                 review["change"],
                 bytes(job["image"]),
                 reference,
+                **extra,
             )
     except Exception:
         status, error = "failed", "review_call_failed"
