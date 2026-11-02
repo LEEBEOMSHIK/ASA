@@ -17,6 +17,7 @@ export function ImageJobProgress({job, online, baseVersion, approved = false}: {
     return () => clearInterval(timer);
   }, [active, job.id]);
   const success = job.status === "succeeded";
+  if(job.status === "cancelled") return <section className="image-job-progress" role="status"><strong>대기 요청 취소됨 · v{job.version}</strong><p className="muted">이 요청은 이미지 API를 호출하지 않았습니다. 기존 이미지와 확정 기록은 유지됩니다.</p></section>;
   const uncertain = job.status === "unknown";
   const stepIndex = job.status === "queued" ? 1 : success ? 3 : 2;
   const steps = ["요청 접수", "실행 대기", "이미지 생성·저장", approved ? "확정 완료" : "결과 검토"];

@@ -59,8 +59,8 @@ def validate_definition(
         issue("model_profile", "model_profile", "등록된 서버 모델 프로필을 선택하세요.")
 
     def validate_schema(node: Any, path: str, depth: int, counter: list[int]) -> None:
-        if depth > 4:
-            issue("schema_depth", path, "중첩 깊이는 4 이하여야 합니다.")
+        if depth > 5:
+            issue("schema_depth", path, "중첩 깊이는 5 이하여야 합니다.")
             return
         if not isinstance(node, dict):
             issue("schema_type", path, "스키마 객체가 필요합니다.")
@@ -77,7 +77,10 @@ def validate_definition(
         if not isinstance(kind, str) or kind not in keywords:
             issue("schema_type", path, "지원되는 필드 유형을 선택하세요.")
             return
-        form_keys = {"x-widget", "default"} if path.startswith("input_schema") else set()
+        form_keys = (
+            {"x-widget", "default", "x-previous-answer", "x-answer-agent"}
+            if path.startswith("input_schema") else set()
+        )
         for key in node.keys() - (keywords[kind] | {"type", "description"} | form_keys):
             issue("schema_keyword", path + "." + key, "지원하지 않는 스키마 속성입니다.")
         if "description" in node and (
@@ -115,6 +118,18 @@ def validate_definition(
                 or (kind in ("number", "integer") and any(not safe_number(v) for v in values))
             ):
                 issue("schema_enum", path, "필드 유형과 일치하는 선택값이 필요합니다.")
+        if "x-previous-answer" in node and (
+            type(node["x-previous-answer"]) is not bool or kind != "string" or "enum" in node
+        ):
+            issue("input_previous_answer", path,
+                  "이전 답변 가져오기는 글 입력에서만 켜거나 끌 수 있습니다.")
+        if "x-answer-agent" in node:
+            source = node["x-answer-agent"]
+            known = {str(t.get("agent_id")) for t in catalog.values() if t.get("kind") == "agent"}
+            if (not isinstance(source, str) or source not in known
+                    or node.get("x-previous-answer") is not True or kind != "string"
+                    or "enum" in node):
+                issue("input_answer_agent", path, "답변을 가져올 등록된 에이전트를 선택하세요.")
         widget = node.get("x-widget")
         if widget is not None:
             allowed = {"text": "string", "textarea": "string", "radio": "string",

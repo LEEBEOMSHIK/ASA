@@ -45,7 +45,7 @@ def main() -> int:
         if agent.get('model'):
             settings = settings.model_copy(update={'ai_provider': agent['provider'],
                                                     'ai_model': agent['model']})
-        generate = make_agent_generator(settings)
+        generate = make_agent_generator(settings, reference_repo=repo)
 
         def monitored(prompt: str) -> Script | AgentAnswer:
             with repo._connect() as conn:

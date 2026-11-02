@@ -8,13 +8,14 @@ import { ImageModelSelect } from "./image-model-select";
 import { itemStateLabel, progressLabel, progressCounts, type WorkProgress } from "../lib/work-progress";
 import "./character-studio.css";
 import { CharacterHandoff } from "./character-handoff";
+import { CharacterBatch } from "./character-batch";
 
 type Character = { id: string; name: string; facts: string; appearance: string; proposed: string; scene_ids: string; image_prompt: string };
 type Job = ImageJob & { review_error_code?:string|null; id: string; character_id: string; version: number; model: string; character: Character; change: string; base_id: string | null; status: string; error_code: string | null; estimated_usd: string | null };
 type Project = { reviews: AssetReview[]; review_config: {agent_ref:string;mode:string}|null; id: string; name: string; request_id: string; source_version: number; characters: Character[]; approved: Record<string,string>; jobs: Job[]; worker_online: boolean; excluded: string[]; work_progress: WorkProgress };
 type Options = { agents: Tool[]; models: string[]; enabled: boolean };
 type LibraryEntry = {id:string;name:string;request_id:string;source_version:number};
-const states: Record<string,string> = {queued:"이미지 생성 대기", running:"이미지 생성 중", succeeded:"검토 가능", failed:"생성 실패", unknown:"호출 결과 확인 필요"};
+const states: Record<string,string> = {queued:"이미지 생성 대기", running:"이미지 생성 중", succeeded:"검토 가능", failed:"생성 실패", unknown:"호출 결과 확인 필요", cancelled:"생성 취소됨"};
 
 export function isCharacterAnswer(value: unknown): boolean {
   if (!value || typeof value !== "object" || !("characters" in value)) return false;
@@ -40,6 +41,7 @@ export function CharacterResults({requestId,version}:{requestId:string;version:n
   const [error,setError]=useState("");
   const [activeId,setActiveId]=useState("");
   const [retry,setRetry]=useState(0);
+  const drafts=useRef<Record<string,Character>>({});
   async function refresh() {if(project){const p=await api<Project>(`/characters/projects/${project.id}`);setProject(p);}}
   useEffect(()=>{
     let alive=true;
@@ -68,6 +70,7 @@ export function CharacterResults({requestId,version}:{requestId:string;version:n
       <div className="character-heading"><h3>캐릭터 선택 · {project.characters.length}명</h3><StatusBadge tone={project.worker_online?"success":"warning"}>{project.worker_online?"이미지 워커 연결됨":"이미지 워커 연결 대기"}</StatusBadge></div>
       <div className="character-progress" role="status"><strong>{progressLabel(project.work_progress)}</strong><p>{progressCounts(project.work_progress)}</p></div>
       <CharacterHandoff project={project}/>
+      <CharacterBatch key={project.id} projectId={project.id} characters={project.characters} excluded={project.excluded} jobs={project.jobs} models={options.models} enabled={options.enabled} getDraft={c=>drafts.current[`${project.id}:${c.id}`] || c} refresh={refresh}/>
       <nav className="character-picker" aria-label="작업할 캐릭터">{project.characters.map(c=>{
         const state=project.work_progress.items.find(i=>i.id===c.id)?.state || "pending";
         return <button type="button" key={c.id} aria-pressed={currentId===c.id} onClick={()=>setActiveId(c.id)}><strong>{c.name}</strong><span>{itemStateLabel(state,"character_images")}</span></button>;
@@ -75,17 +78,18 @@ export function CharacterResults({requestId,version}:{requestId:string;version:n
       <p className="muted">한 명씩 설정을 확인하고 이미지를 생성·확정하세요. 캐릭터를 이동해도 입력은 유지됩니다. 페이지를 떠나기 전에는 생성·수정 요청을 보내야 변경 내용이 저장됩니다.</p>
     </div>
     <div className="character-navigation"><Button variant="secondary" disabled={activeIndex===0} onClick={()=>setActiveId(project.characters[activeIndex-1].id)}>← 이전 캐릭터</Button><span aria-live="polite">{activeIndex+1} / {project.characters.length} · {project.characters[activeIndex].name}</span><Button variant="secondary" disabled={activeIndex===project.characters.length-1} onClick={()=>setActiveId(project.characters[activeIndex+1].id)}>다음 캐릭터 →</Button></div>
-    <div className="character-workbench">{project.characters.map(c=><div key={`${project.id}:${c.id}`} hidden={c.id!==currentId}><CharacterCard character={c} project={project} options={options} refresh={refresh} onError={setError}/></div>)}</div></>}
+    <div className="character-workbench">{project.characters.map(c=><div key={`${project.id}:${c.id}`} hidden={c.id!==currentId}><CharacterCard character={c} project={project} options={options} refresh={refresh} onError={setError} onDraft={value=>{drafts.current[`${project.id}:${c.id}`]=value;}}/></div>)}</div></>}
 
   </section>;
 }
 
-function CharacterCard({character,project,options,refresh,onError}:{character:Character;project:Project;options:Options;refresh:()=>Promise<void>;onError:(s:string)=>void}) {
+function CharacterCard({character,project,options,refresh,onError,onDraft}:{character:Character;project:Project;options:Options;refresh:()=>Promise<void>;onError:(s:string)=>void;onDraft:(c:Character)=>void}) {
   const initialJobs=project.jobs.filter(j=>j.character_id===character.id && j.status==="succeeded");
-  const initial=initialJobs.find(j=>j.id===project.approved[character.id]) || initialJobs[0];
+  const initial=initialJobs.find(j=>j.id===project.approved[character.id]) || initialJobs[0] || project.jobs.find(j=>j.character_id===character.id);
   const [draft,setDraft]=useState(initial?.character || character);const [change,setChange]=useState("");const [model,setModel]=useState(options.models[0] || "");
   const [chosen,setChosen]=useState("");const [busy,setBusy]=useState(false);
-  function updateDraft(value:Character){setDraft(value);}
+  useEffect(()=>{onDraft(draft);},[draft,onDraft]);
+  function updateDraft(value:Character){setDraft(value);onDraft(value);}
   const dispatch=useRef<{signature:string;id:string} | null>(null);
   const jobs=project.jobs.filter(j=>j.character_id===character.id);
   const success=jobs.filter(j=>j.status==="succeeded");
@@ -114,12 +118,20 @@ function CharacterCard({character,project,options,refresh,onError}:{character:Ch
     try {await api(`/characters/images/${shown.id}/approve`,"POST",{expected:project.approved[character.id] || null,expected_latest_version:latest?.version});await refresh();}
     catch(e){onError(message(e));await refresh().catch(()=>{});}finally{setBusy(false);}
   }
+  async function cancel() {
+    if(!active || busy)return;
+    setBusy(true);onError("");
+    try {await api(`/characters/images/${active.id}/cancel`,"POST",{});await refresh();}
+    catch(e){onError(message(e));await refresh().catch(()=>{});}finally{setBusy(false);}
+  }
   const heading=<div className="character-heading"><div className="character-name-controls"><h3>{character.name}</h3><Switch checked={!excluded} disabled={busy || !!active} label="이 캐릭터 사용" describedBy={`scope-help-${character.id}`} onChange={()=>void setScope()}/></div><StatusBadge tone={excluded?"neutral":itemState==="approved"?"success":itemState==="failed" || itemState==="unknown"?"warning":"neutral"}>{excluded?"사용 안 함":itemStateLabel(itemState,"character_images")}</StatusBadge></div>;
   const scopeHelp=<p id={`scope-help-${character.id}`} className="muted">{active?"이미지 생성 중에는 사용 여부를 변경할 수 없습니다.":excluded?"완료 조건과 다음 단계 전달 대상에서 제외했습니다. 다시 켜면 기존 설정과 확정 이미지를 이어서 사용합니다.":"끄면 완료 조건과 다음 단계 전달 대상에서 제외됩니다. 대본·장면 원문과 기존 이미지·확정 기록은 보존됩니다."}</p>;
   if(excluded)return <Card><article id={`character-${character.id}`} className="character-form">{heading}{scopeHelp}</article></Card>;
   return <Card><article id={`character-${character.id}`} className="character-form">{heading}{scopeHelp}
     <p className="muted">등장 장면 · {character.scene_ids}</p>
     {latest && <ImageJobProgress approved={project.approved[character.id]===(active || latest).id && itemState==="approved"} job={active || latest} online={project.worker_online} baseVersion={jobs.find(j=>j.id===(active || latest).base_id)?.version}/>}
+    {active?.status==="queued" && <div className="character-heading"><Button variant="secondary" disabled={busy} onClick={()=>void cancel()}>대기 요청 취소</Button><span className="muted">생성 시작 전 취소할 수 있습니다. 기존 이미지와 확정 기록은 유지됩니다.</span></div>}
+    {active?.status==="running" && <p className="muted">이미 생성 처리가 시작되어 중단을 보장할 수 없습니다. API 비용이 발생할 수 있으며, 완성 후 사용할 버전을 선택할 수 있습니다.</p>}
     <div className="character-editor-layout"><div className="character-preview character-form">
     {shown ? <><img className="character-image" src={`/api/v1/characters/images/${shown.id}/asset`} alt={`${character.name} 기준 이미지 v${shown.version}`}/>
       <label className="character-field">이미지 버전<select value={shown.id} onChange={e=>{setChosen(e.target.value);const j=success.find(j=>j.id===e.target.value);if(j)setDraft(j.character);}}>{success.map(j=><option key={j.id} value={j.id}>v{j.version}{project.approved[character.id]===j.id?" · 확정된 기준":" · 검토본"}</option>)}</select></label>

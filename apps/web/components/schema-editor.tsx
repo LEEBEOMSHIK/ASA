@@ -34,7 +34,7 @@ export function SchemaEditor({ value, onChange, depth = 1 }: {
             [name]: type === "object" ? { type, description: node.description, properties: {}, required: [] } : type === "array" ?
               { type, description: node.description, items: { type: "string" }, maxItems: 100 } : { type, description: node.description } } }); }}>
           {[['string', '텍스트'], ['number', '숫자'], ['integer', '정수'], ['boolean', '예/아니오'], ['object', '정보 묶음'], ['array', '목록']].map(([type, label]) =>
-            <option key={type} value={type} disabled={depth >= 3 && (type === "object" || type === "array")}>{label}</option>)}
+            <option key={type} value={type} disabled={depth >= 4 && (type === "object" || type === "array")}>{label}</option>)}
         </select></label>
         <label className="checkbox"><input type="checkbox" checked={required.includes(name)}
           onChange={e => onChange({ ...value, required: e.target.checked ? [...required, name] : required.filter(k => k !== name) })} />필수</label>

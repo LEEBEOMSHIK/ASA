@@ -17,6 +17,22 @@
 
 ## 진행
 
+ASA-167 DONE: 텍스트 입력의 이전 작업 답변 선택·버전/항목 미리보기 제공. 원문 복사 후 직접 수정 유지. 자동화 앞 에이전트 출력과 확정 이미지 동시 전달·workspace 격리 검증. 유료 생성 없이 모델 호출 경계 검증.
+
+ASA-166 DONE: 추가 지침 공란 보존·첨부 이미지 기본 기준/충돌 확인 규칙 적용. 실제 로컬 씬 이미지 에이전트 기존 지침 보존 후 revision6 저장(8,520자), 지침 한도12,000자. 빈 지침/공백 실제 이미지 전달 테스트, pytest271 passed95.66s, src ruff/mypy50/typecheck/build/diff-check 통과. 실제 다크 화면 안내 확인, 유료 이미지 생성 및 이번 모바일/라이트 재검증 미실행. [기록](docs/worklogs/2026-11-02-image-reference-default.md)
+
+ASA-165 DONE: 직접 이미지 업로드·드롭 영역·캐릭터 연결/수정·보관함 저장 및 실제 이미지+설정 전달. workspace/파일/변조 검증, pytest268·src ruff/mypy50·frontend typecheck/build 통과. 실제 파일 선택·저장·연결 변경/해제·보관함 보존, 밝게/어둡게/모바일 확인. OS 파일 드래그 제스처와 유료 AI 호출은 미실행. docs/worklogs/2026-11-02-character-uploads.md 참조.
+
+ASA-164 DONE: 이미지 선택 버튼 공통 12px 간격·줄바꿈, 화면 비율의 방향·용도·적용 범위 안내. 실제 다크/모바일 화면과 원래 비율 값 유지 확인. pytest262·src ruff/mypy49·frontend typecheck/build 통과. docs/worklogs/2026-11-02-input-spacing.md 참조.
+
+ASA-163 DONE: 이미지 카드 보관함·작업/에이전트 출처·검색/필터/이전 버전, 확정 이미지 선택 입력 및 설정+실제 이미지 전달. 사용자 데이터 보존, workspace/확정/제외 검증, 실제 다크·모바일 화면 확인. 전체 pytest 261 + 선택 계약 큐 2건, src ruff/mypy/typecheck/build 통과. 유료 호출 없이 실제 이미지 2장·설정·원문 전달 확인. docs/worklogs/2026-11-02-character-library.md 참조.
+
+ASA-162 DONE: 씬 이미지 지침·대본 전체 필수 입력을 로컬 에이전트 revision2에 적용(다른6개 불변). 개별 큐/수동 실행에 공통 확정 이미지 첨부 연결. 실제 원문 대본2581자/씬4206자/확정 이미지7장 모델 메시지 포함 확인(유료 호출 대체·0건). DB 큐 통합 및 pytest260·src/new-test ruff·mypy48·typecheck/build 통과. 유휴 개별 워커 재시작·오류 없음 확인. 실제 AI 품질·씬 이미지 생성은 미검증/후속 범위. [기록](docs/worklogs/2026-11-02-scene-image-inputs.md)
+
+ASA-161 DONE: 씬 이미지 에이전트 템플릿·로컬 등록. 원문·확정 캐릭터 입력과 장면별 제작 지침·참조 ID·연속성 출력 계약, 사용자 검토 설정. 기존6개 에이전트 불변 확인. 스키마 깊이5 지원·6 거부 테스트, pytest256·src/new-test ruff·mypy48·frontend typecheck/build 통과. 실제 카드/설정 화면 확인. 유료 실행·생성 품질 미검증, 씬 이미지 생성 도구/UI는 후속 범위. [기록](docs/worklogs/2026-11-02-scene-image-agent.md)
+
+ASA-160 DONE: 캐릭터 이미지 선택 일괄 접수 및 대기 요청 취소. 일괄 접수 트랜잭션·중복 방지, 워커 claim 경쟁·취소 후 기존 확정 보존 검증. pytest255·src ruff·mypy48·frontend typecheck/build 통과. 전체 tests ruff 기존71건 유지. 실제 다크 화면의 패널 열기·빈 대상 안내 확인. 현재 사용자 이미지 모두 생성되어 선택 접수/취소 UI 실조작은 미검증, DB 모의 검증 완료. 유료 호출0, 사용자 작업 취소0. [기록](docs/worklogs/2026-11-02-image-batch-cancel.md)
+
 ASA-045 DONE: 입력/출력 연결점·드래그/클릭·빈 공간 추가 연결·선 변경/삭제·접힌 연결 관리. 브라우저 드래그/클릭/Enter/Esc/합류/삭제 검증. 안내로 캔버스 이동하던 결함 수정. 경로19·pytest123·ruff·mypy28·frontend typecheck/build 통과. [기록](docs/worklogs/2026-10-28-port-connections.md)
 
 ASA-044 DONE: OpenAI/Claude 내장 검색 옵션·LangChain 서버 도구·지원 모델 목록·출처 링크 연결. pytest123·ruff·mypy28·frontend typecheck/build 통과. 실제 SDK HTTP 모의 계약 및 DB 승인 재개 검증. 실제 유료 호출0·실계정/예약 검색 미검증. 브라우저 도구 오류로 시각 검증 미완료. [기록](docs/worklogs/2026-10-28-native-search.md) · [설정](docs/native-web-search.md)
@@ -542,3 +558,22 @@ ASA158 DONE: 자동화 분류 기본 꺼짐, 카테고리로 정리 공통 스�
 ASA159 검증 완료: ASA157~158 다크/모바일 검증 및 커밋·푸시. CSS viewport400/320px에서 검색·필터·스위치·메뉴/Escape 동작과 경계 확인, 설정 원복. 캡처 API timeout으로 새 시각 증거 확보 불가.
 
 ASA159 최종 검증: pytest253 passed101.46s, src ruff/mypy48/frontend typecheck/build 통과. 13개 코드·테스트·문서만 커밋, 사용자 자료/생성 자산/비밀값/캐시 제외. 삭제0건. 모바일 DOM 검증 완료·캡처 검증 미완료 명시 후 커밋/푸시.
+
+ASA-168 DONE: 이전 답변 가져오기를 입력 항목별 opt-in 설정으로 관리. 저장한 스키마로 실행 화면 표시를 결정하며 자동화 연결은 유지.
+ASA-169 DONE: 입력별 출처 에이전트 선택·이전 작업 필터 연결, 씬 이미지 대본/씬 출처 저장 및 작업 공간 공통 스타일 확인.
+
+ASA170 IN PROGRESS: 개별 에이전트 실행 화면 공통 제목/포커스/안내/입력 카드 폭·간격 정리. 씬 전용 분기 없이 적용, 실제 화면 확인.
+
+ASA170 DONE: 공통 AgentRunPreview 제목 32px/아이콘40px, 비대화형 제목 자동포커스 테두리 제거(접근성 포커스 유지), 실행 전 답변생성 배지 제거·안내 간결화. 제목/안내/입력카드 폭 일치, 입력wrapper의 중복 margin 제거 및24px gap. 실제 다크 화면 씬/쉬운작가 폭1136px 동일, 모바일 viewport390(CSS487) 가로넘침 없음 확인. 장면 이전작업 출처 필터 유지 확인. 밝은 테마 전환 캡처는 전환 중 색상으로 완전한 시각 검증 제외. pytest278 passed99.60s, src ruff/mypy51/typecheck/build/diff check 통과. 초기 샌드박스 DB/빌드 권한 제한은 승인 실행으로 재검증. 유료 AI 호출/사용자데이터 변경/커밋 없음.
+
+ASA171 IN PROGRESS: 이전 작업 가져오기 목록을 에이전트 이름 대신 작업 제목·요청 요약 중심으로 표시. 지정 출처 필터 유지, 저장된 답변/요청으로 제목 도출 및 검색 반영.
+
+ASA171 DONE: 이전 작업 목록/선택 미리보기/가져온 출처 문구를 작업 제목으로 변경, 요청 요약240자·두 줄/날짜/답변버전 및 보조 에이전트 출처 표시. 저장 답변 title/기존title/Markdown제목/요청 순으로 도출, 새 AI 호출 없음. 검색에 답변내용 포함, workspace 및 source agent 필터 유지. 실제 다크 화면 하나와 똑똑뿡 도서관의 비밀 작업 표시·선택·3874자 원문 가져오기 확인. API만 재시작, 워커 유지. pytest280 passed107.55s, src ruff 및 신규단위테스트 ruff/mypy51/typecheck/build/diff check 통과. 이번 작업 모바일 재검증 미실행. DB자료 변경·유료호출·커밋 없음.
+
+ASA172 IN PROGRESS: 이전 작업 가져오기 버튼을 입력 제목 옆18px 아이콘/44px 조작영역으로 이동, hover/focus 설명 및 가져온 출처 유지.
+
+ASA172 DONE: 이전 작업 가져오기를 입력 제목 옆18px 아이콘(44px 클릭영역)으로 이동. hover/focus 설명·접근성 이름 유지, 입력 아래 큰 버튼 제거 및 작업제목/답변버전 출처 유지. 실제 다크 화면 제목 정렬/크기·모달 선택·3874자 원문 가져오기 확인. pytest280 passed105.03s, ruff/mypy51/typecheck/build/diff check 통과. pytest 종료 시 pool 연결timeout 로그1건 출력됐으나 실패 없음. 모바일 재검증/유료 AI 호출/DB변경/커밋 없음.
+
+ASA173 IN PROGRESS: ASA160~172 변경을 밝은 테마/모바일에서 확인하고 코드·테스트·문서만 선별하여 커밋/푸시. 사용자 자료 및 캐시 보존.
+
+ASA173 검증 완료: ASA160~172 코드·테스트·템플릿·문서55파일 커밋 대상 확인. 밝은 데스크톱 화면 캡처로 제목/아이콘 정렬 확인(.local/import-light.png). 모바일 viewport390 설정에서 CSS width469=scrollWidth469, 아이콘44px·제목gap8px, Enter로 모달열기/작업선택/3874자 가져오기 및 출처 표시 확인. 모바일 캡처 CDP timeout으로 시각 검증 미완료. viewport reset 호출 후에도 모바일 화면이 남았고 이후 브라우저 응답 timeout으로 테마 원복 확인 불가(밝은 테마로 남을 수 있음). pytest280 passed102.09s, src ruff/mypy51/typecheck/build/diff-check 통과. 비밀패턴 검사0건. .env/.local/.next/.venv 및 사용자자료 제외·삭제0건. 유료 AI 호출 없음. main에 커밋/푸시 진행.

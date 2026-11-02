@@ -5,13 +5,15 @@ from typing import Any
 from uuid import UUID
 
 import psycopg
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from starlette.responses import StreamingResponse
 
 from asa.auth.session import OwnerSessions, Principal
 from asa.config import Settings
+from asa.registry.character_library import ImageSelection
+from asa.registry.character_uploads import UploadReference, save_upload
 from asa.registry.history import HistoryRepository
 from asa.registry.repository import RegistryRepository
 from asa.registry.schemas import RegistryError
@@ -55,6 +57,18 @@ class ImageRequest(BaseModel):
     model: str = Field(min_length=1, max_length=100)
     change: str = Field(default="", max_length=3000)
     base_id: UUID | None = None
+
+
+class ImageBatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    items: list[ImageRequest] = Field(min_length=1, max_length=12)
+
+    @model_validator(mode="after")
+    def unique_items(self) -> "ImageBatchRequest":
+        if (len({i.id for i in self.items}) != len(self.items)
+                or len({i.character.id for i in self.items}) != len(self.items)):
+            raise ValueError("duplicate_image_request")
+        return self
 
 
 class ReviewRequest(BaseModel):
@@ -226,12 +240,36 @@ class CharacterRepository(RegistryRepository):
             )
         return self.project(body.id)
 
-    def enqueue(self, project_id: UUID, body: ImageRequest, settings: Settings) -> dict[str, Any]:
+    def enqueue_batch(self, project_id: UUID, items: list[ImageRequest],
+                      settings: Settings) -> list[dict[str, Any]]:
+        batch = ImageBatchRequest(items=items)
+        with self._connect() as conn:
+            return [self.enqueue(project_id, item, settings, conn) for item in batch.items]
+
+    def cancel(self, job_id: UUID) -> dict[str, Any]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT status FROM character_image_jobs WHERE workspace_id=%s AND id=%s "
+                "FOR UPDATE", (self.workspace_id, job_id),
+            ).fetchone()
+            if not row:
+                raise RegistryError(404, "image_not_found")
+            if row["status"] not in ("queued", "cancelled"):
+                raise RegistryError(409, "image_cancel_not_queued")
+            if row["status"] == "queued":
+                conn.execute(
+                    "UPDATE character_image_jobs SET status='cancelled',finished_at=now() "
+                    "WHERE workspace_id=%s AND id=%s", (self.workspace_id, job_id),
+                )
+            return {"id": str(job_id), "status": "cancelled"}
+
+    def enqueue(self, project_id: UUID, body: ImageRequest, settings: Settings,
+                connection: psycopg.Connection[Any] | None = None) -> dict[str, Any]:
         if not settings.image_ai_enabled or not settings.ai_api_key.get_secret_value():
             raise RegistryError(409, "image_not_configured")
         if body.model not in settings.image_models:
             raise RegistryError(422, "image_model_not_allowed")
-        with self._connect() as conn:
+        with (nullcontext(connection) if connection is not None else self._connect()) as conn:
             conn.execute(
                 "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
                 (f"image-queue:{self.workspace_id}",),
@@ -395,6 +433,34 @@ def character_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
     def repo(p: Principal = Depends(sessions.principal)) -> CharacterRepository:
         return CharacterRepository(settings.database_url, p.workspace_id)
 
+    @router.get("/library")
+    def library(q: str = Query(default="", max_length=200),
+                state: str = Query(default="",
+                    pattern="^(|approved|review|excluded|queued|running|failed|unknown)$"),
+                project: str = Query(default="", max_length=36),
+                agent: str = Query(default="", max_length=36),
+                offset: int = Query(default=0, ge=0, le=100000),
+                r: CharacterRepository = Depends(repo)) -> dict[str, Any]:
+        from asa.registry.character_library import library as load
+        return load(r, q, state, project, agent, offset)
+
+    @router.get("/library/{image_id}/versions")
+    def image_versions(image_id: UUID,
+                       r: CharacterRepository = Depends(repo)) -> list[dict[str, Any]]:
+        from asa.registry.character_library import versions
+        return versions(r, image_id)
+
+    @router.post("/library/selection")
+    def select_images(body: ImageSelection,
+                      r: CharacterRepository = Depends(repo)) -> dict[str, Any]:
+        from asa.registry.character_library import selected_handoff
+        return selected_handoff(r, body.image_ids)
+
+    @router.post("/library/uploads")
+    def upload(body: UploadReference,
+               r: CharacterRepository = Depends(repo)) -> dict[str, Any]:
+        return save_upload(r, body)
+
     @router.get("/options")
     def options(r: CharacterRepository = Depends(repo)) -> dict[str, Any]:
         # Only agents with this explicit output contract can feed image cards.
@@ -457,6 +523,15 @@ def character_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
     ) -> dict[str, Any]:
         return r.enqueue(project_id, body, settings)
 
+    @router.post("/projects/{project_id}/images/batch")
+    def image_batch(project_id: UUID, body: ImageBatchRequest,
+                    r: CharacterRepository = Depends(repo)) -> list[dict[str, Any]]:
+        return r.enqueue_batch(project_id, body.items, settings)
+
+    @router.post("/images/{job_id}/cancel")
+    def cancel_image(job_id: UUID, r: CharacterRepository = Depends(repo)) -> dict[str, Any]:
+        return r.cancel(job_id)
+
     @router.post("/projects/{project_id}/characters/{character_id}/scope")
     def scope(
         project_id: UUID, character_id: str, body: ItemScope, r: CharacterRepository = Depends(repo)
@@ -484,6 +559,10 @@ def character_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
                 "AND id=%s AND status='succeeded'",
                 (r.workspace_id, job_id),
             ).fetchone()
+            if not row:
+                row = conn.execute('SELECT image FROM character_reference_uploads '
+                                   'WHERE workspace_id=%s AND id=%s',
+                                   (r.workspace_id, job_id)).fetchone()
         if not row or not row["image"]:
             raise RegistryError(404, "image_not_found")
         return Response(

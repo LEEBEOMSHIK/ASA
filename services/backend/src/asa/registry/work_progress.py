@@ -48,7 +48,8 @@ def character_progress(
     excluded: set[str],
     reviewed: dict[str, int] | None = None,
 ) -> dict[str, Any]:
-    latest = {j["character_id"]: j for j in sorted(jobs, key=lambda j: j["version"])}
+    latest = {j["character_id"]: j for j in sorted(jobs, key=lambda j: j["version"])
+              if j["status"] != "cancelled"}
     items = []
     for character in characters:
         cid = character["id"]

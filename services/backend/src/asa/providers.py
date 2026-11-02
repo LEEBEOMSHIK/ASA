@@ -3,6 +3,7 @@ from collections.abc import Callable
 from typing import Any
 
 from langchain.chat_models import init_chat_model
+from langchain_core.messages import HumanMessage
 
 from asa.config import Settings
 from asa.models import AgentAnswer, Script
@@ -45,6 +46,7 @@ def make_script_generator(settings: Settings) -> Callable[[str], Script]:
 
 def make_agent_generator(
     settings: Settings, on_progress: Callable[[dict[str, Any]], None] | None = None,
+    *, reference_repo: Any = None,
 ) -> Callable[[str], AgentAnswer]:
     """Execute the immutable agent contract without adding a domain-specific role."""
     if not settings.ai_model or not settings.key_for(settings.ai_provider).get_secret_value():
@@ -58,6 +60,14 @@ def make_agent_generator(
 
     def generate(prompt: str) -> AgentAnswer:
         contract = json.loads(prompt)
+        attachments = []
+        if reference_repo is not None:
+            from asa.registry.review_connection import validate_review_model
+            from asa.tools.character_handoff import image_content
+
+            attachments = image_content(reference_repo, contract.get('original_request'))
+            if attachments:
+                validate_review_model(settings, {})
         schema = contract['output_schema']
         envelope = {"title": "AgentAnswer", "type": "object",
                     "properties": {"value": schema}, "required": ["value"],
@@ -71,12 +81,14 @@ def make_agent_generator(
                 "value": schema,
             }
             envelope["required"] = ["understanding", "direction", "value"]
-        messages = [
+        text = json.dumps({key: contract[key] for key in
+                           ['original_request', 'previous_answer', 'revision_request',
+                            'input_schema'] if key in contract}, ensure_ascii=False)
+        human: Any = (HumanMessage(content=[{'type': 'text', 'text': text}, *attachments])
+                      if attachments else ('human', text))
+        messages: list[Any] = [
             ("system", contract['agent_instructions']),
-            ("human", json.dumps({key: contract[key] for key in
-                                  ['original_request', 'previous_answer', 'revision_request',
-                                   'input_schema'] if key in contract},
-                                 ensure_ascii=False)),
+            human,
         ]
         if on_progress is None:
             result = model.with_structured_output(envelope).invoke(messages, **call_config())

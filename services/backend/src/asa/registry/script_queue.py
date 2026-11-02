@@ -156,7 +156,8 @@ class ScriptQueue(ScriptRepository):
             )):
                 # Model construction errors also leave a trace and cannot strand the job.
                 try:
-                    return (generator or make_agent_generator(config, publish))(prompt)
+                    return (generator or make_agent_generator(
+                        config, publish, reference_repo=self))(prompt)
                 finally:
                     if pending:
                         publish(pending, force=True)

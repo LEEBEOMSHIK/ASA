@@ -11,6 +11,8 @@
 
 
 ## 개별 에이전트 실행 큐 (ASA-075/081)
+
+ASA-162: 개별 실행도 입력의 구조화된 `asa_character_handoff_v1` 데이터를 검증하고 실제 확정 이미지를 첨부한다. 자동화와 동일하게 workspace·제외·확정 상태 및 모델의 이미지 입력 지원을 확인한다. 씬 이미지 에이전트는 대본 전체(script), 장면 구성(scenes), 확정 캐릭터 전달 객체(characters)를 받는다. 이미지 ID를 일반 문자열로 적는 것만으로 첨부되지 않는다. 변경된 기준 이미지/제외 상태 때문에 이전 전달 데이터가 유효하지 않으면 최신 데이터를 받아 새 요청을 만든다.
 현재 실행 화면의 `답변 생성 실행`은 요청을 저장하고 같은 요청 ID로 `/script/start`에 멱등 접수한다. PostgreSQL script_attempts 큐를 상시 로컬 워커가 처리한다. 별도 Redis/Docker는 필요 없다.
 
 - `.env`의 `ASA_SCRIPT_AI_ENABLED=true`와 모델/API 키가 필요하다. `./scripts/run.ps1 script-worker`로 실행한다. 직접 실행은 `python -m asa.script_queue_worker --allow-paid-call`이다.

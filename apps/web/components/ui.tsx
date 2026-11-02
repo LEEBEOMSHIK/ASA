@@ -49,13 +49,13 @@ export function StatusBadge({ children, tone = "neutral" }: {
   return <span className={`badge badge--${tone}`}>{children}</span>;
 }
 
-export function Field({ id, label, hint, help, annotation, error, children }: {
-  id: string; label: string; hint?: string; help?: ReactNode; annotation?: string; error?: string;
+export function Field({ id, label, hint, help, annotation, error, labelAction, children }: {
+  id: string; label: string; hint?: string; help?: ReactNode; annotation?: string; error?: string; labelAction?: ReactNode;
   children: (props: { id: string; "aria-describedby"?: string; "aria-invalid": boolean }) => ReactNode;
 }) {
   const description = [hint ? `${id}-hint` : "", error ? `${id}-error` : ""].filter(Boolean).join(" ");
   return <div className="field">
-    {help || annotation ? <div className="help-row"><label htmlFor={id}>{label}</label>{annotation?.includes("AI") ? <HelpText ai label={`${label} · ${annotation}`}><strong>{annotation}</strong>{help && <div>{help}</div>}</HelpText> : <>{annotation ? <HelpText kind={annotation === "관리용" ? "management" : "settings"} label={`${label} · ${annotation}`}><strong>{annotation}</strong><div>{help || (annotation === "관리용" ? "에이전트를 구분하기 위한 정보입니다. 현재 AI 생성 프롬프트에는 포함되지 않습니다." : "AI 호출에 적용되는 설정입니다.")}</div></HelpText> : help && <HelpText label={label}>{help}</HelpText>}</>}</div> : <label htmlFor={id}>{label}</label>}
+    {labelAction ? <div className="field-title-actions"><label htmlFor={id}>{label}</label>{labelAction}</div> : help || annotation ? <div className="help-row"><label htmlFor={id}>{label}</label>{annotation?.includes("AI") ? <HelpText ai label={`${label} · ${annotation}`}><strong>{annotation}</strong>{help && <div>{help}</div>}</HelpText> : <>{annotation ? <HelpText kind={annotation === "관리용" ? "management" : "settings"} label={`${label} · ${annotation}`}><strong>{annotation}</strong><div>{help || (annotation === "관리용" ? "에이전트를 구분하기 위한 정보입니다. 현재 AI 생성 프롬프트에는 포함되지 않습니다." : "AI 호출에 적용되는 설정입니다.")}</div></HelpText> : help && <HelpText label={label}>{help}</HelpText>}</>}</div> : <label htmlFor={id}>{label}</label>}
     {children({ id, "aria-describedby": description || undefined, "aria-invalid": Boolean(error) })}
     {hint && <p id={`${id}-hint`} className="muted">{hint}</p>}
     {error && <p id={`${id}-error`} className="field-error" role="alert">{error}</p>}

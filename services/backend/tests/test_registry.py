@@ -126,3 +126,34 @@ def test_agent_icon_whitelist_and_legacy_default():
         assert draft(icon=icon).model_dump()['icon'] == icon
     with pytest.raises(ValidationError):
         draft(icon='<svg onload=alert(1)>')
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_previous_answer_input_setting(enabled):
+    from asa.registry.service import normalize_schema
+    schema = {"type": "object", "properties": {"text": {
+        "type": "string", "x-widget": "textarea", "x-previous-answer": enabled,
+    }}}
+    assert not validate_definition(draft(input_schema=schema), {})
+    assert normalize_schema(schema)["properties"]["text"]["x-previous-answer"] is enabled
+    assert validate_definition(draft(output_schema=schema), {})
+
+
+@pytest.mark.parametrize("node", [
+    {"type": "string", "x-previous-answer": "true"},
+    {"type": "number", "x-previous-answer": True},
+    {"type": "string", "enum": ["a"], "x-previous-answer": True},
+])
+def test_previous_answer_setting_rejects_incompatible_fields(node):
+    assert validate_definition(draft(input_schema={"type": "object", "properties": {"x": node}}), {})
+
+
+def test_previous_answer_source_agent_contract():
+    from uuid import uuid4
+    aid = str(uuid4())
+    node = {"type": "string", "x-previous-answer": True, "x-answer-agent": aid}
+    value = draft(input_schema={"type": "object", "properties": {"text": node}})
+    assert not validate_definition(value, {"a": {"kind": "agent", "agent_id": aid}})
+    assert validate_definition(value, {})
+    node["x-previous-answer"] = False
+    assert validate_definition(draft(input_schema={"type": "object", "properties": {"text": node}}),
+                               {"a": {"kind": "agent", "agent_id": aid}})

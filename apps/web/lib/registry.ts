@@ -3,6 +3,8 @@ export type SchemaNode = {
   type: string; description?: string; properties?: Record<string, SchemaNode>; required?: string[];
   items?: SchemaNode; maxLength?: number; maxItems?: number; minimum?: number; maximum?: number;
   enum?: (string | number | boolean)[]; default?: string | number | boolean;
+  "x-previous-answer"?: boolean;
+  "x-answer-agent"?: string;
   "x-widget"?: "text" | "textarea" | "radio" | "select" | "slider" | "number";
 };
 export type Definition = {
@@ -50,6 +52,10 @@ export async function api<T>(path: string, method = "GET", body?: unknown, revis
 export function message(error: unknown): string {
   if (!(error instanceof ApiError)) return "서버에 연결할 수 없습니다. 잠시 후 다시 시도하세요.";
   const messages: Record<string, string> = {
+    character_upload_invalid: "이미지를 읽을 수 없습니다. PNG·JPG·WebP, 5MB·1600만 화소 이하의 정지 이미지를 선택해 주세요.",
+    character_selection_not_ready: "선택한 이미지의 확정 상태가 변경되었거나 사용 안 함 상태입니다. 목록을 새로고침하고 다시 선택해 주세요.",
+    character_selection_missing: "선택한 이미지를 사용할 수 없습니다. 보관함에서 다시 선택해 주세요.",
+    character_selection_invalid: "서로 다른 확정 이미지를 1~12장 선택해 주세요.",
     category_conflict: "다른 관리자가 분류를 변경했습니다. 최신 목록을 불러왔으니 다시 시도해 주세요.",
     category_agent_missing: "에이전트 목록이 변경되었습니다. 다시 확인해 주세요.",
     review_image_required: "이미지 검수 에이전트는 캐릭터 이미지 결과의 AI 검수 요청으로 실행하세요.",
@@ -58,6 +64,7 @@ export function message(error: unknown): string {
     image_not_configured: "이미지 API 실행을 활성화하고 서버 키를 확인해 주세요.",
     image_model_not_allowed: "서버에서 허용한 이미지 모델을 선택해 주세요.",
     image_already_running: "이 캐릭터의 이미지 요청이 이미 진행 중입니다.",
+    image_cancel_not_queued: "이미 생성 처리가 시작되었거나 완료되어 대기 요청을 취소할 수 없습니다. 최신 상태를 확인해 주세요.",
     work_item_excluded: "생성 대상에서 제외된 항목입니다. 대상으로 복원한 뒤 진행해 주세요.",
     work_scope_changed: "다른 화면에서 생성 대상이 변경됐습니다. 최신 상태를 확인하고 다시 선택해 주세요.",
     image_daily_limit: "최근 24시간 이미지 요청 한도에 도달했습니다.",

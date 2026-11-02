@@ -69,7 +69,18 @@ def image_content(repo: Any, value: Any) -> list[dict[str, Any]]:
 
     def visit(node: Any) -> None:
         if isinstance(node, dict):
-            if node.get("format") == FORMAT:
+            from asa.registry.character_library import SELECTION_FORMAT, selected_handoff
+            if node.get("format") == SELECTION_FORMAT:
+                try:
+                    ids = [UUID(c["image_id"]) for c in node["characters"]]
+                except (KeyError, ValueError, TypeError):
+                    raise RegistryError(422, "character_selection_invalid") from None
+                current = selected_handoff(repo, ids)
+                if node != current:
+                    raise RegistryError(409, "character_handoff_changed")
+                for char in current["characters"]:
+                    images[char["image_id"]] = char
+            elif node.get("format") == FORMAT:
                 # Revalidate against the source so forged/excluded/unconfirmed data cannot pass.
                 current = read_handoff(repo, node["project_id"])
                 if node != current:
@@ -95,11 +106,15 @@ def image_content(repo: Any, value: Any) -> list[dict[str, Any]]:
                 "SELECT image FROM character_image_jobs WHERE workspace_id=%s "
                 "AND id=%s AND status='succeeded'", (repo.workspace_id, UUID(image_id)),
             ).fetchone()
+            if not row:
+                row = conn.execute('SELECT image FROM character_reference_uploads '
+                                   'WHERE workspace_id=%s AND id=%s',
+                                   (repo.workspace_id, UUID(image_id))).fetchone()
             if not row or not row["image"]:
                 raise RegistryError(409, "character_handoff_image_missing")
             content.extend([
                 {"type": "text", "text": f"캐릭터 {char['name']} ({char['id']}) "
-                 f"확정 기준 이미지 v{char['image_version']}"},
+                 f"기준 이미지 v{char['image_version']} · {char.get('image_change', '')}"},
                 {"type": "image_url", "image_url": {"url": "data:image/png;base64," +
                  base64.b64encode(bytes(row["image"])).decode()}},
             ])

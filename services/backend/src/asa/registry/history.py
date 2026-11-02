@@ -171,6 +171,19 @@ def history_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
                               for item in repository.history(page * 20)["items"]]}
         return snapshot_stream(request, load, repository.dsn, repository.workspace_id)
 
+    @router.get("/answer-sources")
+    def sources(agent_id: UUID | None = None, q: str = Query('', max_length=200),
+                offset: int = Query(0, ge=0, le=100000),
+                repository: HistoryRepository = Depends(repo)) -> dict[str, Any]:
+        from asa.registry.answer_sources import answer_sources
+        return answer_sources(repository, q, offset, agent_id)
+
+    @router.get("/answer-sources/{request_id}")
+    def source_versions(request_id: UUID,
+                        repository: HistoryRepository = Depends(repo)) -> dict[str, Any]:
+        from asa.registry.answer_sources import answer_versions
+        return answer_versions(repository, request_id)
+
     @router.get("/{request_id}")
     def detail(request_id: UUID,
                repository: HistoryRepository = Depends(repo)) -> dict[str, Any]:

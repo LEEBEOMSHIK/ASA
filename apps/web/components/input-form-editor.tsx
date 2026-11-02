@@ -1,6 +1,7 @@
 "use client";
-import type { SchemaNode } from "../lib/registry";
-import { Button, Field } from "./ui";
+import { useEffect, useState } from "react";
+import { api, latestAgentTools, type Tool, type SchemaNode } from "../lib/registry";
+import { Button, Field, SelectCombobox } from "./ui";
 import { ChoiceOptionsEditor } from "./choice-options-editor";
 
 const modes = [["text", "짧은 글"], ["textarea", "긴 글"], ["radio", "라디오 버튼"], ["select", "선택 목록"], ["slider", "슬라이더"], ["number", "숫자"]];
@@ -14,6 +15,9 @@ const modeHints: Record<string, string> = {
   advanced: "중첩된 항목 등 기존 세부 형식입니다. 아래 ‘중첩 항목 및 세부 형식’에서 확인할 수 있습니다.",
 };
 export function InputFormEditor({ value, onChange }: { value: SchemaNode; onChange: (value: SchemaNode) => void }) {
+  const [sources,setSources]=useState<Tool[]>([]);
+  const [sourceError,setSourceError]=useState(false);
+  useEffect(()=>{api<Tool[]>("/tools").then(v=>setSources(latestAgentTools(v).filter(t=>t.kind==="agent"))).catch(()=>setSourceError(true));},[]);
   const properties = value.properties || {};
   const required = value.required || [];
   const update = (key: string, node: SchemaNode) => onChange({ ...value, properties: { ...properties, [key]: node } });
@@ -24,6 +28,7 @@ export function InputFormEditor({ value, onChange }: { value: SchemaNode; onChan
       const numeric = mode === "slider" || mode === "number";
       const changeMode = (next: string) => {
         const n: SchemaNode = { type: next === "slider" ? "integer" : next === "number" ? "number" : "string", description: node.description, "x-widget": next as SchemaNode["x-widget"] };
+        if ((next === "text" || next === "textarea") && node["x-previous-answer"]) { n["x-previous-answer"] = true; n["x-answer-agent"] = node["x-answer-agent"]; }
         if (next === "radio" || next === "select") n.enum = ["선택지 1", "선택지 2"];
         if (next === "slider") { n.minimum = 1; n.maximum = 5; }
         update(key, n);
@@ -41,6 +46,12 @@ export function InputFormEditor({ value, onChange }: { value: SchemaNode; onChan
             <label className="checkbox"><input type="checkbox" checked={required.includes(key)} onChange={e => onChange({ ...value, required: e.target.checked ? [...required, key] : required.filter(k => k !== key) })} />필수 입력</label>
             {mode !== "advanced" && <label className="checkbox"><input type="checkbox" checked={node.default !== undefined} onChange={e => { const n = { ...node }; if (!e.target.checked) delete n.default; else n.default = choice ? node.enum?.[0] ?? "" : numeric ? node.minimum ?? 0 : ""; update(key, n); }} />기본값 사용</label>}
           </div>
+          {(mode === "text" || mode === "textarea") && <div className="input-history-setting">
+            <label className="checkbox"><input type="checkbox" checked={node["x-previous-answer"] === true} onChange={e => { const n={...node,"x-previous-answer":e.target.checked}; if(!e.target.checked) delete n["x-answer-agent"]; update(key,n); }} />이전 작업 답변 가져오기 허용</label>
+            {node["x-previous-answer"] && <SelectCombobox label="답변을 가져올 에이전트" value={node["x-answer-agent"] || ""} onChange={v=>{const n={...node}; if(v)n["x-answer-agent"]=v;else delete n["x-answer-agent"];update(key,n);}} options={[{id:"",label:"모든 에이전트"},...sources.map(t=>({id:t.agent_id!,label:t.name})),...(node["x-answer-agent"]&&!sources.some(t=>t.agent_id===node["x-answer-agent"])?[{id:node["x-answer-agent"]!,label:"연결된 에이전트 · 목록 확인 필요"}]:[])]}/>}
+            {sourceError && <p role="alert">에이전트 목록을 불러오지 못했습니다. 페이지를 다시 열어 주세요.</p>}
+            <p className="helper-text">설정에서는 출처 에이전트를 정합니다. 실행할 때 사용자가 해당 에이전트의 이전 작업과 답변 버전을 골라 가져옵니다. 직접 입력도 가능합니다. 저장 후 새 실행 화면에 반영되며, 자동화의 앞 블록 결과 연결에는 영향을 주지 않습니다.</p>
+          </div>}
           {node.default !== undefined && mode !== "advanced" && <Field id={`form-default-${key}`} label="기본값" hint="새 실행 화면을 열 때 미리 채웁니다. 사용자가 바꿀 수 있습니다.">{p => choice ? <select {...p} value={String(node.default)} onChange={e => update(key, { ...node, default: e.target.value })}>{!node.enum?.includes(node.default!) && <option value={String(node.default)}>선택지를 다시 선택하세요</option>}{(node.enum || []).map((v, i) => <option key={i} value={String(v)}>{String(v)}</option>)}</select> : <input {...p} type={numeric ? "number" : "text"} min={node.minimum} max={node.maximum} step={mode === "slider" ? 1 : "any"} value={String(node.default)} onChange={e => update(key, { ...node, default: numeric ? e.target.value === "" ? "" : Number(e.target.value) : e.target.value })} />}</Field>}
           <div className="input-field-footer"><span className="helper-text">연결 이름: {key} · 이름을 바꿔도 기존 연결은 유지됩니다.</span><Button variant="secondary" onClick={() => { const next = { ...properties }; delete next[key]; onChange({ ...value, properties: next, required: required.filter(k => k !== key) }); }}>항목 삭제<span className="sr-only"> {node.description || key}</span></Button></div>
         </div>

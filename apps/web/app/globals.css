@@ -281,7 +281,18 @@ h3 { font-size: 1rem; margin: 0 0 var(--space-2); }
 .tool-category[open] > summary { margin-bottom: var(--space-4); }
 .run-preview-entry { margin-top: var(--space-6); padding: var(--space-6); background: var(--surface-subtle); border: 1px solid var(--border); border-radius: var(--radius-md); }
 .run-preview-entry p { margin: var(--space-2) 0 var(--space-4); }
-.run-preview-screen > .page-heading { margin-top: var(--space-8); }
+.run-preview-screen > .page-heading { margin: var(--space-6) 0 var(--space-4); }
+.run-preview-screen .page-heading > div { min-width: 0; }
+.run-preview-screen .agent-title { font-size: var(--font-title); margin-bottom: var(--space-3); overflow-wrap: anywhere; }
+/* The heading receives navigation focus for screen readers, not an interactive ring. */
+.run-preview-screen .agent-title:focus { outline: none; }
+.run-preview-screen .agent-title .agent-avatar { width: 40px; height: 40px; }
+.run-preview-screen .page-heading .muted { margin: 0; }
+.run-preview-screen > .preview-banner { margin: 0 0 var(--space-6); padding: var(--space-3) var(--space-4); background: var(--surface-subtle); border: 1px solid var(--border); color: var(--muted); }
+.run-form-heading { display: grid; gap: var(--space-2); margin-bottom: var(--space-6); }
+.run-form-heading h2, .run-form-heading p { margin: 0; }
+.run-form-heading h2 { font-size: var(--font-heading); }
+.run-input-layout .request-fields > div > .field { margin: 0; }
 .preview-banner { padding: var(--space-4) var(--space-6); background: var(--accent-soft); border-radius: var(--radius-md); font-size: var(--font-small); margin-bottom: var(--space-6); }
 .run-preview-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); align-items: start; gap: var(--space-6); }
 .run-preview-grid .card { height: auto; min-width: 0; }
@@ -927,7 +938,7 @@ article.flow-library-card { display:flex; flex-direction:column; gap:0; padding:
 /* Separate the agent-wide disclosure from the settings and summary cards. */
 .editor-fieldset > .advanced.editor-section { margin-bottom: var(--settings-section-gap); }
 /* Before execution, the form owns the space; no empty result column. */
-.run-input-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--settings-section-gap); width: 100%; max-width: 960px; margin-inline: auto; }
+.run-input-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--settings-section-gap); width: 100%; min-width: 0; }
 .run-input-layout > .card { height: auto; min-width: 0; }
 .run-input-layout > .advanced { margin-top: 0; }
 /* Input groups own their internal rhythm; the form owns spacing between groups. */
@@ -1116,3 +1127,10 @@ article.flow-library-card { display:flex; flex-direction:column; gap:0; padding:
 .automation-plain-card { display:flex; min-width:0; }
 .automation-plain-card > .flow-library-card { flex:1; }
 .automation-groups .automation-plain-card .automation-card-heading { padding-right:0; }
+
+/* Shared inline actions must retain spacing when wrapping on narrow screens. */
+.button-row { display:flex; flex-wrap:wrap; align-items:center; gap:var(--space-3); }
+
+.input-history-setting { display:grid; gap:var(--space-2); }
+.input-history-setting p { margin:0; }
+.agent-group .catalog-grid { grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr)); }

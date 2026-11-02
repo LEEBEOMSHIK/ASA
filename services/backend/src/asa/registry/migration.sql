@@ -283,3 +283,13 @@ CREATE TABLE IF NOT EXISTS automation_categories (
  content jsonb NOT NULL DEFAULT '{"categories":[],"assignments":{}}'::jsonb,
  PRIMARY KEY(workspace_id,user_id)
 );
+
+CREATE TABLE IF NOT EXISTS character_reference_uploads (
+ id uuid PRIMARY KEY,
+ workspace_id uuid NOT NULL REFERENCES registry_workspaces(id),
+ character jsonb NOT NULL,
+ image bytea NOT NULL,
+ filename text NOT NULL,
+ created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS character_upload_workspace ON character_reference_uploads(workspace_id);

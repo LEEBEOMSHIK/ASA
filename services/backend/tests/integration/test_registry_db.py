@@ -99,6 +99,95 @@ def test_character_images_queue_edit_approval_and_isolation(db, monkeypatch):
     assert repo.project(project)['jobs'][0]['status'] == 'unknown'
 
 
+def test_character_batch_atomic_cancel_and_preserve(db, monkeypatch):
+    from psycopg.types.json import Jsonb
+
+    from asa.registry.characters import Character, CharacterRepository, ImageRequest
+    from asa.registry.schemas import RegistryError
+
+    dsn, workspace = db
+    repo = CharacterRepository(dsn, workspace)
+    project = uuid4()
+    chars = [Character(id=n, name=n, facts='', appearance='white', proposed='',
+                       scene_ids='1', image_prompt='portrait') for n in ('a', 'b')]
+    with repo._connect() as conn:
+        conn.execute('INSERT INTO character_projects(workspace_id,id,request_id,name,characters) '
+                     'VALUES (%s,%s,%s,%s,%s)',
+                     (workspace, project, uuid4(), 'batch', Jsonb([c.model_dump() for c in chars])))
+    settings = Settings(_env_file=None, database_url=dsn, workspace_id=workspace,
+                        image_ai_enabled=True, ai_api_key='test-only')
+    items = [ImageRequest(id=uuid4(), character=c, model='gpt-image-2.5-sunburst') for c in chars]
+    bad = items[1].model_copy(update={'model': 'invalid'})
+    with pytest.raises(RegistryError):
+        repo.enqueue_batch(project, [items[0], bad], settings)
+    assert repo.project(project)['jobs'] == []
+    rows = repo.enqueue_batch(project, items, settings)
+    assert len(rows) == 2
+    assert repo.enqueue_batch(project, items, settings) == rows
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        repo.enqueue_batch(project, [items[0], items[0]], settings)
+    with pytest.raises(RegistryError):
+        CharacterRepository(dsn, uuid4()).cancel(items[0].id)
+    repo.cancel(items[0].id)
+    repo.cancel(items[0].id)
+    state = repo.project(project)
+    assert state['work_progress']['items'][0]['state'] == 'pending'
+    with repo._connect() as conn:
+        conn.execute("UPDATE character_image_jobs SET status='running' WHERE id=%s", (items[1].id,))
+    with pytest.raises(RegistryError, match='image_cancel_not_queued'):
+        repo.cancel(items[1].id)
+    with repo._connect() as conn:
+        conn.execute("UPDATE character_image_jobs SET status='succeeded',image=%s WHERE id=%s",
+                     (b'image', items[1].id))
+    repo.approve(items[1].id, None, 1)
+    edit = items[1].model_copy(update={'id': uuid4(), 'base_id': items[1].id, 'change': 'blue'})
+    repo.enqueue(project, edit, settings)
+    repo.cancel(edit.id)
+    state = repo.project(project)
+    assert state['approved']['b'] == str(items[1].id)
+    assert state['work_progress']['items'][1]['state'] == 'approved'
+    with repo._connect() as conn:
+        assert conn.execute('SELECT image FROM character_image_jobs WHERE id=%s',
+                            (items[1].id,)).fetchone()['image'] == b'image'
+        assert conn.execute('SELECT count(*) AS n FROM ai_usage_events WHERE workspace_id=%s',
+                            (workspace,)).fetchone()['n'] == 0
+    from asa.image_worker import tick
+    def unexpected_call(*args):
+        pytest.fail('cancelled request reached image API')
+    monkeypatch.setattr('asa.image_worker.generate_image', unexpected_call)
+    assert not tick(settings)
+    new_request = items[0].model_copy(update={'id': uuid4()})
+    repo.enqueue(project, new_request, settings)
+    def cancel_or_claim(action):
+        if action == 'cancel':
+            try:
+                repo.cancel(new_request.id)
+                return 'cancelled'
+            except RegistryError as exc:
+                assert str(exc) == 'image_cancel_not_queued'
+                return 'already_claimed'
+        with repo._connect() as conn:
+            return conn.execute("UPDATE character_image_jobs SET status='running' "
+                                "WHERE id=%s AND status='queued' RETURNING id",
+                                (new_request.id,)).fetchone() is not None
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        cancelled, claimed = list(pool.map(cancel_or_claim, ['cancel', 'claim']))
+    assert ((cancelled == 'cancelled' and not claimed)
+            or (cancelled == 'already_claimed' and claimed))
+
+
+def test_image_batch_and_cancel_auth(client):
+    project, job = uuid4(), uuid4()
+    path = f'/api/v1/characters/images/{job}/cancel'
+    assert client.post(path, headers=ORIGIN).status_code == 401
+    headers = login(client)
+    assert client.post(path, headers=ORIGIN).status_code == 403
+    assert client.post(path, headers=headers).status_code == 404
+    assert client.post(f'/api/v1/characters/projects/{project}/images/batch',
+                       json={'items': []}, headers=headers).status_code == 422
+
+
 def test_monitoring_capture_trace_filters_isolation(client, db):
     from datetime import UTC, datetime, timedelta
 
@@ -269,6 +358,41 @@ def script_work(client):
         "input": {"topic": "고양이"},
     }).json()
     return headers, work, f"/api/v1/work-requests/{work['id']}/script"
+
+
+def test_previous_answer_sources_versions_search_and_isolation(client, db):
+    from psycopg.types.json import Jsonb
+    headers, work, _ = script_work(client)
+    repo = RegistryRepository(*db)
+    with repo._connect() as conn:
+        conn.execute('INSERT INTO script_stages(workspace_id,request_id) VALUES (%s,%s)',
+                     (db[1], work['id']))
+        for version, answer in [(1, {'script': '원문 첫 답변'}), (2, {'script': '수정 원문\n끝'})]:
+            conn.execute('INSERT INTO script_versions(workspace_id,request_id,version,operation_id,'
+                         "title,narration,source,answer) VALUES (%s,%s,%s,%s,'','','ai',%s)",
+                         (db[1], work['id'], version, uuid4(), Jsonb(answer)))
+    url = '/api/v1/work-requests/answer-sources'
+    response = client.get(url)
+    assert response.status_code == 200
+    assert response.json()['items'][0]['id'] == work['id']
+    assert response.json()['items'][0]['version'] == 2
+    assert response.json()['items'][0]['title']
+    assert 'request_preview' in response.json()['items'][0]
+    assert 'answer' not in response.json()['items'][0]
+    assert client.get(url + '?q=수정 원문').json()['items'][0]['id'] == work['id']
+    assert client.get(url + '?q=존재하지않음').json()['items'] == []
+    assert client.get(url + '?offset=20').json()['items'] == []
+    assert client.get(url + '?agent_id=' + str(uuid4())).json()['items'] == []
+    detail = client.get(url + '/' + work['id']).json()
+    assert [v['version'] for v in detail['versions']] == [2, 1]
+    assert detail['versions'][0]['answer']['script'] == '수정 원문\n끝'
+    from asa.registry.answer_sources import answer_versions, answer_sources
+    from asa.registry.schemas import RegistryError
+    other = RegistryRepository(db[0], uuid4())
+    assert answer_sources(other)['items'] == []
+    with pytest.raises(RegistryError):
+        answer_versions(other, UUID(work['id']))
+    assert client.get(url + '/' + str(uuid4())).status_code == 404
 
 
 def runtime_flow(client, review=False):
@@ -769,6 +893,80 @@ def login(client):
     response = client.post("/api/v1/session", json={"access_key": KEY}, headers=ORIGIN)
     assert response.status_code == 200
     return {**ORIGIN, "X-CSRF-Token": response.json()["csrf_token"]}
+
+
+@pytest.mark.parametrize('extra_instruction', ['우비와 단발머리를 유지', '', '   '])
+def test_uploaded_reference_persists_and_reaches_model(client, db, monkeypatch, extra_instruction):
+    import base64
+    import json
+    from io import BytesIO
+
+    from PIL import Image
+
+    from asa.providers import make_agent_generator
+    from asa.registry import review_connection
+    from asa.registry.character_library import selected_handoff
+    from asa.registry.characters import CharacterRepository
+    from asa.registry.schemas import RegistryError
+    from asa.tools.character_handoff import image_content
+
+    headers = login(client)
+    source = BytesIO()
+    Image.new('RGB', (48, 64), 'yellow').save(source, format='PNG')
+    payload = {'data': base64.b64encode(source.getvalue()).decode(),
+               'filename': 'test.png', 'name': '새 캐릭터', 'appearance': '노란 우비',
+               'image_prompt': extra_instruction}
+    assert client.post('/api/v1/characters/library/uploads', json=payload,
+                       headers=ORIGIN).status_code == 403
+    assert client.post('/api/v1/characters/library/uploads',
+                       json={**payload, 'data': 'invalid'}, headers=headers).status_code == 422
+    response = client.post('/api/v1/characters/library/uploads', json=payload, headers=headers)
+    assert response.status_code == 200, response.text
+    selected = response.json()
+    char = selected['characters'][0]
+    assert char['image_prompt'] == extra_instruction.strip()
+    image_id = char['image_id']
+    assert char['name'] == payload['name'] and char['appearance'] == payload['appearance']
+    assert client.get(f'/api/v1/characters/images/{image_id}/asset').content.startswith(b'\x89PNG')
+    assert client.get('/api/v1/characters/library?q=새 캐릭터').json()['items'][0]['model'] == '사용자 업로드'
+    assert len(client.get(f'/api/v1/characters/library/{image_id}/versions').json()) == 1
+    repo = CharacterRepository(*db)
+    assert selected_handoff(repo, [UUID(image_id)]) == selected
+    forged = json.loads(json.dumps(selected))
+    forged['characters'][0]['name'] = '위조'
+    with pytest.raises(RegistryError):
+        image_content(repo, forged)
+    with pytest.raises(RegistryError):
+        selected_handoff(CharacterRepository(db[0], uuid4()), [UUID(image_id)])
+    # Relinking saves a new snapshot; existing requests retain their original image and settings.
+    updated = client.post('/api/v1/characters/library/uploads', headers=headers, json={
+        'existing_upload': image_id, 'character_image': image_id,
+        'name': '새 캐릭터', 'appearance': '파란 우비', 'image_prompt': '파란색 유지'}).json()
+    assert updated['characters'][0]['id'] == char['id']
+    assert updated['characters'][0]['image_id'] != image_id
+    assert selected_handoff(repo, [UUID(image_id)]) == selected
+    received = []
+
+    class Model:
+        def invoke(self, messages, **kwargs):
+            received.extend(messages)
+            return {'value': '장면 계획'}
+
+        def with_structured_output(self, schema):
+            return self
+
+    monkeypatch.setattr(review_connection, 'validate_review_model', lambda *a: None)
+    monkeypatch.setattr('asa.providers.init_chat_model', lambda *a, **kw: Model())
+    generate = make_agent_generator(Settings(_env_file=None, ai_api_key='fake', ai_model='test'),
+                                    reference_repo=repo)
+    original = {'characters': selected, 'script': '대본 원문', 'scenes': '장면 원문'}
+    generate(json.dumps({'agent_instructions': '장면 계획', 'original_request': original,
+                         'previous_answer': None, 'revision_request': '',
+                         'output_schema': {'type': 'string'}}))
+    content = received[-1].content
+    assert json.loads(content[0]['text'])['original_request'] == original
+    assert content[-1]['image_url']['url'].startswith('data:image/png;base64,')
+    assert payload['name'] in content[-2]['text']
 
 
 def definition():
@@ -1673,7 +1871,7 @@ def test_agent_sse_reconnect_isolation_and_persisted_partial(client, db, monkeyp
     queue.submit(work['id'])
     calls = []
 
-    def factory(config, publish):
+    def factory(config, publish, *, reference_repo=None):
         def generate(prompt):
             calls.append(prompt)
             publish({'understanding': '요청 이해', 'direction': '작성 방향', 'value': '부분 답변'})
@@ -2321,3 +2519,211 @@ def test_automation_categories_member_can_manage(db, monkeypatch):
         assert member.put(url, json={"revision": 1, "categories": [
             {"id": str(uuid4()), "name": "같은 이름"},
             {"id": str(uuid4()), "name": "같은 이름"}], "assignments": {}}).status_code == 422
+
+
+@pytest.mark.parametrize('selected', [False, True])
+def test_scene_agent_queue_delivers_full_text_and_confirmed_image(client, db, monkeypatch, selected):
+    import json
+    from psycopg.types.json import Jsonb
+    from asa.registry.characters import CharacterRepository, ImportPlan
+    from asa.registry.history import HistoryRepository, WorkRequest
+    from asa.registry.script_queue import ScriptQueue
+    from asa.tools.character_handoff import read_handoff
+
+    _, source, _ = script_work(client)
+    dsn, workspace = db
+    characters = CharacterRepository(dsn, workspace)
+    char = dict(id='hana', name='Hana', facts='fact', appearance='yellow coat',
+                proposed='', scene_ids='1', image_prompt='front')
+    job_id = uuid4()
+    with characters._connect() as conn:
+        conn.execute('INSERT INTO script_stages(workspace_id,request_id) VALUES (%s,%s)',
+                     (workspace, source['id']))
+        conn.execute('INSERT INTO script_versions(workspace_id,request_id,version,operation_id,'
+                     "title,narration,source,answer) VALUES (%s,%s,1,%s,'','','ai',%s)",
+                     (workspace, source['id'], uuid4(), Jsonb({'characters': [char]})))
+    project = characters.import_plan(ImportPlan(id=uuid4(), request_id=source['id'], name='Test'))
+    from asa.registry.characters import Character, ImageRequest
+    config = Settings(_env_file=None, database_url=dsn, workspace_id=workspace,
+                      ai_model='test', ai_api_key='fake', script_ai_enabled=True,
+                      image_ai_enabled=True)
+    characters.enqueue(UUID(project['id']), ImageRequest(
+        id=job_id, character=Character(**char), model='gpt-image-2.5-sunburst'), config)
+    with characters._connect() as conn:
+        conn.execute("UPDATE character_image_jobs SET status='succeeded',image=%s "
+                     'WHERE workspace_id=%s AND id=%s', (b'actual-test-image', workspace, job_id))
+    characters.approve(job_id, None, 1)
+    payload = read_handoff(characters, project['id'])
+    if selected:
+        from asa.registry.character_library import selected_handoff
+        payload = selected_handoff(characters, [job_id])
+    template = Path(__file__).resolve().parents[4] / 'docs/agent-templates/scene-image-planner.json'
+    agent = RegistryRepository(dsn, workspace).save_settings(
+        AgentDraft.model_validate_json(template.read_text(encoding='utf-8')))
+    original = {'script': '처음부터 끝까지 대본 원문', 'scenes': '1. 장면 원문',
+                'characters': payload, 'aspect_ratio': '9:16'}
+    # The picker returns immutable answer snapshots; importing never summarizes text.
+    for key in ('script', 'scenes'):
+        previous_id = uuid4()
+        HistoryRepository(dsn, workspace).save(WorkRequest(
+            id=previous_id, agent_id=source['agent_id'], version=1, input={'topic': key}))
+        with characters._connect() as conn:
+            conn.execute('INSERT INTO script_stages(workspace_id,request_id) VALUES (%s,%s)',
+                         (workspace, previous_id))
+            conn.execute('INSERT INTO script_versions(workspace_id,request_id,version,operation_id,'
+                         "title,narration,source,answer) VALUES (%s,%s,1,%s,'','','ai',%s)",
+                         (workspace, previous_id, uuid4(), Jsonb(original[key])))
+        picked = client.get(f'/api/v1/work-requests/answer-sources/{previous_id}').json()
+        assert picked['versions'][0]['answer'] == original[key]
+        original[key] = picked['versions'][0]['answer']
+    request_id = uuid4()
+    HistoryRepository(dsn, workspace).save(WorkRequest(
+        id=request_id, agent_id=agent['id'], version=agent['versions'][0]['version'],
+        input=original))
+    sent = []
+
+    class Model:
+        def with_structured_output(self, schema):
+            return self
+
+        def stream(self, messages, **kwargs):
+            sent.extend(messages)
+            yield {'understanding': '자료 확인', 'direction': '장면 설계',
+                   'value': {'summary': '계획', 'shots': [], 'checks': []}}
+
+    monkeypatch.setattr('asa.providers.init_chat_model', lambda *a, **kw: Model())
+    monkeypatch.setattr('asa.registry.review_connection.validate_review_model', lambda *a: None)
+    queue = ScriptQueue(config)
+    queue.submit(str(request_id))
+    assert queue.tick()
+    assert queue.get(str(request_id))['attempts'][0]['status'] == 'succeeded'
+    content = sent[-1].content
+    assert json.loads(content[0]['text'])['original_request'] == original
+    import base64
+    assert base64.b64decode(content[-1]['image_url']['url'].split(',')[1]) == b'actual-test-image'
+    assert 'Hana' in content[-2]['text']
+    # The same request remains idempotent; re-submission cannot duplicate a paid call.
+    queue.submit(str(request_id))
+    assert not queue.tick()
+
+    if selected:
+        # Exercise the real graph worker and real LangChain message assembly, mocking only
+        # the external model. Script output feeds scenes AND the final scene-image agent.
+        from asa.registry.runtime import RunInput, RunRepository
+        from asa.runtime_worker import tick
+        registry = RegistryRepository(dsn, workspace)
+        upstream = AgentDraft.model_validate(definition()).model_copy(update={
+            'output_schema': {'type': 'string'}, 'requires_approval': False})
+        writer = registry.save_settings(upstream)
+        scene_writer = registry.save_settings(upstream.model_copy(update={'name': '장면 구성'}))
+        scene_input = AgentDraft.model_validate_json(template.read_text(encoding='utf-8'))
+        scene_input.requires_approval = False
+        final = registry.save_settings(scene_input)
+        nodes = [
+            {'id': 'start', 'label': '시작', 'kind': 'start'},
+            {'id': 'writer', 'label': '대본', 'kind': 'tool',
+             'tool_id': f"agent:{writer['id']}:1", 'bindings': {'topic': {'source': 'input'}}},
+            {'id': 'scenes', 'label': '장면', 'kind': 'tool',
+             'tool_id': f"agent:{scene_writer['id']}:1",
+             'bindings': {'topic': {'source': 'writer'}}},
+            {'id': 'plan', 'label': '씬 이미지', 'kind': 'tool',
+             'tool_id': f"agent:{final['id']}:1", 'bindings': {
+                 'script': {'source': 'writer'}, 'scenes': {'source': 'scenes'},
+                 'characters': {'source': 'literal', 'value': payload},
+                 'aspect_ratio': {'source': 'literal', 'value': '9:16'}}},
+            {'id': 'end', 'label': '결과', 'kind': 'end', 'bindings': {'$': {'source': 'plan'}}}]
+        edges = [{'id': str(i), 'source': s, 'target': t, 'port': 'next'}
+                 for i, (s, t) in enumerate(zip(
+                     ['start', 'writer', 'scenes', 'plan'], ['writer', 'scenes', 'plan', 'end']))]
+        aid = uuid4()
+        response = client.post('/api/v1/automations', headers=login(client), json={
+            'id': str(aid), 'revision': 0,
+            'draft': {'name': '원문과 이미지 전달', 'graph': {'nodes': nodes, 'edges': edges}}})
+        assert response.status_code == 200
+        captured = []
+
+        class GraphModel:
+            def with_structured_output(self, schema):
+                return self
+
+            def invoke(self, messages, **kwargs):
+                captured.append(messages[-1])
+                return {'value': [original['script'], original['scenes'],
+                                  {'summary': '계획', 'shots': [], 'checks': []}][len(captured)-1]}
+
+        monkeypatch.setattr('asa.runtime_worker.init_chat_model', lambda *a, **kw: GraphModel())
+        runtime = RunRepository(config.model_copy(update={'automation_ai_enabled': True}))
+        rid = uuid4()
+        runtime.enqueue(aid, RunInput(id=rid, revision=1, prompt='주제'))
+        assert tick(runtime)
+        result = runtime.detail(rid)
+        assert result['status'] == 'succeeded', result
+        assert len(captured) == 3
+        assert json.loads(captured[1][1])['input']['topic'] == original['script']
+        final_content = captured[-1].content
+        assert json.loads(final_content[0]['text'])['input'] == original
+        assert base64.b64decode(final_content[-1]['image_url']['url'].split(',')[1]) == b'actual-test-image'
+        assert len(result['steps']) >= 3
+
+
+def test_image_library_and_selected_handoff(client, db, monkeypatch):
+    from psycopg.types.json import Jsonb
+    from asa.registry.characters import Character, CharacterRepository, ImageRequest, ItemScope
+    from asa.registry.schemas import RegistryError
+    from asa.tools.character_handoff import image_content
+
+    headers, source, _ = script_work(client)
+    dsn, workspace = db
+    repo = CharacterRepository(dsn, workspace)
+    pid = uuid4()
+    char = Character(id='hana', name='하나', facts='원문 사실', appearance='노란 우비',
+                     proposed='제안', scene_ids='1', image_prompt='정면')
+    with repo._connect() as conn:
+        conn.execute('INSERT INTO character_projects(workspace_id,id,request_id,source_version,name,characters) '
+                     'VALUES (%s,%s,%s,1,%s,%s)',
+                     (workspace, pid, source['id'], '이야기 작업', Jsonb([char.model_dump()])))
+    config = Settings(_env_file=None, database_url=dsn, workspace_id=workspace,
+                      image_ai_enabled=True, ai_api_key='fake')
+    first = uuid4()
+    repo.enqueue(pid, ImageRequest(id=first, character=char, model='gpt-image-2.5-sunburst'), config)
+    with repo._connect() as conn:
+        conn.execute("UPDATE character_image_jobs SET status='succeeded',image=%s "
+                     'WHERE workspace_id=%s AND id=%s', (b'first', workspace, first))
+    repo.approve(first, None, 1)
+    listing = client.get('/api/v1/characters/library').json()
+    assert len(listing['items']) == 1
+    card = listing['items'][0]
+    assert card['id'] == str(first) and card['state'] == 'approved'
+    assert card['project_name'] == '이야기 작업' and card['agent_name']
+    assert client.get('/api/v1/characters/library?q=없는이름').json()['items'] == []
+    assert len(client.get('/api/v1/characters/library?q=하나&state=approved').json()['items']) == 1
+    assert client.get('/api/v1/characters/library?offset=24').json()['items'] == []
+    selection = client.post('/api/v1/characters/library/selection', headers=headers,
+                            json={'image_ids': [str(first)]}).json()
+    assert selection['characters'][0]['appearance'] == '노란 우비'
+    assert image_content(repo, selection)[1]['image_url']['url'].endswith('Zmlyc3Q=')
+    forged = {**selection, 'characters': [{**selection['characters'][0], 'appearance': '위조'}]}
+    with pytest.raises(RegistryError):
+        image_content(repo, forged)
+    with pytest.raises(RegistryError):
+        image_content(CharacterRepository(dsn, uuid4()), selection)
+    second = uuid4()
+    repo.enqueue(pid, ImageRequest(id=second, character=char, model='gpt-image-2.5-sunburst',
+                                  base_id=first, change='변경'), config)
+    with pytest.raises(RegistryError):
+        image_content(repo, selection)
+    with repo._connect() as conn:
+        conn.execute("UPDATE character_image_jobs SET status='succeeded',image=%s "
+                     'WHERE workspace_id=%s AND id=%s', (b'second', workspace, second))
+    versions = client.get(f'/api/v1/characters/library/{first}/versions').json()
+    assert len(versions) == 2
+    repo.approve(second, first, 2)
+    assert client.get('/api/v1/characters/library').json()['items'][0]['id'] == str(second)
+    assert client.post('/api/v1/characters/library/selection', headers=headers,
+                       json={'image_ids': [str(first)]}).status_code == 409
+    repo.set_scope(pid, 'hana', ItemScope(excluded=True, expected=False))
+    assert client.get('/api/v1/characters/library?state=excluded').json()['items'][0]['id'] == str(second)
+    assert client.post('/api/v1/characters/library/selection', headers=headers,
+                       json={'image_ids': [str(second)]}).status_code == 409
+    assert client.post('/api/v1/characters/library/selection', headers=ORIGIN,
+                       json={'image_ids': [str(second)]}).status_code == 403
