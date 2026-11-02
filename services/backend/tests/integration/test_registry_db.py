@@ -2248,3 +2248,76 @@ def test_branding_member_read_only(db, monkeypatch):
         data = member.get("/api/v1/branding").json()
         assert data["name"] == "AI Shorts Studio"
         assert member.put("/api/v1/branding", json=data).status_code == 403
+
+
+def test_personal_automation_categories_preserve_execution(client, db):
+    from datetime import UTC, datetime, timedelta
+
+    from asa.registry.automation_categories import read
+    from asa.registry.runtime import RunRepository
+    from asa.runtime_worker import tick
+
+    url = "/api/v1/automation-categories"
+    assert client.get(url).status_code == 401
+    headers, flow = runtime_flow(client)
+    aid = flow["id"]
+    schedule_url = f"/api/v1/automations/{aid}/schedule"
+    due = datetime.now(UTC) + timedelta(days=1)
+    schedule = client.put(schedule_url, headers=headers, json={
+        "revision": 1, "schedule_revision": 0, "enabled": True, "kind": "once",
+        "at": due.isoformat(), "time": "09:00", "prompt": "예약 테스트",
+    })
+    assert schedule.status_code == 200
+    run_url = f"/api/v1/automations/{aid}/runs"
+    assert client.post(run_url, headers=headers, json={
+        "id": str(uuid4()), "revision": 1, "prompt": "대본",
+    }).status_code == 201
+    repo = RunRepository(Settings(_env_file=None, database_url=db[0], workspace_id=db[1]))
+    assert tick(repo)
+    before = client.get("/api/v1/automations").json()
+    history = client.get(run_url).json()
+    category = str(uuid4())
+    body = {"revision": 0, "categories": [{"id": category, "name": "대본"}],
+            "assignments": {aid: category}}
+    assert client.put(url, json=body).status_code == 403
+    result = client.put(url, headers=headers, json=body)
+    assert result.status_code == 200
+    assert client.put(url, headers=headers, json=body).status_code == 409
+    assert read(RegistryRepository(db[0], db[1]), "another-user")["categories"] == []
+    other = uuid4()
+    migrate(db[0], other)
+    assert read(RegistryRepository(db[0], other), "local-owner")["categories"] == []
+    missing = {**body, "revision": 1, "assignments": {str(uuid4()): category}}
+    assert client.put(url, headers=headers, json=missing).status_code == 422
+    assert client.get(url).json()["enabled"] is False
+    for revision, enabled in [(1, True), (2, False), (3, True)]:
+        saved = client.put(url, headers=headers, json={
+            **body, "revision": revision, "enabled": enabled,
+        })
+        assert saved.status_code == 200
+        current = client.get(url).json()
+        assert current["enabled"] is enabled
+        assert current["categories"] == body["categories"]
+        assert current["assignments"] == body["assignments"]
+    assert read(RegistryRepository(db[0], db[1]), "another-user")["enabled"] is False
+    assert client.put(url, headers=headers, json={
+        "revision": 4, "categories": [], "assignments": {},
+    }).status_code == 200
+    assert client.get("/api/v1/automations").json() == before
+    assert client.get(run_url).json() == history
+    assert client.get(schedule_url).json() == schedule.json()
+
+
+def test_automation_categories_member_can_manage(db, monkeypatch):
+    from asa.auth.session import OwnerSessions, Principal
+
+    monkeypatch.setattr(OwnerSessions, "principal", lambda self: Principal(
+        user_id="member", workspace_id=db[1], roles=("member",)))
+    with TestClient(create_app(Settings(_env_file=None, database_url=db[0]))) as member:
+        url = "/api/v1/automation-categories"
+        assert member.get(url).json()["can_manage"]
+        assert member.put(url, json={"revision": 0, "categories": [
+            {"id": str(uuid4()), "name": "개인 분류"}], "assignments": {}}).status_code == 200
+        assert member.put(url, json={"revision": 1, "categories": [
+            {"id": str(uuid4()), "name": "같은 이름"},
+            {"id": str(uuid4()), "name": "같은 이름"}], "assignments": {}}).status_code == 422

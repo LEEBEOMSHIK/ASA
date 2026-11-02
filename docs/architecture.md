@@ -309,3 +309,8 @@ ASA-142: agent_categories는 workspace별 카테고리 순서/명칭과 agent ID
 - workspace_branding에 이름·96px PNG 로고·revision을 저장한다. 인증 사용자 조회, owner/admin만 변경하며 기존 CSRF와 크기 제한을 적용한다. revision 충돌은409로 막는다.
 - 브라우저에서 PNG/JPG/WebP(5MB 이하)를 비율 유지해96px PNG로 변환한다. 서버는 PNG 크기/청크 CRC/압축 해제 크기를 검증한다. 원본 이미지는 서버나 Git에 저장하지 않는다.
 - 작업 공간/RegistryShell 공통 StudioBrand를 사용한다. 저장 이벤트 때 현재 화면 갱신, 다른 열린 화면은 새로고침시 반영한다. 로그인 전과 브라우저 title은 기본명 유지. 주기적 DB 폴링 없음.
+
+### 개인 자동화 카테고리
+`automation_categories`는 workspace_id와 인증 user_id를 복합 키로 분류만 저장한다. `/api/v1/automation-categories` GET/PUT은 일반 사용자에게 열려 있으며 서버 세션으로 범위를 결정한다. revision 기반 충돌 검증을 사용하고 자동화 정의·예약·실행 기록을 변경하지 않는다.
+
+ASA158: 개인 자동화 분류 content.enabled는 기본 false이다. 켜기/끄기도 revision 검증과 사용자 범위로 저장한다. 끄면 UI만 평면 목록으로 바뀌며 categories/assignments는 보존한다. 기존 content에 enabled가 없으면 false로 읽는다. DB 구조 변경은 없고 API 재시작이 필요하다.

@@ -534,3 +534,11 @@ ASA156 IN PROGRESS: ASA148~155 변경 범위 검토 후 커밋/푸시. 현재 �
 
 ASA155 DONE: Next head 재조정 시 기본 아이콘 재삽입까지 처리하도록 MutationObserver로 icon href/type을 저장된 로고로 동기화. 값이 다를 때만 변경하고 cleanup 시 observer 해제/기본값 복원. 사용자 화면 및 브랜드 설정 DOM에서 모든 icon 링크가 메뉴 PNG와 동일 확인. 실제 탭 표시 사용자 확인. 로그인 화면 fallback 재검증은 브라우저 CDP timeout으로 미완료.
 ASA156 검증 완료: pytest251 passed87.54s, frontend typecheck/build, backend src ruff 및 mypy47, diff-check 통과. 전체 backend ruff 기존 테스트71건 잔존 재확인. 사용자 데이터 저장/변경 없음. ASA148~155 코드/테스트/문서19파일만 포함, .env/.local/.next/.venv 제외 확인. 삭제0건. 커밋/푸시 진행.
+
+ASA157 DONE: 사용자별 자동화 카테고리 CRUD·검색·필터·카드 DnD/메뉴 구현. workspace+user 분리, 변경 즉시 저장·충돌 검증. pytest253·src ruff·mypy48·typecheck/build 통과. 브라우저 검색/미분류 필터/메뉴/Escape/실행·예약·기록 진입 확인. 실제 포인터 DnD 및 모바일 실기기 미검증. [기록](docs/worklogs/2026-11-02-automation-categories.md)
+
+ASA158 DONE: 자동화 분류 기본 꺼짐, 카테고리로 정리 공통 스위치 및 사용자별 enabled 저장. 끄면 검색/평면 카드만 표시, 분류 보존. 브라우저 켜기→새로고침 유지→끄기(카드9/필터0/메뉴0) 확인. pytest253·src ruff·mypy48·typecheck/build·diff-check 통과. 모바일 미검증.
+
+ASA159 검증 완료: ASA157~158 다크/모바일 검증 및 커밋·푸시. CSS viewport400/320px에서 검색·필터·스위치·메뉴/Escape 동작과 경계 확인, 설정 원복. 캡처 API timeout으로 새 시각 증거 확보 불가.
+
+ASA159 최종 검증: pytest253 passed101.46s, src ruff/mypy48/frontend typecheck/build 통과. 13개 코드·테스트·문서만 커밋, 사용자 자료/생성 자산/비밀값/캐시 제외. 삭제0건. 모바일 DOM 검증 완료·캡처 검증 미완료 명시 후 커밋/푸시.

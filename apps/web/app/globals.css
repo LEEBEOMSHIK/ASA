@@ -1106,3 +1106,13 @@ article.flow-library-card { display:flex; flex-direction:column; gap:0; padding:
 .brand-cancel-icon { width: 44px; height: 44px; min-height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
 .brand-action-hint { display: none; position: absolute; bottom: calc(100% + var(--space-2)); right: 0; width: max-content; padding: var(--space-2) var(--space-3); background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-md); font-size: 12px; pointer-events: none; z-index: 5; }
 .brand-icon-action:hover .brand-action-hint, .brand-icon-action:focus-within .brand-action-hint { display: block; }
+
+.automation-groups .grouped-agent > .flow-library-card { flex: 1; }
+.automation-groups .automation-card-heading { padding-right: 48px; }
+.automation-category-manager { border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-4); background: var(--surface); }
+.automation-category-manager .category-create { margin-top: var(--space-4); }
+
+.automation-category-toggle { display:flex; justify-content:flex-end; }
+.automation-plain-card { display:flex; min-width:0; }
+.automation-plain-card > .flow-library-card { flex:1; }
+.automation-groups .automation-plain-card .automation-card-heading { padding-right:0; }

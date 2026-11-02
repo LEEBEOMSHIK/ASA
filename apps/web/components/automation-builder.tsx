@@ -6,6 +6,7 @@ import { Button, Card, Field, StatusBadge } from "./ui";
 import { GraphIcon } from "./graph-icon";
 import { GraphEditor } from "./automation-graph-editor";
 import { newGraph, convertGraph, type AutomationDraft } from "../lib/automation-graph";
+import { AutomationGroups } from "./automation-groups";
 import { AutomationLauncher } from "./automation-launcher";
 import { useDirtyGuard } from "./registry-shell";
 
@@ -115,12 +116,12 @@ export function AutomationBuilder() {
   if (!current) return <section className="flow-library">
     <div className="flow-library-heading"><div><p className="eyebrow">AUTOMATIONS</p><h1>내 자동화</h1><p className="muted">반복하는 작업을 하나의 흐름으로 만들어 보세요.</p></div><Button onClick={() => open()}>＋ 새 자동화</Button></div>
     {error && <p role="alert" className="field-error">{error}</p>}
-    {list.length ? <div className="flow-library-grid">{list.map(item => <article className="flow-library-card" key={item.id} aria-label={item.draft.name}>
+    {list.length ? <AutomationGroups items={list.map(item=>({id:item.id,name:item.draft.name}))} render={id=>{const item=list.find(value=>value.id===id)!;return <article className="flow-library-card" key={item.id} aria-label={item.draft.name}>
  <header className="automation-card-heading"><span className="flow-library-icon" aria-hidden="true"><GraphIcon kind="workflow"/></span><span className="automation-version">v{item.revision}</span></header>
  <div className="automation-card-copy"><h2><button className="automation-title" onClick={()=>open(item)} title={item.draft.name}>{item.draft.name}</button></h2><p title={item.draft.description||"나만의 작업 흐름"}>{item.draft.description||"나만의 작업 흐름"}</p></div>
  <div className="flow-library-meta"><span><GraphIcon kind="workflow"/>{item.draft.graph?.nodes.length ?? item.draft.steps.length}개 블록</span><button className="automation-edit" onClick={()=>open(item)} aria-label={`${item.draft.name} 편집`}><GraphIcon kind="edit"/>편집</button></div>
  <footer className="automation-card-actions"><Button onClick={()=>setLaunch({item,mode:"run"})} aria-label={`${item.draft.name} 실행`}><GraphIcon kind="start"/>실행</Button><Button variant="secondary" onClick={()=>setLaunch({item,mode:"schedule"})} aria-label={`${item.draft.name} 시간 예약`}><GraphIcon kind="clock"/>예약</Button><Button variant="secondary" onClick={()=>setLaunch({item,mode:"history"})} aria-label={`${item.draft.name} 실행 기록`}><GraphIcon kind="history"/>기록</Button></footer>
- </article>)}</div> : <Card><h2>첫 자동화를 만들어 보세요</h2><p className="muted">예: 대본 작성 → 길이 검사. 필요한 에이전트와 도구를 순서대로 추가하면 됩니다.</p><Button onClick={() => open()}>자동화 만들기</Button></Card>}
+ </article>;}}/> : <Card><h2>첫 자동화를 만들어 보세요</h2><p className="muted">예: 대본 작성 → 길이 검사. 필요한 에이전트와 도구를 순서대로 추가하면 됩니다.</p><Button onClick={() => open()}>자동화 만들기</Button></Card>}
   </section>;
   const panelOpen = tab === "test" || Boolean(step);
   return <div className="flow-editor">

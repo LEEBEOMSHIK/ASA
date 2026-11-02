@@ -4,7 +4,7 @@ import { api, message } from "../lib/registry";
 import { Button } from "./ui";
 
 type Catalog={revision:number;categories:{id:string;name:string}[];assignments:Record<string,string>;can_manage:boolean};
-function CategoryMoveMenu({name,current,groups,disabled,onMove}:{name:string;current:string;groups:{id:string;name:string}[];disabled:boolean;onMove:(id:string)=>void}) {
+export function CategoryMoveMenu({name,current,groups,disabled,onMove}:{name:string;current:string;groups:{id:string;name:string}[];disabled:boolean;onMove:(id:string)=>void}) {
   const [open,setOpen]=useState(false);
   const root=useRef<HTMLDivElement>(null);
   const trigger=useRef<HTMLButtonElement>(null);

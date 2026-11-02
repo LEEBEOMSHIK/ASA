@@ -275,3 +275,11 @@ CREATE TABLE IF NOT EXISTS workspace_branding (
  name text NOT NULL DEFAULT 'AI Shorts Studio',
  logo text
 );
+
+CREATE TABLE IF NOT EXISTS automation_categories (
+ workspace_id uuid NOT NULL REFERENCES registry_workspaces(id),
+ user_id text NOT NULL,
+ revision integer NOT NULL DEFAULT 0,
+ content jsonb NOT NULL DEFAULT '{"categories":[],"assignments":{}}'::jsonb,
+ PRIMARY KEY(workspace_id,user_id)
+);
