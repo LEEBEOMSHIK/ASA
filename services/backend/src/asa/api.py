@@ -53,7 +53,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             length = request.headers.get("content-length", "")
             if not length.isdigit():
                 return JSONResponse({"detail": "content_length_required"}, status_code=411)
-            limit = (7100000 if request.url.path == '/api/v1/characters/library/uploads'
+            limit = (28001000 if request.url.path == '/api/v1/video-references' else
+                     7100000 if request.url.path == '/api/v1/characters/library/uploads'
                      else 65536)
             if int(length) > limit:
                 return JSONResponse({"detail": "payload_too_large"}, status_code=413)

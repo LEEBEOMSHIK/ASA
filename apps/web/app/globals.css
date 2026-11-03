@@ -1146,3 +1146,8 @@ article.flow-library-card { display:flex; flex-direction:column; gap:0; padding:
 .scene-preparation-item { display:flex; flex-direction:column; gap:var(--space-2); padding:var(--space-4); border:1px solid var(--border); border-radius:var(--radius-md); background:var(--surface-subtle); min-width:0; }
 .scene-preparation-item strong { overflow-wrap:anywhere; }
 .scene-preparation-item .helper-text { margin:0; }
+.video-reference-input { display: grid; gap: var(--space-4); min-width: 0; border: 0; padding: 0; margin: 0; }
+.video-dropzone { display: grid; gap: var(--space-3); border: 2px dashed var(--border); border-radius: var(--radius-md); padding: var(--space-6); }
+.video-dropzone.is-over { border-color: var(--primary); }
+.video-reference-card { display: grid; gap: var(--space-4); padding: var(--space-6); border: 1px solid var(--border); border-radius: var(--radius-md); min-width: 0; }
+.video-reference-card-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }

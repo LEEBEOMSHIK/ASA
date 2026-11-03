@@ -52,6 +52,9 @@ export async function api<T>(path: string, method = "GET", body?: unknown, revis
 export function message(error: unknown): string {
   if (!(error instanceof ApiError)) return "서버에 연결할 수 없습니다. 잠시 후 다시 시도하세요.";
   const messages: Record<string, string> = {
+    video_link_invalid: "YouTube·Shorts 또는 Instagram Reels의 HTTPS 링크를 입력하세요.",
+    video_upload_invalid: "MP4·MOV·WebM 영상 파일을 20MB 이하로 올려 주세요.",
+    video_link_unavailable: "영상을 읽지 못했습니다. 공개 링크인지 확인하거나 파일로 올려 주세요.",
     character_upload_invalid: "이미지를 읽을 수 없습니다. PNG·JPG·WebP, 5MB·1600만 화소 이하의 정지 이미지를 선택해 주세요.",
     character_selection_not_ready: "선택한 이미지의 확정 상태가 변경되었거나 사용 안 함 상태입니다. 목록을 새로고침하고 다시 선택해 주세요.",
     character_selection_missing: "선택한 이미지를 사용할 수 없습니다. 보관함에서 다시 선택해 주세요.",

@@ -8,6 +8,7 @@ from asa.config import Settings
 from asa.registry.model_catalog import effective_settings, read_catalog, validate_selection
 from asa.registry.repository import RegistryRepository
 from asa.registry.schemas import AgentDraft
+from asa.registry.video_reference import VideoSource, save_source
 
 
 def registry_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
@@ -23,6 +24,11 @@ def registry_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
         if not value.isdigit() or len(value) > 9 or int(value) < 1:
             raise HTTPException(422, "invalid_revision")
         return int(value)
+
+    @router.post('/video-references', status_code=201)
+    def upload_video(body: VideoSource, repository: RegistryRepository = Depends(repo)
+                     ) -> dict[str, str]:
+        return save_source(repository, body)
 
     @router.get("/model-profiles")
     def profiles(principal: Principal = Depends(sessions.principal)) -> list[dict[str, Any]]:

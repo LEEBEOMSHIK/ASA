@@ -376,6 +376,8 @@ class ScriptRepository(RegistryRepository):
     def finish(
         self, request_id: str, attempt: dict[str, Any], result: Script | AgentAnswer | None
     ) -> None:
+        from asa.registry.video_reference import ERRORS as VIDEO_ERRORS
+        video_error = VIDEO_ERRORS.get(attempt.get('error_code', ''))
         with self._connect() as conn:
             self._request(conn, request_id, True)
             active = conn.execute(
@@ -394,7 +396,8 @@ class ScriptRepository(RegistryRepository):
                     Jsonb(result.value if isinstance(result, AgentAnswer) else result.model_dump())
                     if result
                     else None,
-                    None if result else ("AI 응답 시간 초과 · 결과와 사용량 확인이 필요합니다. "
+                    None if result else video_error or (
+                                         "AI 응답 시간 초과 · 결과와 사용량 확인이 필요합니다. "
                                          "자동 재시도하지 않습니다."
                                          if attempt.get("error_code") == "ai_timeout" else
                                          "AI 결과 확인 필요 · 자동 재시도하지 않습니다."),
@@ -440,7 +443,7 @@ class ScriptRepository(RegistryRepository):
                 "finished_at=now() "
                 "WHERE workspace_id=%s AND request_id=%s AND id=%s",
                 (
-                    "succeeded" if result else "unknown",
+                    "succeeded" if result else "failed" if video_error else "unknown",
                     version,
                     attempt.get("error_code"),
                     self.workspace_id,
@@ -511,6 +514,9 @@ def is_timeout(error: BaseException) -> bool:
 
 def output_error_code(error: BaseException) -> str:
     """Persist safe classifications, never provider exception text or credentials."""
+    from asa.registry.video_reference import ERRORS as VIDEO_ERRORS
+    if isinstance(error, RegistryError) and error.code in VIDEO_ERRORS:
+        return error.code
     if is_timeout(error):
         return "ai_timeout"
     seen: set[int] = set()

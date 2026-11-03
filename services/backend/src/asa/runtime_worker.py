@@ -31,6 +31,11 @@ class State(TypedDict):
 def generate(repo: RunRepository, tool: dict[str, Any], value: Any) -> Any:
     settings = repo.settings
     attachments = image_content(repo, value)
+    from asa.video_analysis import video_content, video_sources
+    if video_sources(value):
+        from asa.registry.review_connection import validate_review_model
+        validate_review_model(settings, {"provider": tool["provider"], "model": tool["model"]})
+    attachments.extend(video_content(repo, value, settings))
     if attachments:
         from asa.registry.review_connection import validate_review_model
         validate_review_model(settings, {"provider": tool["provider"], "model": tool["model"]})

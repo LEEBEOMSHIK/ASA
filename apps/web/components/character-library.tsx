@@ -5,7 +5,7 @@ import { Button, Field, SelectCombobox, StatusBadge } from "./ui";
 import "./character-library.css";
 
 type Character = {id:string;name:string;appearance:string;facts:string;proposed:string;image_prompt:string;image_id?:string;image_version?:number;project_id?:string;source_request_id?:string};
-type ImageCard = {id:string;project_id:string;request_id:string;source_version:number;character_id:string;character:Character;version:number;project_name:string;agent_id:string;agent_name:string;state:string;confirmed:boolean;model:string};
+export type ImageCard = {id:string;project_id:string;request_id:string;source_version:number;character_id:string;character:Character;version:number;project_name:string;agent_id:string;agent_name:string;state:string;confirmed:boolean;model:string};
 type Facet = Pick<ImageCard,"project_id"|"project_name"|"agent_id"|"agent_name">;
 type Listing = {items:ImageCard[];has_more:boolean;facets:Facet[]};
 type Selection = {format:string;characters:Character[]};
@@ -38,7 +38,7 @@ function ImageDetails({item,onClose}:{item:ImageCard;onClose:()=>void}) {
   </Modal>;
 }
 
-function ImageBrowser({selection,onToggle}:{selection?:string[];onToggle?:(item:ImageCard)=>void}) {
+export function ImageBrowser({selection,onToggle,scene=false,onSelectAll,onClearSelection,selectionBusy=false}:{selection?:string[];onToggle?:(item:ImageCard)=>void;scene?:boolean;onSelectAll?:(ids:string[])=>void;onClearSelection?:()=>void;selectionBusy?:boolean}) {
   const [q,setQ]=useState(""); const [state,setState]=useState(selection?"approved":"");
   const [project,setProject]=useState("");const [agent,setAgent]=useState("");
   const [data,setData]=useState<Listing>({items:[],has_more:false,facets:[]});
@@ -47,19 +47,23 @@ function ImageBrowser({selection,onToggle}:{selection?:string[];onToggle?:(item:
   useEffect(()=>{
     let alive=true;setLoading(true);setError("");
     const timer=setTimeout(()=>{const params=new URLSearchParams({q,state,project,agent,offset:String(offset)});
-      api<Listing>(`/characters/library?${params}`).then(result=>{if(alive)setData(result);}).catch(e=>{if(alive)setError(message(e));}).finally(()=>{if(alive)setLoading(false);});},200);
+      api<Listing>(`/characters/${scene?"scene-library":"library"}?${params}`).then(result=>{if(alive)setData(result);}).catch(e=>{if(alive)setError(message(e));}).finally(()=>{if(alive)setLoading(false);});},200);
     return()=>{alive=false;clearTimeout(timer);};
-  },[q,state,project,agent,offset,refresh]);
+  },[q,state,project,agent,offset,refresh,scene]);
   const projects=Array.from(new Map(data.facets.map(f=>[f.project_id,{id:f.project_id,label:f.project_name}])).values());
   const agents=Array.from(new Map(data.facets.filter(f=>f.agent_id).map(f=>[f.agent_id,{id:f.agent_id,label:f.agent_name}])).values());
+  const limit=scene?32:12;
+  const mergedIds=[...new Set([...(selection||[]),...data.items.map(item=>item.id)])];
+  const allShownSelected=data.items.length>0&&data.items.every(item=>selection?.includes(item.id));
   return <div className="image-library-browser">
     <div className="image-library-filters">
-      <div className="image-library-search"><label htmlFor={searchId}>검색</label><input id={searchId} type="search" placeholder="캐릭터·작업·에이전트 이름" maxLength={200} value={q} onChange={e=>{setQ(e.target.value);setOffset(0);}}/></div>
+      <div className="image-library-search"><label htmlFor={searchId}>검색</label><input id={searchId} type="search" placeholder={scene?"씬·작업·에이전트 이름":"캐릭터·작업·에이전트 이름"} maxLength={200} value={q} onChange={e=>{setQ(e.target.value);setOffset(0);}}/></div>
       <SelectCombobox label="작업" value={project} options={[{id:"",label:"모든 작업"},...projects]} onChange={v=>{setProject(v);setOffset(0);}} searchable={false}/>
       <SelectCombobox label="에이전트" value={agent} options={[{id:"",label:"모든 에이전트"},...agents]} onChange={v=>{setAgent(v);setOffset(0);}} searchable={false}/>
       {!selection&&<SelectCombobox label="상태" value={state} options={[{id:"",label:"모든 상태"},...Object.entries(labels).map(([id,label])=>({id,label}))]} onChange={v=>{setState(v);setOffset(0);}} searchable={false}/>}
     </div>
-    <div className="image-library-toolbar"><p className="muted">{selection?"확정 이미지와 사용자가 연결한 업로드 이미지를 선택할 수 있습니다. 최대 12장까지 함께 전달합니다.":"캐릭터별 확정 이미지 또는 최신 이미지를 표시합니다. 이전 버전은 카드를 눌러 확인하세요."}</p><Button variant="secondary" disabled={loading} onClick={()=>setRefresh(v=>v+1)}>새로고침</Button></div>
+    <div className="image-library-toolbar"><p className="muted">{scene?"확정된 씬 이미지를 선택하세요. 장면 번호와 생성 당시 캐릭터 설정이 함께 연결됩니다. 최대 32장입니다.":selection?"확정 이미지와 사용자가 연결한 업로드 이미지를 선택할 수 있습니다. 최대 12장까지 함께 전달합니다.":"캐릭터별 확정 이미지 또는 최신 이미지를 표시합니다. 이전 버전은 카드를 눌러 확인하세요."}</p><Button variant="secondary" disabled={loading} onClick={()=>setRefresh(v=>v+1)}>새로고침</Button></div>
+    {onSelectAll&&selection&&<div className="image-library-toolbar"><div className="button-row"><Button variant="secondary" disabled={loading||selectionBusy||!!error||!data.items.length||allShownSelected||mergedIds.length>limit} onClick={()=>onSelectAll(mergedIds)}>현재 목록 모두 선택</Button><Button variant="secondary" disabled={selectionBusy||!selection.length} onClick={onClearSelection}>전체 선택 해제</Button></div><p className="helper-text" role="status">{mergedIds.length>limit?`최대 ${limit}장까지 선택할 수 있습니다. 검색·필터로 범위를 줄이거나 기존 선택을 해제하세요.`:data.has_more||offset>0?"검색·필터가 적용된 현재 페이지의 이미지를 선택합니다. 다른 페이지의 선택은 유지됩니다.":"검색·필터가 적용된 현재 목록을 모두 선택합니다."}</p></div>}
     {error&&<p role="alert">{error}</p>}
     {loading?<p role="status">이미지를 불러오는 중…</p>:!error&&!data.items.length?<div className="image-library-empty"><strong>표시할 이미지가 없습니다.</strong><p>{selection?"원래 작업에서 이미지를 확정하거나 검색·필터를 변경해 주세요.":"검색·필터를 변경해 보세요. 아직 생성하지 않은 캐릭터는 원래 작업에서 확인할 수 있습니다."}</p></div>:!error&&<div className="image-library-grid">{data.items.map(item=>{
       const selected=selection?.includes(item.id);const stateLabel=!item.request_id?"사용자 업로드":labels[item.state]||item.state;return <button type="button" key={item.id} className="image-library-card" aria-pressed={selection?!!selected:undefined} aria-label={`${item.character.name} · ${stateLabel}${selection?" 선택":" 이미지 확인"}`} onClick={()=>onToggle?onToggle(item):setDetail(item)}>

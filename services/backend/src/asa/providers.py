@@ -59,6 +59,11 @@ def make_agent_generator(
             from asa.tools.character_handoff import image_content
 
             attachments = image_content(reference_repo, contract.get('original_request'))
+            from asa.video_analysis import video_content, video_sources
+            if video_sources(contract.get('original_request')):
+                validate_review_model(settings, {})
+            attachments.extend(video_content(reference_repo, contract.get('original_request'),
+                                             settings))
             if attachments:
                 validate_review_model(settings, {})
         schema = contract['output_schema']

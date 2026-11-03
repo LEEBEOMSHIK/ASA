@@ -60,16 +60,20 @@ WITH images AS (
 
 
 def library(repo: Any, q: str = '', state: str = '', project: str = '',
-            agent: str = '', offset: int = 0) -> dict[str, Any]:
+            agent: str = '', offset: int = 0, kind: str = 'character') -> dict[str, Any]:
+    base = BASE
+    if kind == 'scene':
+        base = BASE.replace("p.kind='character'", "p.kind='scene'").replace(
+            'u.workspace_id=%s', 'u.workspace_id=%s AND false')
     with repo._connect() as conn:
-        rows = conn.execute(BASE + """
+        rows = conn.execute(base + """
  SELECT * FROM representatives WHERE
  (%s='' OR position(lower(%s) in lower(character->>'name'||' '||project_name||' '||agent_name))>0)
  AND (%s='' OR state=%s) AND (%s='' OR project_id=%s) AND (%s='' OR agent_id=%s)
  ORDER BY created_at DESC,id LIMIT 25 OFFSET %s
  """, (repo.workspace_id, repo.workspace_id, q, q, state, state,
        project, project, agent, agent, offset)).fetchall()
-        facets = conn.execute(BASE + "SELECT DISTINCT project_id,project_name,agent_id,agent_name "
+        facets = conn.execute(base + "SELECT DISTINCT project_id,project_name,agent_id,agent_name "
                              "FROM representatives ORDER BY project_name,project_id",
                              (repo.workspace_id, repo.workspace_id)).fetchall()
     return {'items': rows[:24], 'has_more': len(rows) > 24, 'facets': facets}

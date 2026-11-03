@@ -72,7 +72,19 @@ def image_content(repo: Any, value: Any) -> list[dict[str, Any]]:
     def visit(node: Any) -> None:
         if isinstance(node, dict):
             from asa.registry.character_library import SELECTION_FORMAT, selected_handoff
-            if node.get("format") == SELECTION_FORMAT:
+            from asa.registry.scene_selection import FORMAT as SCENE_FORMAT
+            from asa.registry.scene_selection import selected_scenes
+            if node.get("format") == SCENE_FORMAT:
+                try:
+                    ids = [UUID(c["image_id"]) for c in node["scenes"]]
+                except (KeyError, ValueError, TypeError):
+                    raise RegistryError(422, "scene_selection_invalid") from None
+                current = selected_scenes(repo, ids)
+                if node != current:
+                    raise RegistryError(409, "character_handoff_changed")
+                for scene in current["scenes"]:
+                    images[scene["image_id"]] = {**scene, "media_label": "확정 씬"}
+            elif node.get("format") == SELECTION_FORMAT:
                 try:
                     ids = [UUID(c["image_id"]) for c in node["characters"]]
                 except (KeyError, ValueError, TypeError):
@@ -97,7 +109,7 @@ def image_content(repo: Any, value: Any) -> list[dict[str, Any]]:
                 visit(child)
 
     visit(value)
-    if len(images) > 12:
+    if len(images) > (32 if any(c.get("media_label") for c in images.values()) else 12):
         raise RegistryError(422, "character_handoff_image_limit")
     if not images:
         return []
@@ -115,7 +127,8 @@ def image_content(repo: Any, value: Any) -> list[dict[str, Any]]:
             if not row or not row["image"]:
                 raise RegistryError(409, "character_handoff_image_missing")
             content.extend([
-                {"type": "text", "text": f"캐릭터 {char['name']} ({char['id']}) "
+                {"type": "text", "text": f"{char.get('media_label', '캐릭터')} {char['name']} "
+                 f"({char['id']}) "
                  f"기준 이미지 v{char['image_version']} · {char.get('image_change', '')}"},
                 {"type": "image_url", "image_url": {"url": "data:image/png;base64," +
                  base64.b64encode(bytes(row["image"])).decode()}},

@@ -38,7 +38,8 @@ def valid_input(value: Any, schema: dict[str, Any]) -> bool:
             and all(valid_input(v, properties[k]) for k, v in value.items())
         )
     if kind == "array":
-        return (isinstance(value, list) and len(value) <= schema.get("maxItems", 100)
+        return (isinstance(value, list)
+                and schema.get("minItems", 0) <= len(value) <= schema.get("maxItems", 100)
                 and all(valid_input(v, schema["items"]) for v in value))
     if kind == "string":
         return (isinstance(value, str)

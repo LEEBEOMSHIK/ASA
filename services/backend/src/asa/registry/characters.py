@@ -16,6 +16,7 @@ from asa.registry.character_library import ImageSelection
 from asa.registry.character_uploads import UploadReference, save_upload
 from asa.registry.history import HistoryRepository
 from asa.registry.repository import RegistryRepository
+from asa.registry.scene_selection import SceneSelection, selected_scenes
 from asa.registry.schemas import RegistryError
 from asa.registry.sse import snapshot_stream
 from asa.registry.work_progress import character_progress
@@ -469,6 +470,20 @@ def character_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
                 r: CharacterRepository = Depends(repo)) -> dict[str, Any]:
         from asa.registry.character_library import library as load
         return load(r, q, state, project, agent, offset)
+
+    @router.get("/scene-library")
+    def scene_library(q: str = Query(default="", max_length=200),
+                      project: str = Query(default="", max_length=36),
+                      agent: str = Query(default="", max_length=36),
+                      offset: int = Query(default=0, ge=0, le=100000),
+                      r: CharacterRepository = Depends(repo)) -> dict[str, Any]:
+        from asa.registry.character_library import library as load
+        return load(r, q, "approved", project, agent, offset, kind="scene")
+
+    @router.post("/scene-library/selection")
+    def scene_selection(body: SceneSelection,
+                        r: CharacterRepository = Depends(repo)) -> dict[str, Any]:
+        return selected_scenes(r, body.image_ids)
 
     @router.get("/library/{image_id}/versions")
     def image_versions(image_id: UUID,

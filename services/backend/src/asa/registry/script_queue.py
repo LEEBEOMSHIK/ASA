@@ -1,4 +1,5 @@
 """Durable script queue. One active consumer per workspace; uncertain calls never retry."""
+import threading
 import time
 from collections.abc import Callable
 from typing import Any
@@ -162,4 +163,24 @@ class ScriptQueue(ScriptRepository):
                     if pending:
                         publish(pending, force=True)
 
-        return execute_attempt(self, rid, aid, monitored, provider, model)
+        stopped = threading.Event()
+
+        def heartbeat() -> None:
+            # Active calls can include bounded video preparation before LLM streaming.
+            # No periodic queries are added when there is no job.
+            while not stopped.wait(30):
+                try:
+                    with self._connect() as conn:
+                        conn.execute("UPDATE script_worker_status SET seen_at=now() "
+                                     "WHERE workspace_id=%s", (self.workspace_id,))
+                except Exception:
+                    # A failed heartbeat must not trigger a duplicate paid call.
+                    continue
+
+        thread = threading.Thread(target=heartbeat, daemon=True)
+        thread.start()
+        try:
+            return execute_attempt(self, rid, aid, monitored, provider, model)
+        finally:
+            stopped.set()
+            thread.join(timeout=1)

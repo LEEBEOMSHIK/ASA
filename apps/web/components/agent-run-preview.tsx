@@ -1,12 +1,18 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { message, type Definition, type SchemaNode } from "../lib/registry";
+import { api, message, type Definition, type SchemaNode } from "../lib/registry";
+import { pendingVideoUrl, videoLinkLabel } from "../lib/video-link";
+import { isVideoReference } from "./video-input";
 import { AgentIcon, Button, Card, StatusBadge } from "./ui";
 
 import { AgentInput } from "./agent-input";
 
 function entries(schema: SchemaNode): [string, SchemaNode][] {
-  return schema.type === "object" ? Object.entries(schema.properties || {}) : [["value", schema]];
+  if (schema.type !== "object") return [["value", schema]];
+  const properties = schema.properties || {};
+  // JSONB object key order is not presentation order. Required is an ordered array.
+  const keys = [...new Set([...(schema.required || []), ...Object.keys(properties)])];
+  return keys.filter(key => key in properties).map(key => [key, properties[key]]);
 }
 
 export function AgentRunPreview({ definition, onBack, customer = false, initialInput, onSave }: {
@@ -29,6 +35,19 @@ export function AgentRunPreview({ definition, onBack, customer = false, initialI
     event.preventDefault(); setError("");
     if (savingRef.current) return;
     for (const [key, node] of input) {
+      if (isVideoReference(node)) {
+        try {
+          const parsed = JSON.parse(values[key] || "null");
+          const videos = node.type === "array" ? parsed : [parsed];
+          if (!Array.isArray(videos) || !videos.length || videos.length > 4) throw new Error("참고 영상을 1~4개 추가해 주세요.");
+          for (const [i, video] of videos.entries()) {
+            if (video?.format === "asa_video_upload_pending") throw new Error(`참고 영상 ${i+1}: 업로드가 끝난 뒤 분석을 시작해 주세요.`);
+            const url = pendingVideoUrl(JSON.stringify(video));
+            if (url !== null) { if (!videoLinkLabel(url)) throw new Error(`참고 영상 ${i+1}: YouTube·Shorts 또는 Instagram Reels의 HTTPS 링크를 입력하세요.`); }
+            else if (video?.format !== "asa_video_reference_v1" || !video.source_id) throw new Error(`참고 영상 ${i+1}: 파일이나 링크를 추가하거나 빈 항목을 삭제해 주세요.`);
+          }
+        } catch(e) { setError(e instanceof SyntaxError ? "영상 자료를 다시 선택해 주세요." : e instanceof Error ? e.message : "영상 자료를 확인해 주세요."); return; }
+      }
       const required = definition.input_schema.type !== "object" || definition.input_schema.required?.includes(key);
       if (required && (values[key] === undefined || values[key] === "")) { setError(`${node.description || key}: 값을 입력하거나 선택해 주세요.`); return; }
       if (values[key] && node.enum && !node.enum.some(v => String(v) === values[key])) { setError(`${node.description || key}: 선택지에서 골라 주세요.`); return; }
@@ -50,7 +69,21 @@ export function AgentRunPreview({ definition, onBack, customer = false, initialI
         payload[key] = node.type === "string" ? value : ["integer", "number"].includes(node.type) ? Number(value) : JSON.parse(value);
       }
       savingRef.current = true; setSaving(true);
-      try { await onSave(definition.input_schema.type === "object" ? payload : payload.value); }
+      try {
+        for (const [key, node] of input) {
+          if (!isVideoReference(node)) continue;
+          const videos = (node.type === "array" ? payload[key] : [payload[key]]) as Record<string,unknown>[];
+          for (let i = 0; i < videos.length; i++) {
+            const url = pendingVideoUrl(JSON.stringify(videos[i]));
+            if (url === null) continue;
+            const saved = await api<object>("/video-references", "POST", { url: url.trim() });
+            videos[i] = {...saved, ...(videos[i].note ? {note:videos[i].note} : {})};
+            payload[key] = node.type === "array" ? videos : videos[0];
+            setValues(current => ({ ...current, [key]: JSON.stringify(payload[key]) }));
+          }
+        }
+        await onSave(definition.input_schema.type === "object" ? payload : payload.value);
+      }
       catch (e) { setError(message(e)); }
       finally { savingRef.current = false; setSaving(false); }
     } else setChecked(true);
@@ -65,11 +98,11 @@ export function AgentRunPreview({ definition, onBack, customer = false, initialI
         {input.map(([key, node], i) => {
           const required = definition.input_schema.type !== "object" || (definition.input_schema.required || []).includes(key);
           const label = node.description || `입력 항목 ${i + 1}`;
-          return <AgentInput key={key} node={node} id={`run-input-${key}`} label={label} required={required} value={values[key] ?? ""} onChange={v => { setValues({ ...values, [key]: v }); setChecked(false); }} />;
+          return <AgentInput key={key} node={node} id={`run-input-${key}`} label={label} required={required} value={values[key] ?? ""} onChange={v => { setValues(current => ({ ...current, [key]: v })); setChecked(false); setError(""); }} />;
         })}
         {input.length === 0 && <p>입력 없이 실행하도록 설정된 에이전트입니다.</p>}
         {error && <p role="alert" className="field-error">{error}</p>}
-        <div className="actions"><Button type="submit">{saving ? "요청 접수 중…" : onSave ? "답변 생성 실행" : "입력 확인하기"}</Button>{!customer && <Button disabled aria-describedby="run-preview-unavailable">미리보기 · 실제 실행 없음</Button>}</div>
+        <div className="actions"><Button type="submit">{saving ? "요청 접수 중…" : onSave ? input.some(([, node]) => isVideoReference(node)) ? "분석 시작" : "답변 생성 실행" : "입력 확인하기"}</Button>{!customer && <Button disabled aria-describedby="run-preview-unavailable">미리보기 · 실제 실행 없음</Button>}</div>
         <p id="run-preview-unavailable" className="helper-text">{onSave ? "등록된 에이전트 지침과 모델로 실행합니다. 도구를 연결한 에이전트의 실행은 아직 지원하지 않습니다." : "입력 확인은 이 화면에서만 수행합니다. 세부 형식 검증과 실제 AI 실행은 이 미리보기에서 제공하지 않습니다."}</p>
         </fieldset>
       </form>

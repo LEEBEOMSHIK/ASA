@@ -297,3 +297,14 @@ CREATE INDEX IF NOT EXISTS character_upload_workspace ON character_reference_upl
 ALTER TABLE character_projects ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'character';
 ALTER TABLE character_projects ADD COLUMN IF NOT EXISTS context jsonb NOT NULL DEFAULT '{}';
 ALTER TABLE character_image_jobs ADD COLUMN IF NOT EXISTS scene_context jsonb;
+CREATE TABLE IF NOT EXISTS video_references (
+    id uuid PRIMARY KEY,
+    workspace_id uuid NOT NULL,
+    url text,
+    video bytea,
+    filename text NOT NULL,
+    analysis_frames jsonb,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    CHECK ((url IS NULL) <> (video IS NULL))
+);
+CREATE INDEX IF NOT EXISTS video_references_workspace ON video_references(workspace_id);
