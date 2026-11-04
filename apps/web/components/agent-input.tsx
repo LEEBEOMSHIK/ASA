@@ -1,4 +1,5 @@
 import { SceneImageInput, isSceneReference } from "./scene-image-input";
+import { VideoModelInput } from "./video-model-input";
 import { VideoInput, isVideoReference } from "./video-input";
 import type { ReactNode } from "react";
 import { PreviousAnswerInput } from "./previous-answer-input";
@@ -7,6 +8,7 @@ import { Button, Field } from "./ui";
 import { CharacterImageInput, isCharacterReference } from "./character-library";
 
 export function AgentInput({ node, id, label, required, value, onChange }: { node: SchemaNode; id: string; label: string; required: boolean; value: string; onChange: (v: string) => void }) {
+  if (node["x-video-model"]) return <VideoModelInput {...{node,id,label,required,value,onChange}} />;
   if (isVideoReference(node)) return <VideoInput multiple={node.type === "array"} id={id} label={label} required={required} value={value} onChange={onChange}/>;
   if (isSceneReference(node)) return <SceneImageInput id={id} label={label} required={required} value={value} onChange={onChange}/>;
   if (isCharacterReference(node)) return <CharacterImageInput id={id} label={label} required={required} value={value} onChange={onChange}/>;

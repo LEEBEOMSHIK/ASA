@@ -39,14 +39,18 @@ class ScriptQueue(ScriptRepository):
         return self.queue(request_id, body, provider=provider, model=model, automatic=True,
                           queue_limit=config.script_queue_limit)
 
+    def worker_online(self, conn: Any) -> bool:
+        worker = conn.execute(
+            "SELECT seen_at > now() - %s * interval '1 second' AS online "
+            "FROM script_worker_status WHERE workspace_id=%s",
+            (max(90, self.settings.ai_timeout_seconds + 30), self.workspace_id)).fetchone()
+        return bool(worker and worker['online'])
+
     def progress(self, request_id: str) -> dict[str, Any]:
         result = self.get(request_id)
         with self._connect() as conn:
             request = self._request(conn, request_id)
-            worker = conn.execute(
-                "SELECT seen_at > now() - %s * interval '1 second' AS online "
-                "FROM script_worker_status WHERE workspace_id=%s",
-                (max(90, self.settings.ai_timeout_seconds + 30), self.workspace_id)).fetchone()
+            online = self.worker_online(conn)
             active = conn.execute(
                 "SELECT created_at FROM script_attempts WHERE workspace_id=%s AND request_id=%s "
                 "AND automatic AND status IN ('queued','running')",
@@ -56,7 +60,7 @@ class ScriptQueue(ScriptRepository):
                 "AND status IN ('queued','running') AND created_at < %s",
                 (self.workspace_id, active['created_at'])).fetchone() if active else None
         result.update(execution_enabled=self.settings.script_ai_enabled,
-                      worker_online=bool(worker and worker['online']),
+                      worker_online=online,
                       queue_ahead=ahead['n'] if ahead else 0,
                       request_input=request['input'],
                       agent_instructions=request['definition']['instructions'])

@@ -80,7 +80,7 @@ def validate_definition(
             issue("schema_type", path, "지원되는 필드 유형을 선택하세요.")
             return
         form_keys = (
-            {"x-widget", "default", "x-previous-answer", "x-answer-agent"}
+            {"x-widget", "default", "x-previous-answer", "x-answer-agent", "x-video-model"}
             if path.startswith("input_schema") else set()
         )
         for key in node.keys() - (keywords[kind] | {"type", "description"} | form_keys):
@@ -120,6 +120,10 @@ def validate_definition(
                 or (kind in ("number", "integer") and any(not safe_number(v) for v in values))
             ):
                 issue("schema_enum", path, "필드 유형과 일치하는 선택값이 필요합니다.")
+        if "x-video-model" in node and (
+            type(node["x-video-model"]) is not bool or kind != "string"
+        ):
+            issue("input_video_model", path, "영상 모델 선택은 문자열 입력에만 설정합니다.")
         if "x-previous-answer" in node and (
             type(node["x-previous-answer"]) is not bool or kind != "string" or "enum" in node
         ):

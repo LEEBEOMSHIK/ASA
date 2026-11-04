@@ -2,11 +2,11 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
 import psycopg
-from fastapi import FastAPI, Request, Response
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from asa.auth.session import OwnerSessions
+from asa.auth.session import OwnerSessions, Principal
 from asa.config import Settings
 from asa.database import close_database, connection
 from asa.registry.automation_categories import automation_category_router
@@ -21,6 +21,9 @@ from asa.registry.routes import registry_router
 from asa.registry.runtime import runtime_router
 from asa.registry.schemas import RegistryError
 from asa.registry.script_routes import script_router
+from asa.registry.script_queue import ScriptQueue
+from asa.registry.video_planning import video_planning_router
+from asa.registry.video_jobs import video_job_router
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -32,6 +35,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="AI Shorts Studio", version="0.1.0", lifespan=lifespan)
     sessions = OwnerSessions(settings)
+    @app.get("/api/v1/agent-worker/status")
+    def agent_worker_status(principal: Principal = Depends(sessions.principal)) -> dict[str, bool]:
+        queue = ScriptQueue(settings.model_copy(update={"workspace_id": principal.workspace_id}))
+        with queue._connect() as conn:
+            return {"online": queue.worker_online(conn)}
+
     app.include_router(sessions.router())
     app.include_router(registry_router(settings, sessions))
     app.include_router(history_router(settings, sessions))
@@ -44,6 +53,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(category_router(settings, sessions))
     app.include_router(automation_category_router(settings, sessions))
     app.include_router(branding_router(settings, sessions))
+    app.include_router(video_planning_router(settings, sessions))
+    app.include_router(video_job_router(settings, sessions))
 
     @app.middleware("http")
     async def request_limits(

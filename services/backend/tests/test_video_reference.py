@@ -44,7 +44,7 @@ def test_multiple_or_forged_sources_rejected():
     from asa.video_analysis import video_sources
     with pytest.raises(RegistryError, match='video_source_limit'):
         video_sources([{'format':'asa_video_reference_v1','source_id':str(uuid4())}
-                       for _ in range(5)])
+                       for _ in range(6)])
     with pytest.raises(RegistryError, match='video_source_missing'):
         video_sources({'format':'asa_video_reference_v1','source_id':str(uuid4()),'url':'x'})
 

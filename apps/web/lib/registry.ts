@@ -4,6 +4,7 @@ export type SchemaNode = {
   items?: SchemaNode; maxLength?: number; maxItems?: number; minimum?: number; maximum?: number;
   enum?: (string | number | boolean)[]; default?: string | number | boolean;
   "x-previous-answer"?: boolean;
+  "x-video-model"?: boolean;
   "x-answer-agent"?: string;
   "x-widget"?: "text" | "textarea" | "radio" | "select" | "slider" | "number";
 };
@@ -52,6 +53,15 @@ export async function api<T>(path: string, method = "GET", body?: unknown, revis
 export function message(error: unknown): string {
   if (!(error instanceof ApiError)) return "서버에 연결할 수 없습니다. 잠시 후 다시 시도하세요.";
   const messages: Record<string, string> = {
+    video_generation_disabled: "영상 생성 연결이 준비되지 않았습니다. 관리자에게 연결 상태를 확인해 주세요.",
+    video_plan_invalid: "클립의 순서와 시간이 이어지는지 확인하고 계획을 수정해 주세요.",
+    video_model_mismatch: "계획의 영상 모델과 요청에서 선택한 모델이 다릅니다.",
+    video_model_changed: "영상 모델 설정이 바뀌었습니다. 새 설정으로 계획을 작성해 주세요.",
+    video_model_unavailable: "선택한 영상 모델을 사용할 수 없습니다.",
+    video_prompt_limit: "클립의 시작·종료 모습을 포함한 영상 지시 길이를 확인해 주세요.",
+    video_scene_reference_mismatch: "클립의 원본 장면·컷과 선택한 확정 이미지가 일치하지 않습니다.",
+    video_review_changed: "확정할 영상 상태가 바뀌었습니다. 새로고침해 주세요.",
+    video_duration_unsupported: "선택한 영상 모델이 지원하는 길이로 클립을 조정해 주세요.",
     video_link_invalid: "YouTube·Shorts 또는 Instagram Reels의 HTTPS 링크를 입력하세요.",
     video_upload_invalid: "MP4·MOV·WebM 영상 파일을 20MB 이하로 올려 주세요.",
     video_link_unavailable: "영상을 읽지 못했습니다. 공개 링크인지 확인하거나 파일로 올려 주세요.",

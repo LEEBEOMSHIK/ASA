@@ -7,6 +7,19 @@ import { Button, StatusBadge, StudioNavigation } from "./ui";
 import { ThemeSelect } from "./theme-provider";
 import { progressLabel, progressCounts } from "../lib/work-progress";
 
+function RecentWorkStatus({ item }: { item: WorkItem }) {
+  const progress = item.status === "succeeded" ? item.work_progress : undefined;
+  const active = ["queued", "running"].includes(item.status) || progress?.status === "running";
+  const label = item.status === "failed" && item.error_code === "ai_timeout" ? "시간 초과"
+    : progress ? progressLabel(progress) : workStatus(item.status);
+  const tone = item.status === "failed" ? "danger"
+    : progress && ["review", "pending", "attention"].includes(progress.status) ? "warning"
+    : item.status === "succeeded" && (!progress || progress.status === "complete") ? "success" : "neutral";
+  return <StatusBadge tone={tone}><span className="work-state" data-active={active}>
+    {active && <span className="work-state-dot" aria-hidden="true" />}{label}
+  </span></StatusBadge>;
+}
+
 export function CustomerSidebar({ roles, ready, saving, view, activeId, refreshKey, onNew, onHistory }: {
   roles: string[]; ready: boolean; saving: boolean; view: "new" | "history"; activeId?: string; refreshKey: number;
   onNew: () => void; onHistory: (id: string) => void;
@@ -88,8 +101,8 @@ export function CustomerSidebar({ roles, ready, saving, view, activeId, refreshK
       {pollError && <p role="status" className="sidebar-note">{pollError}</p>}
       {items.length > 0 &&
       <ul className="sidebar-work-list">{items.map(item => <li key={item.id}><button disabled={saving} className="sidebar-work" aria-current={view === "history" && activeId === item.id ? "page" : undefined} onClick={() => onHistory(item.id)}>
-        <span className="sidebar-work-name">{item.name}</span>{item.is_test && <StatusBadge>테스트 요청</StatusBadge>}<span className="sidebar-work-meta"><time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time><span className="work-state" data-active={(["queued", "running"].includes(item.status) || item.work_progress?.status === "running")}>{(["queued", "running"].includes(item.status) || item.work_progress?.status === "running") && <span className="work-state-dot" aria-hidden="true" />}{item.error_code === "ai_timeout" && item.status === "failed" ? "시간 초과" : (item.status === "succeeded" && item.work_progress ? progressLabel(item.work_progress) : workStatus(item.status))}</span></span>
-        {item.work_progress && <span className="sidebar-followup"><strong>{item.work_progress.label}</strong><span>{progressCounts(item.work_progress)}</span><span className="sidebar-followup-action">{item.work_progress.status === "complete" ? "결과 확인" : "이어서 작업"} →</span></span>}
+        <span className="sidebar-work-name">{item.name}</span>{item.is_test && <StatusBadge>테스트 요청</StatusBadge>}<span className="sidebar-work-meta"><time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time><RecentWorkStatus item={item}/></span>
+        {item.work_progress && <span className="sidebar-followup"><span className="sidebar-followup-summary"><strong>{item.work_progress.label}</strong><span>{progressCounts(item.work_progress)}</span></span><span className="sidebar-followup-action">{item.work_progress.status === "complete" ? "결과 확인" : "이어서 작업"} →</span></span>}
       </button></li>)}</ul>}
       {loading && <p role="status" className="muted sidebar-note">작업을 더 불러오는 중…</p>}
       {error && <div className="sidebar-note"><p role="alert">{error}</p><Button variant="secondary" onClick={() => void loadMore()}>다시 시도</Button></div>}

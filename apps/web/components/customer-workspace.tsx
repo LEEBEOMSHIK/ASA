@@ -1,5 +1,6 @@
 "use client";
 import { AgentGroups } from "./agent-groups";
+import { AgentWorkerStatus } from "./agent-worker-status";
 import { SidebarToggle, useSidebarCollapse } from "./sidebar-toggle";
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError, message, setCsrf, type Tool, type WorkDetail } from "../lib/registry";
@@ -41,6 +42,15 @@ export function CustomerWorkspace() {
         if (!previous || previous.version < tool.version) latest.set(tool.agent_id, tool);
       }
       setTools([...latest.values()]); setStatus("ready");
+      const url = new URL(window.location.href);
+      const agentId = url.searchParams.get("agent");
+      if (agentId && !url.searchParams.has("request")) {
+        const agent = latest.get(agentId);
+        if (agent?.input_schema) setSelected(agent);
+        else setError("이 에이전트를 작업 공간에서 열 수 없습니다. 아래에서 사용 가능한 에이전트를 선택해 주세요.");
+        url.searchParams.delete("agent");
+        window.history.replaceState(window.history.state, "", url);
+      }
     }).catch(e => {
       if (!active) return;
       if (e instanceof ApiError && e.status === 401) setStatus("login");
@@ -86,6 +96,7 @@ export function CustomerWorkspace() {
     <aside id="customer-navigation" className="customer-sidebar" aria-label="작업 탐색"><SidebarToggle collapsed={sidebar.collapsed} toggle={sidebar.toggle} controls="customer-navigation"/><CustomerSidebar {...sidebarProps} /></aside>
     <dialog id="customer-menu" className="customer-menu-dialog" ref={menuDialog} onClose={() => setMenuOpen(false)} aria-label="작업 메뉴"><div className="sidebar-mobile-close"><Button variant="secondary" onClick={closeMenu}>메뉴 닫기</Button></div>{menuOpen && <CustomerSidebar {...sidebarProps} />}</dialog>
     <div className="customer-content"><header className="customer-topbar"><Button variant="secondary" className="customer-menu-toggle" aria-expanded={menuOpen} aria-controls="customer-menu" onClick={() => { setMenuOpen(true); menuDialog.current?.showModal(); }}>☰ 작업 메뉴</Button><span>{view === "new" ? "새 작업" : "작업 상세"}</span><span className="muted">나만의 AI 작업 공간</span></header>
+    {status === "ready" && <AgentWorkerStatus/>}
     <main id="main" ref={main} tabIndex={-1} className="shell customer-workspace">
       {status === "ready" && view === "history" && historyId ? <WorkHistory key={historyId} initialId={historyId} onDirtyChange={setScriptDirty} onSelect={setHistoryId} onRepeat={work => { setSource(work); setSelected(work.agent); setView("new"); requestRef.current = null; }} /> : selected?.input_schema ? <><p className="muted">{source ? "이전 작업의 지침과 설정을 유지합니다." : "접수할 때 최신 저장 설정을 적용합니다."}</p><AgentRunPreview key={`${selected.id}:${source?.id || "new"}`} customer initialInput={source?.input} onSave={saveRequest} definition={{ icon: selected.icon, name: selected.name, description: selected.description, input_schema: selected.input_schema }} onBack={newRequest} /></> : <>
         <section className="customer-welcome"><p className="eyebrow">LET’S CREATE</p><h1>오늘은 어떤 작업을 맡길까요?</h1><p className="intro">함께할 AI 도우미를 고르고, 필요한 내용을 알려 주세요.</p>
@@ -98,7 +109,7 @@ export function CustomerWorkspace() {
         {status === "error" && <Button variant="secondary" onClick={() => setRetry(value => value + 1)}>다시 불러오기</Button>}
         {status === "ready" && <><div className="section-heading"><div><h2>함께할 에이전트</h2><p className="muted">새 작업은 에이전트의 최신 저장 설정으로 시작합니다.</p></div><StatusBadge>{tools.length}개</StatusBadge></div>
           {tools.length === 0 ? <Card><h3>아직 준비된 에이전트가 없어요.</h3><p>관리자 화면에서 에이전트를 만들고 ‘에이전트 등록’하면 여기에 표시됩니다.</p><a href="/agents">관리자 화면으로 이동 →</a></Card> :
-          <AgentGroups items={tools.map(t=>({id:t.agent_id!,name:t.name}))} render={id=>{const tool=tools.find(t=>t.agent_id===id)!;return <Card key={tool.id} className="customer-agent"><div className="card-heading"><AgentIcon icon={tool.icon}/><StatusBadge>실행 가능</StatusBadge></div><h3>{tool.name}</h3><p className="muted">{tool.description || "필요한 내용을 입력하고 이 에이전트에게 작업을 맡겨 보세요."}</p><Button variant="secondary" disabled={!tool.input_schema?.type} onClick={() => setSelected(tool)} aria-label={`${tool.name} 선택하기`}>이 에이전트 선택 →</Button></Card>;}}/>}
+          <AgentGroups items={tools.map(t=>({id:t.agent_id!,name:t.name}))} render={(id,favorite)=>{const tool=tools.find(t=>t.agent_id===id)!;return <Card key={tool.id} className="customer-agent"><div className="card-heading"><AgentIcon icon={tool.icon}/><div className="agent-card-controls"><StatusBadge>실행 가능</StatusBadge>{favorite}</div></div><h3>{tool.name}</h3><p className="muted">{tool.description || "필요한 내용을 입력하고 이 에이전트에게 작업을 맡겨 보세요."}</p><Button variant="secondary" disabled={!tool.input_schema?.type} onClick={() => setSelected(tool)} aria-label={`${tool.name} 선택하기`}>이 에이전트 선택 →</Button></Card>;}}/>}
           <p className="customer-footnote">저장한 요청은 왼쪽 최근 작업에서 다시 확인할 수 있습니다. 답변 생성은 대기 순서에 따라 실행되며, 결과는 최근 작업에서 확인할 수 있습니다.</p></>}
       </>}
     </main></div>

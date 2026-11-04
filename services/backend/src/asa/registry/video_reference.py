@@ -23,7 +23,7 @@ ERRORS = {
     'video_decoder_unavailable': '영상 처리기가 준비되지 않았습니다. 관리자에게 문의해 주세요.',
     'video_preparation_timeout': '영상 준비 시간이 초과됐습니다. 짧은 영상 파일로 다시 요청하세요.',
     'video_source_missing': '연결한 영상 자료가 없습니다. 영상을 다시 선택해 주세요.',
-    'video_source_limit': '한 번에 최대 4개 영상을 분석할 수 있습니다.',
+    'video_source_limit': '한 번에 최대 5개 영상을 분석할 수 있습니다.',
 }
 
 

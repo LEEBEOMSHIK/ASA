@@ -39,12 +39,13 @@ export function AgentRunPreview({ definition, onBack, customer = false, initialI
         try {
           const parsed = JSON.parse(values[key] || "null");
           const videos = node.type === "array" ? parsed : [parsed];
-          if (!Array.isArray(videos) || !videos.length || videos.length > 4) throw new Error("참고 영상을 1~4개 추가해 주세요.");
+          if (!Array.isArray(videos) || !videos.length || videos.every(v=>!v)) throw new Error("영상 파일 또는 공개 링크를 1개 이상 추가해 주세요.");
+          if (videos.length > 5) throw new Error("영상 파일과 공개 링크는 합쳐서 최대 5개까지 추가할 수 있습니다.");
           for (const [i, video] of videos.entries()) {
             if (video?.format === "asa_video_upload_pending") throw new Error(`참고 영상 ${i+1}: 업로드가 끝난 뒤 분석을 시작해 주세요.`);
             const url = pendingVideoUrl(JSON.stringify(video));
             if (url !== null) { if (!videoLinkLabel(url)) throw new Error(`참고 영상 ${i+1}: YouTube·Shorts 또는 Instagram Reels의 HTTPS 링크를 입력하세요.`); }
-            else if (video?.format !== "asa_video_reference_v1" || !video.source_id) throw new Error(`참고 영상 ${i+1}: 파일이나 링크를 추가하거나 빈 항목을 삭제해 주세요.`);
+            else if (video?.format !== "asa_video_reference_v1" || !video.source_id) throw new Error(`참고 영상 ${i+1}: 영상 파일을 올리거나 링크를 추가해 주세요.`);
           }
         } catch(e) { setError(e instanceof SyntaxError ? "영상 자료를 다시 선택해 주세요." : e instanceof Error ? e.message : "영상 자료를 확인해 주세요."); return; }
       }
@@ -98,7 +99,9 @@ export function AgentRunPreview({ definition, onBack, customer = false, initialI
         {input.map(([key, node], i) => {
           const required = definition.input_schema.type !== "object" || (definition.input_schema.required || []).includes(key);
           const label = node.description || `입력 항목 ${i + 1}`;
-          return <AgentInput key={key} node={node} id={`run-input-${key}`} label={label} required={required} value={values[key] ?? ""} onChange={v => { setValues(current => ({ ...current, [key]: v })); setChecked(false); setError(""); }} />;
+          return <div className="run-field-section" key={key}>
+            <AgentInput node={node} id={`run-input-${key}`} label={label} required={required} value={values[key] ?? ""} onChange={v => { setValues(current => ({ ...current, [key]: v })); setChecked(false); setError(""); }} />
+          </div>;
         })}
         {input.length === 0 && <p>입력 없이 실행하도록 설정된 에이전트입니다.</p>}
         {error && <p role="alert" className="field-error">{error}</p>}

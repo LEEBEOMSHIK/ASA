@@ -7,6 +7,11 @@ CREATE TABLE IF NOT EXISTS registry_agents (
     draft jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(workspace_id,id)
 );
+CREATE TABLE IF NOT EXISTS agent_favorites (
+    workspace_id uuid NOT NULL, user_id text NOT NULL, agent_id uuid NOT NULL,
+    PRIMARY KEY(workspace_id,user_id,agent_id),
+    FOREIGN KEY(workspace_id,agent_id) REFERENCES registry_agents(workspace_id,id) ON DELETE CASCADE
+);
 CREATE TABLE IF NOT EXISTS registry_versions (
     workspace_id uuid NOT NULL, agent_id uuid NOT NULL, version integer NOT NULL,
     source_revision integer NOT NULL, definition jsonb NOT NULL, digest text NOT NULL,
@@ -308,3 +313,47 @@ CREATE TABLE IF NOT EXISTS video_references (
     CHECK ((url IS NULL) <> (video IS NULL))
 );
 CREATE INDEX IF NOT EXISTS video_references_workspace ON video_references(workspace_id);
+
+CREATE TABLE IF NOT EXISTS video_clip_jobs (
+    workspace_id uuid NOT NULL, id uuid NOT NULL, request_id uuid NOT NULL,
+    answer_version integer NOT NULL, clip_id text NOT NULL, model_snapshot jsonb NOT NULL,
+    generation_input jsonb NOT NULL, provider_task uuid, status text NOT NULL
+        CHECK(status IN ('queued','submitting','running','review','approved','failed','unknown')),
+    error_code text, video bytea, created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(), next_poll timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY(workspace_id,id), UNIQUE(workspace_id,request_id,answer_version,clip_id),
+    FOREIGN KEY(workspace_id,request_id,answer_version)
+        REFERENCES script_versions(workspace_id,request_id,version)
+);
+CREATE INDEX IF NOT EXISTS video_clip_pending ON video_clip_jobs(workspace_id,next_poll)
+    WHERE status IN ('queued','running','submitting');
+
+CREATE OR REPLACE FUNCTION asa_video_usage() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.status='submitting' THEN
+        INSERT INTO ai_usage_events(workspace_id,id,run_id,request_id,source,name,revision,
+            step_id,step_name,provider,model,original_request,pricing,requested_at,cost_state)
+        VALUES(NEW.workspace_id,NEW.id,NEW.id::text,NEW.request_id::text,'video','영상 클립 생성',
+            NEW.answer_version,NEW.clip_id,NEW.clip_id,NEW.model_snapshot->>'provider',
+            NEW.model_snapshot->>'model',NEW.generation_input,
+            jsonb_build_object('usd_per_second',NEW.model_snapshot->'usd_per_second'),
+            NEW.created_at,'usage_unknown') ON CONFLICT DO NOTHING;
+    ELSIF NEW.status IN ('review','failed','unknown') THEN
+        UPDATE ai_usage_events SET
+            status=CASE WHEN NEW.status='review' THEN 'succeeded' ELSE 'failed' END,
+            finished_at=now(),duration_ms=(extract(epoch FROM now()-created_at)*1000)::bigint,
+            error_code=NEW.error_code,
+            usage=jsonb_build_object('requested_seconds',NEW.generation_input->'duration_seconds'),
+            estimated_usd=CASE WHEN NEW.status='review' THEN
+                (NEW.model_snapshot->>'usd_per_second')::numeric *
+                (NEW.generation_input->>'duration_seconds')::integer END,
+            cost_state=CASE WHEN NEW.status<>'review' THEN 'usage_unknown'
+                WHEN NEW.model_snapshot->>'usd_per_second' IS NULL THEN 'rate_missing'
+                ELSE 'estimated' END
+        WHERE workspace_id=NEW.workspace_id AND id=NEW.id;
+    END IF;
+    RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS asa_video_usage_trigger ON video_clip_jobs;
+CREATE TRIGGER asa_video_usage_trigger AFTER UPDATE OF status ON video_clip_jobs
+    FOR EACH ROW WHEN (OLD.status IS DISTINCT FROM NEW.status) EXECUTE FUNCTION asa_video_usage();

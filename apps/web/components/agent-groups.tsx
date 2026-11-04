@@ -4,6 +4,9 @@ import { api, message } from "../lib/registry";
 import { Button } from "./ui";
 
 type Catalog={revision:number;categories:{id:string;name:string}[];assignments:Record<string,string>;can_manage:boolean};
+function FavoriteStar({selected}:{selected:boolean}) {
+  return <svg width="18" height="18" viewBox="0 0 24 24" fill={selected?"currentColor":"none"} stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" aria-hidden="true"><path d="m12 3 2.8 5.7 6.3.9-4.6 4.5 1.1 6.3-5.6-3-5.6 3 1.1-6.3L3 9.6l6.2-.9Z"/></svg>;
+}
 export function CategoryMoveMenu({name,current,groups,disabled,onMove}:{name:string;current:string;groups:{id:string;name:string}[];disabled:boolean;onMove:(id:string)=>void}) {
   const [open,setOpen]=useState(false);
   const root=useRef<HTMLDivElement>(null);
@@ -20,7 +23,29 @@ export function CategoryMoveMenu({name,current,groups,disabled,onMove}:{name:str
   </div>;
 }
 
-export function AgentGroups({items,render,manage=false}:{items:{id:string;name:string}[];render:(id:string)=>ReactNode;manage?:boolean}) {
+export function AgentGroups({items,render,manage=false}:{items:{id:string;name:string}[];render:(id:string,favorite:ReactNode)=>ReactNode;manage?:boolean}) {
+  const [favorites,setFavorites]=useState<string[]|null>(null);
+  const [onlyFavorites,setOnlyFavorites]=useState(false);
+  const [savingFavorite,setSavingFavorite]=useState(false);
+  useEffect(()=>{
+    if(manage)return;
+    let active=true;
+    api<string[]>("/agent-categories/favorites").then(ids=>{if(active)setFavorites(ids);})
+      .catch(e=>{if(active)setError(message(e));});
+    return ()=>{active=false;};
+  },[manage]);
+  async function toggleFavorite(id:string) {
+    if(!favorites || savingFavorite)return;
+    const remove=favorites.includes(id);
+    setSavingFavorite(true);setError("");setNotice("");
+    try {
+      await api("/agent-categories/favorites/"+id,remove?"DELETE":"PUT");
+      setFavorites(ids=>remove?(ids??[]).filter(v=>v!==id):[...(ids??[]),id]);
+      const agentName=items.find(item=>item.id===id)?.name ?? "에이전트";
+      setNotice(`${agentName} · 즐겨찾기 ${remove?"해제됨":"추가됨"}`);
+    } catch(e){setError(message(e));}
+    finally{setSavingFavorite(false);}
+  }
   const [catalog,setCatalog]=useState<Catalog|null>(null);
   const [error,setError]=useState("");const [notice,setNotice]=useState("");const [busy,setBusy]=useState(false);
   const [name,setName]=useState("");const [editing,setEditing]=useState("");const [renamed,setRenamed]=useState("");
@@ -49,14 +74,26 @@ export function AgentGroups({items,render,manage=false}:{items:{id:string;name:s
   }
   if(!catalog)return <p role={error?"alert":"status"}>{error || "카테고리를 불러오는 중입니다…"}</p>;
   const groups=[{id:"",name:"미분류"},...catalog.categories];
+  const query=search.trim().toLocaleLowerCase();
+  const filtering=Boolean(query) || onlyFavorites || filter!=="*";
+  const matches=items.filter(a=>a.name.toLocaleLowerCase().includes(query)
+    && (!onlyFavorites || favorites?.includes(a.id))
+    && (filter==="*" || filter===(catalog.assignments[a.id] || "")));
   return <div className="agent-groups">
-    <div className="category-toolbar"><label>에이전트 검색<input value={search} onChange={e=>setSearch(e.target.value)} placeholder="이름으로 검색"/></label><label>카테고리<select value={filter} onChange={e=>setFilter(e.target.value)}><option value="*">전체</option>{groups.filter(g=>admin || g.id).map(g=><option key={g.id} value={g.id}>{g.name}</option>)}</select></label></div>
+    <div className="category-toolbar agent-filter-bar">
+      <label>에이전트 검색<input value={search} onChange={e=>setSearch(e.target.value)} placeholder="이름으로 검색"/></label>
+      <label>카테고리<select value={filter} onChange={e=>setFilter(e.target.value)}><option value="*">전체</option>{groups.filter(g=>admin || g.id).map(g=><option key={g.id} value={g.id}>{g.name}</option>)}</select></label>
+      {!manage && <Button className="favorite-filter" variant="secondary" aria-pressed={onlyFavorites} disabled={!favorites} onClick={()=>setOnlyFavorites(!onlyFavorites)}>
+        <FavoriteStar selected={onlyFavorites}/>즐겨찾기만 보기
+      </Button>}
+    </div>
     {admin && <form className="category-create" onSubmit={e=>{e.preventDefault();if(name.trim())void save({...catalog,categories:[...catalog.categories,{id:crypto.randomUUID(),name:name.trim()}]},"카테고리를 추가했습니다.").then(()=>setName(""));}}><label>새 카테고리<input maxLength={60} value={name} onChange={e=>setName(e.target.value)} placeholder="예: 대본 작성"/></label><Button type="submit" disabled={busy || !name.trim()}>카테고리 추가</Button><p className="muted">카드를 잡아 원하는 그룹에 놓으세요. 카드의 ⋯ 메뉴로도 이동할 수 있습니다. 변경하면 바로 저장됩니다.</p></form>}
     {error && <p role="alert">{error}</p>}<p className="category-notice" role="status">{busy?"분류를 저장하는 중…":notice}</p>
+    {filtering && !matches.length && <p className="category-empty" role="status">{onlyFavorites && !favorites?.length?"즐겨찾기가 없습니다. 에이전트 카드의 별을 눌러 추가하세요.":"조건에 맞는 에이전트가 없습니다."}</p>}
     {groups.filter(g=>filter==="*" || filter===g.id).map(group=>{
       const index=catalog.categories.findIndex(c=>c.id===group.id);
-      const members=items.filter(a=>(catalog.assignments[a.id] || "")===group.id && a.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
-      if(!admin && !group.id && !members.length)return null;
+      const members=matches.filter(a=>(catalog.assignments[a.id] || "")===group.id);
+      if(!members.length && (filtering || (!admin && !group.id)))return null;
       return <section key={group.id} className={`agent-group ${over===group.id?"is-drop-target":""}`} aria-label={!admin && !group.id?"에이전트":group.name}
         onDragOver={e=>{if(admin && drag && !busy && (drag.kind==="agent" || group.id)){e.preventDefault();setOver(group.id);e.dataTransfer.dropEffect="move";}}}
         onDragLeave={e=>{if(!e.currentTarget.contains(e.relatedTarget as Node))setOver(null);}}
@@ -84,7 +121,10 @@ export function AgentGroups({items,render,manage=false}:{items:{id:string;name:s
           onDragEnd={()=>{setDrag(null);setOver(null);suppressClickUntil.current=Date.now()+300;}}
           onClickCapture={e=>{if(Date.now()<suppressClickUntil.current){e.preventDefault();e.stopPropagation();}}}>
           {admin && <CategoryMoveMenu name={a.name} current={group.id} groups={groups} disabled={busy} onMove={target=>moveAgent(a.id,target)}/>}
-          {render(a.id)}
+          {render(a.id,manage?null:<button type="button" className="agent-star" aria-pressed={favorites?.includes(a.id)??false} disabled={!favorites || savingFavorite}
+            title={favorites?.includes(a.id)?"즐겨찾기 해제":"즐겨찾기 추가"} aria-label={a.name+" 즐겨찾기"} onClick={()=>void toggleFavorite(a.id)}>
+            <FavoriteStar selected={favorites?.includes(a.id)??false}/>
+          </button>)}
         </div>)}</div>
         {!members.length && <p className="category-empty">{admin?"이 그룹으로 에이전트를 옮겨 보세요.":"표시할 에이전트가 없습니다."}</p>}
       </section>;

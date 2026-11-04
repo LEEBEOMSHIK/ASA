@@ -79,4 +79,30 @@ def category_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
         return {**save(RegistryRepository(settings.database_url, principal.workspace_id), body),
                 "can_manage": True}
 
+    @router.get("/favorites")
+    def favorites(principal: Principal = Depends(sessions.principal)) -> list[str]:
+        repo = RegistryRepository(settings.database_url, principal.workspace_id)
+        with repo._connect() as conn:
+            rows = conn.execute("SELECT agent_id FROM agent_favorites WHERE workspace_id=%s "
+                                "AND user_id=%s", (repo.workspace_id, principal.user_id)).fetchall()
+        return [str(row["agent_id"]) for row in rows]
+
+    @router.put("/favorites/{agent_id}")
+    def add_favorite(agent_id: UUID, principal: Principal = Depends(sessions.principal)) -> None:
+        repo = RegistryRepository(settings.database_url, principal.workspace_id)
+        with repo._connect() as conn:
+            if not conn.execute("SELECT 1 FROM registry_agents WHERE workspace_id=%s AND id=%s "
+                                "FOR KEY SHARE", (repo.workspace_id, agent_id)).fetchone():
+                raise HTTPException(404, "agent_not_found")
+            conn.execute("INSERT INTO agent_favorites(workspace_id,user_id,agent_id) "
+                         "VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",
+                         (repo.workspace_id, principal.user_id, agent_id))
+
+    @router.delete("/favorites/{agent_id}")
+    def remove_favorite(agent_id: UUID, principal: Principal = Depends(sessions.principal)) -> None:
+        repo = RegistryRepository(settings.database_url, principal.workspace_id)
+        with repo._connect() as conn:
+            conn.execute("DELETE FROM agent_favorites WHERE workspace_id=%s AND user_id=%s "
+                         "AND agent_id=%s", (repo.workspace_id, principal.user_id, agent_id))
+
     return router

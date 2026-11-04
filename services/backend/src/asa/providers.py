@@ -53,6 +53,9 @@ def make_agent_generator(
         raise ValueError("model_not_configured")
     def generate(prompt: str) -> AgentAnswer:
         contract = json.loads(prompt)
+        from asa.registry.video_planning import planner_constraints
+
+        video_constraints = planner_constraints(settings, contract)
         attachments = []
         if reference_repo is not None:
             from asa.registry.review_connection import validate_review_model
@@ -72,7 +75,7 @@ def make_agent_generator(
             settings.ai_model, model_provider=settings.ai_provider,
             api_key=settings.key_for(settings.ai_provider).get_secret_value(),
             timeout=settings.ai_timeout_seconds, max_retries=0,
-            max_tokens=(settings.scene_plan_output_tokens if scene_plan
+            max_tokens=(settings.scene_plan_output_tokens if scene_plan or video_constraints
                         else settings.script_output_tokens),
         )
         envelope = {"title": "AgentAnswer", "type": "object",
@@ -96,6 +99,8 @@ def make_agent_generator(
             ("system", contract['agent_instructions']),
             human,
         ]
+        if video_constraints:
+            messages.insert(1, ("system", video_constraints))
         if scene_plan:
             messages.insert(1, ("system",
                 "이 실행은 씬 분석 단계입니다. 완성된 shots는 씬별 이미지 생성·검수·수정·확정 "

@@ -89,7 +89,13 @@ export function AgentEditor({ id }: { id?: string }) {
     <a className="back-link" href="/agents">← 나의 에이전트</a>
     <div className="page-heading"><div><p className="eyebrow">AGENT WORKSPACE</p><h1>{id ? draft.name || "에이전트 편집" : "어떤 일을 맡겨볼까요?"}</h1>
       <p className="muted">에이전트는 반복할 일을 맡아주는 AI 도우미예요. 역할과 필요한 정보를 정해 주세요.</p></div>
-      <StatusBadge tone={dirty ? "warning" : "neutral"}>{dirty ? "저장 전 변경 있음" : id ? "저장된 설정" : "새 에이전트"}</StatusBadge></div>
+      <div className="agent-editor-heading-actions">
+        <StatusBadge tone={dirty ? "warning" : "neutral"}>{dirty ? "저장 전 변경 있음" : id ? "저장된 설정" : "새 에이전트"}</StatusBadge>
+        {id && <a className="button button--secondary" href={`/?agent=${encodeURIComponent(id)}`}
+          target={dirty ? "_blank" : undefined} rel={dirty ? "noopener" : undefined}>
+          {dirty ? "저장된 설정으로 작업 공간 열기 (새 탭)" : "작업 공간에서 열기 →"}
+        </a>}
+      </div></div>
     <form className="agent-editor-form" onInvalidCapture={e => {
       if (e.target instanceof HTMLElement) {
         let parent = e.target.parentElement;

@@ -5,6 +5,8 @@ from uuid import UUID
 from pydantic import BaseModel, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from asa.video_contracts import VideoModelProfile
+
 
 class PriceRates(BaseModel):
     input: Decimal = Field(ge=0, allow_inf_nan=False)
@@ -45,6 +47,17 @@ class Settings(BaseSettings):
     scene_plan_output_tokens: int = Field(default=24576, ge=8192, le=32768)
     script_queue_limit: int = Field(default=100, ge=1, le=1000)
     automation_ai_enabled: bool = False
+    video_model_profiles: dict[str, VideoModelProfile] = Field(default_factory=lambda: {
+        "runway-gen45": VideoModelProfile(
+            provider="runway", model="gen4.5", label="Runway Gen-4.5", revision="1",
+            enabled=True, durations=[5, 10], aspect_ratios=["9:16", "16:9"],
+            resolution="720p", max_prompt_chars=1000, usd_per_second=0.12,
+            documentation_url="https://docs.dev.runwayml.com/guides/using-the-api/",
+            verified_on="2026-11-04",
+        )
+    })
+    runway_api_key: SecretStr = SecretStr("")
+    video_ai_enabled: bool = False
     image_ai_enabled: bool = False
     image_models: list[str] = ['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare']
     image_timeout_seconds: float = Field(default=240, ge=30, le=600)

@@ -14,8 +14,8 @@ export function AgentList({manage=false}:{manage?:boolean}) {
     {!manage && <div className="workspace-intro"><div><span className="eyebrow">작게 시작해 보세요</span><h2>첫 도우미, 어렵게 만들 필요 없어요.</h2><p className="muted">역할 예시를 고르고 맡길 일을 다듬으면 됩니다. 복잡한 설정은 나중에 바꿔도 좋아요.</p></div><a href="/agents/new">예시에서 시작하기 →</a></div>}
     {error ? <p role="alert">{error}</p> : agents === null ? <p role="status">목록을 불러오는 중입니다…</p> : agents.length === 0 ?
       <Card><h2>첫 에이전트를 만들어 보세요.</h2><p>대본 작가, 기획자, 검수자처럼 나만의 역할을 설정할 수 있습니다.</p></Card> :
-      <AgentGroups manage={manage} items={agents.map(a=>({id:a.id,name:a.draft.name}))} render={id=>{const agent=agents.find(a=>a.id===id)!;return <Card key={agent.id} className="agent-catalog-card">
-        <div className="card-heading"><AgentIcon icon={agent.draft.icon}/></div><h2><a href={`/agents/${agent.id}`}>{agent.draft.name}</a></h2>
+      <AgentGroups manage={manage} items={agents.map(a=>({id:a.id,name:a.draft.name}))} render={(id,favorite)=>{const agent=agents.find(a=>a.id===id)!;return <Card key={agent.id} className="agent-catalog-card">
+        <div className="card-heading"><AgentIcon icon={agent.draft.icon}/>{favorite}</div><h2><a href={`/agents/${agent.id}`}>{agent.draft.name}</a></h2>
         <p className="muted">{agent.draft.description || "소개를 추가해 이 도우미의 역할을 알려 주세요."}</p><div className="catalog-footer"><span className="muted">호출 도구 {agent.draft.tools.filter(ref => !ref.startsWith("agent:")).length}개 · 연결 에이전트 {connectedAgentCount(agent)}개</span><a href={`/agents/${agent.id}`}>설정 편집 →</a></div>
       </Card>;}}/>}</>;
 }

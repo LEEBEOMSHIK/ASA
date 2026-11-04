@@ -64,12 +64,12 @@ def prepare(repo: Any, source_id: str, settings: Settings) -> dict[str, Any]:
             else:
                 url = canonical_url(source['url'])
                 result = run([
-                    sys.executable, '-m', 'yt_dlp', '--ignore-config', '--no-plugins',
+                    sys.executable, '-m', 'yt_dlp', '--ignore-config', '--no-plugin-dirs',
                     '--no-playlist', '--quiet', '--no-warnings', '--no-progress',
                     '--use-extractors', 'youtube,instagram', '--socket-timeout', '15',
                     '--retries', '0', '--fragment-retries', '0', '--max-filesize',
                     str(MAX_BYTES), '--match-filters', 'duration <= 300 & !is_live',
-                    '-f', 'best[height<=720][ext=mp4]/best[height<=720]',
+                    '-f', 'bv*[height<=720][ext=mp4]/bv*[height<=720]',
                     '-o', str(folder / 'download.%(ext)s'), '--', url], 180)
                 candidates = [p for p in folder.glob('download.*')
                               if p.suffix in ('.mp4', '.webm', '.mkv')]
@@ -110,7 +110,7 @@ def video_sources(value: Any) -> list[str]:
             for child in node:
                 visit(child)
     visit(value)
-    if len(sources) > 4:
+    if len(sources) > 5:
         raise RegistryError(422, 'video_source_limit')
     return sources
 
