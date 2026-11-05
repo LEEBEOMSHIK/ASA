@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { api, ApiError, message, setCsrf } from "../lib/registry";
 import { Button, Card, Field, StatusBadge } from "./ui";
 import { ThemeSelect } from "./theme-provider";
+import { StudioBrand } from "./studio-brand";
 
 function destination() {
   const next = new URLSearchParams(window.location.search).get("next") || "";
@@ -40,7 +41,7 @@ export function AdminLogin() {
   }
   return <>
     <a className="skip-link" href="#main">본문으로 건너뛰기</a>
-    <header className="header"><a className="brand" href="/">AI Shorts Studio</a><div className="badge-row"><ThemeSelect /><StatusBadge>관리자</StatusBadge></div></header>
+    <header className="header login-header"><StudioBrand publicView placement="header"/><div className="badge-row"><ThemeSelect /><StatusBadge>관리자</StatusBadge></div></header>
     <main id="main" className="shell"><div className="login-panel"><Card>
       <p className="eyebrow">ADMIN WORKSPACE</p><h1 className="login-title">관리자 로그인</h1>
       <p className="muted">에이전트와 도구를 관리하는 나만의 작업 공간입니다.</p>

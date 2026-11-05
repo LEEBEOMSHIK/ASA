@@ -5,7 +5,7 @@ import struct
 import zlib
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from asa.auth.session import OwnerSessions, Principal
@@ -91,8 +91,22 @@ def save(repo: RegistryRepository, body: Branding) -> dict[str, Any]:
         return {**body.model_dump(), "revision": body.revision + 1}
 
 
+class PublicBranding(BaseModel):
+    name: str
+    logo: str | None
+
+
 def branding_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
     router = APIRouter(prefix="/api/v1/branding")
+
+    @router.get("/public", response_model=PublicBranding)
+    def public(response: Response) -> dict[str, Any]:
+        # The login page belongs to this deployment's workspace. Never accept a
+        # caller-supplied workspace or expose the authenticated settings payload.
+        response.headers["Cache-Control"] = "no-store"
+        if not settings.database_url:
+            raise HTTPException(503, "registry_unconfigured")
+        return read(RegistryRepository(settings.database_url, settings.workspace_id))
 
     @router.get("")
     def get(principal: Principal = Depends(sessions.principal)) -> dict[str, Any]:

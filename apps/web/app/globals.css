@@ -81,6 +81,10 @@ a { color: var(--primary); text-decoration: none; }
 .brand-mark { display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--radius-md); background: var(--primary); color: var(--on-primary); }
 .brand-mark img { width:100%; height:100%; object-fit:contain; border-radius:inherit; }
 .brand-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.header-brand { min-width:0; max-width:100%; }
+.header-brand .brand-mark { flex-shrink:0; width:var(--space-8); height:var(--space-8); }
+.login-header { flex-wrap:wrap; }
+.login-header > .badge-row { flex-shrink:0; }
 .brand-settings { display:grid; gap:var(--space-6); width:100%; min-width:0; }
 .brand-dropzone { display:grid; gap:var(--space-3); border:2px dashed var(--border); border-radius:var(--radius-md); padding:var(--space-6); background:var(--surface); }
 .brand-dropzone.is-over { border-color:var(--primary); background:var(--accent-soft); }

@@ -2495,6 +2495,35 @@ def test_branding_save_conflict_isolation_and_csrf(client, db):
     assert read(RegistryRepository(db[0], other)) == original
 
 
+def test_login_branding_public_read_is_scoped_and_tracks_saved_changes(client, db):
+    from asa.registry.branding import Branding, save
+
+    public_url = "/api/v1/branding/public"
+    response = client.get(public_url)
+    assert response.status_code == 200
+    assert response.json() == {"name": "AI Shorts Studio", "logo": None}
+    assert response.headers["cache-control"] == "no-store"
+
+    other = uuid4()
+    migrate(db[0], other)
+    save(RegistryRepository(db[0], other), Branding(revision=0, name="Other workspace"))
+    assert client.get(public_url, params={"workspace_id": str(other)}).json() == {
+        "name": "AI Shorts Studio", "logo": None,
+    }
+    logo = ("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0k"
+            "AAAAEUlEQVR4nGNocPj/H4QZYAwAXlIK+eiZmxgAAAAASUVORK5CYII=")
+    headers = login(client)
+    saved = client.put("/api/v1/branding", headers=headers, json={
+        "revision": 0, "name": "Saved studio", "logo": logo,
+    })
+    assert saved.status_code == 200
+    client.cookies.clear()
+    assert client.get(public_url).json() == {"name": "Saved studio", "logo": logo}
+    assert client.get("/api/v1/branding").status_code == 401
+    assert client.put("/api/v1/branding", json=saved.json()).status_code == 401
+    assert client.put(public_url, json=saved.json()).status_code == 405
+
+
 def test_branding_member_read_only(db, monkeypatch):
     from asa.auth.session import OwnerSessions, Principal
 
