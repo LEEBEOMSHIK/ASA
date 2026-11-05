@@ -98,8 +98,25 @@ def test_partial_failure_is_reported_and_all_failure_blocks_ai(monkeypatch):
     content = video_analysis.video_content(None, sources, None)
     assert '참고 영상 1: 분석 실패' in content[0]['text']
     assert sum(c['type'] == 'image_url' for c in content) == 1
-    with pytest.raises(RegistryError, match='video_all_unavailable'):
+    with pytest.raises(RegistryError, match='video_link_unavailable'):
         video_analysis.video_content(None, sources[:1], None)
+
+
+def test_overlength_public_video_reports_length_before_ai(monkeypatch):
+    from asa import video_analysis
+
+    monkeypatch.setattr(video_analysis, 'read_source', lambda *args: {
+        'analysis_frames': None, 'video': None, 'url': 'https://youtu.be/abcdefghijk'})
+
+    def filtered(args, timeout):
+        assert 'pre_process:asa-duration=%(duration)s' in args
+        assert '--no-simulate' in args
+        return SimpleNamespace(returncode=0, stdout=b'asa-duration=925\n')
+
+    monkeypatch.setattr(video_analysis, 'run', filtered)
+    source = {'format': 'asa_video_reference_v1', 'source_id': str(uuid4())}
+    with pytest.raises(RegistryError, match='video_duration_limit'):
+        video_analysis.video_content(None, source, SimpleNamespace(ffmpeg_path='ffmpeg-test'))
 
 
 def test_multi_video_schema_rejects_empty_and_unfinished_sources():

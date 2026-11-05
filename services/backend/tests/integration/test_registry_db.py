@@ -78,7 +78,16 @@ def test_character_images_queue_edit_approval_and_isolation(db, monkeypatch):
     with pytest.raises(RegistryError, match='image_approval_changed'):
         repo.approve(edit.id, None, 2)
     repo.approve(edit.id, body.id, 2)
+    assert repo.project(project)['approved']['hana'] == str(body.id)
+    assert set(repo.project(project)['approved_versions']['hana']) == {
+        str(body.id), str(edit.id),
+    }
+    repo.approve(edit.id, body.id, 2, make_default=True)
     assert repo.project(project)['approved']['hana'] == str(edit.id)
+    repo.approve(body.id, edit.id, 2, make_default=True)
+    restored = repo.project(project)
+    assert restored['approved']['hana'] == str(body.id)
+    assert [j['id'] for j in restored['jobs']] == [str(edit.id), str(body.id)]
     with repo._connect() as conn:
         usage = conn.execute('SELECT * FROM ai_usage_events WHERE workspace_id=%s',
                              (workspace,)).fetchall()
@@ -1734,6 +1743,29 @@ def test_script_queue_api_usage_failure_and_model_snapshot(client, db):
         assert api_client.get(url).json()['versions'][0]['title'] == 'Test result'
         assert api_client.post(url + '/start', headers=auth, json={}).status_code == 201
         assert not queue.tick(response)
+        # Delete the request completed above through the same admin API used by the UI.
+        management = "/api/v1/admin/work-history"
+        target = f"{management}/{work['id']}"
+        plan = api_client.get(target + "/preview").json()
+        assert plan["summary"]["answers"] == 1 and not plan["blockers"]
+        removed = api_client.post(target + "/delete", headers=auth, json={"token": plan["token"]})
+        assert removed.is_success and removed.json() == plan["summary"]
+        assert api_client.get(f"/api/v1/work-requests/{work['id']}").status_code == 404
+        remaining = api_client.get('/api/v1/work-requests').json()['items']
+        assert all(i['id'] != work['id'] for i in remaining)
+        audit = api_client.get(management, params={"deleted": True}).json()["items"]
+        assert len(audit) == 1 and audit[0]["request_id"] == work["id"]
+        assert audit[0]["actor"] == "local-owner" and audit[0]["summary"] == plan["summary"]
+        with queue._connect() as conn:
+            retained = conn.execute(
+                "SELECT usage,estimated_usd,original_request,messages,response "
+                "FROM ai_usage_events "
+                "WHERE workspace_id=%s AND request_id=%s", (db[1], work["id"]),
+            ).fetchone()
+        assert retained["usage"] == event["usage"]
+        assert retained["estimated_usd"] == event["estimated_usd"]
+        assert all(retained[key] is None for key in ("original_request", "messages", "response"))
+
     history = HistoryRepository(db[0], db[1])
     ids = [uuid4(), uuid4()]
     for rid in ids:
@@ -2795,19 +2827,31 @@ def test_image_library_and_selected_handoff(client, db, monkeypatch):
     with pytest.raises(RegistryError):
         image_content(CharacterRepository(dsn, uuid4()), selection)
     second = uuid4()
-    repo.enqueue(pid, ImageRequest(id=second, character=char, model='gpt-image-2.5-sunburst',
+    repo.enqueue(pid, ImageRequest(id=second, character=char.model_copy(update={'appearance': '파란 우비'}), model='gpt-image-2.5-sunburst',
                                   base_id=first, change='변경'), config)
-    with pytest.raises(RegistryError):
-        image_content(repo, selection)
+    assert image_content(repo, selection)[1]['image_url']['url'].endswith('Zmlyc3Q=')
     with repo._connect() as conn:
         conn.execute("UPDATE character_image_jobs SET status='succeeded',image=%s "
                      'WHERE workspace_id=%s AND id=%s', (b'second', workspace, second))
     versions = client.get(f'/api/v1/characters/library/{first}/versions').json()
     assert len(versions) == 2
     repo.approve(second, first, 2)
+    assert client.get('/api/v1/characters/library').json()['items'][0]['id'] == str(first)
+    confirmed = client.get('/api/v1/characters/library?confirmed_versions=true').json()['items']
+    assert {item['id'] for item in confirmed} == {str(first), str(second)}
+    assert sum(item['is_default'] for item in confirmed) == 1
+    old = client.post('/api/v1/characters/library/selection', headers=headers,
+                      json={'image_ids': [str(first)]})
+    assert old.status_code == 200 and old.json()['characters'][0]['appearance'] == '노란 우비'
+    new = client.post('/api/v1/characters/library/selection', headers=headers,
+                      json={'image_ids': [str(second)]})
+    assert new.status_code == 200 and new.json()['characters'][0]['appearance'] == '파란 우비'
+    assert client.post('/api/v1/characters/library/selection', headers=headers,
+                       json={'image_ids': [str(first), str(second)]}).status_code == 422
+    repo.approve(second, first, 2, make_default=True)
     assert client.get('/api/v1/characters/library').json()['items'][0]['id'] == str(second)
     assert client.post('/api/v1/characters/library/selection', headers=headers,
-                       json={'image_ids': [str(first)]}).status_code == 409
+                       json={'image_ids': [str(first)]}).status_code == 200
     repo.set_scope(pid, 'hana', ItemScope(excluded=True, expected=False))
     assert client.get('/api/v1/characters/library?state=excluded').json()['items'][0]['id'] == str(second)
     assert client.post('/api/v1/characters/library/selection', headers=headers,
@@ -2821,7 +2865,7 @@ def test_scene_images_queue_references_batch_edit_approval_and_usage(db, monkeyp
     from psycopg.types.json import Jsonb
     from asa.registry.characters import Character, CharacterRepository, ImageRequest
     from asa.registry.scene_images import ScenePlan, items, readiness
-    from asa.registry.character_library import selected_handoff, library
+    from asa.registry.character_library import selected_handoff, library, versions
     from asa.registry.schemas import RegistryError
     from asa.image_worker import tick
     repo = CharacterRepository(*db)
@@ -2866,12 +2910,18 @@ def test_scene_images_queue_references_batch_edit_approval_and_usage(db, monkeyp
     assert calls[0][1]==[b'reference']
     assert calls[0][2]['size']=='1024x1536'
     assert '대본 전체 원문' in calls[0][0] and '장면 원문' in calls[0][0]
+    review = library(repo, state="review", kind="scene")["items"]
+    assert [i["id"] for i in review] == [str(bodies[0].id)]
+    assert not library(repo, state="approved", kind="scene")["items"]
     repo.approve(bodies[0].id,None,1)
     edit=bodies[0].model_copy(update={'id':uuid4(),'base_id':bodies[0].id,'change':'창문만 크게'})
     repo.enqueue(project,edit,settings)
     assert tick(settings)
     assert calls[1][1]==[b'generated-scene',b'reference']
     assert '창문만 크게' in calls[1][0]
+    assert library(repo, kind="scene")["items"][0]["id"] == str(edit.id)
+    assert [v["version"] for v in versions(repo, edit.id, "scene")] == [2, 1]
+    assert not versions(repo, edit.id)
     repo.approve(edit.id,bodies[0].id,2)
     state=repo.project(project)
     assert state['kind']=='scene' and state['approved']['scene_1']==str(edit.id)
@@ -2894,3 +2944,142 @@ def test_scene_images_queue_references_batch_edit_approval_and_usage(db, monkeyp
         repo.enqueue(project,bodies[0].model_copy(update={'id':uuid4()}),settings)
     with pytest.raises(RegistryError):
         CharacterRepository(db[0],uuid4()).project(project)
+
+@pytest.mark.parametrize("delete_assets", [False, True])
+def test_admin_work_deletion_and_personal_visibility(client, db, delete_assets, monkeypatch):
+    from psycopg.types.json import Jsonb
+
+    from asa.auth.session import OwnerSessions, Principal
+
+    headers = login(client)
+    agent = client.post("/api/v1/agents", json=definition(), headers=headers).json()
+    client.post(f'/api/v1/agents/{agent["id"]}/publish',
+                headers={**headers, "If-Match": '"1"'})
+    rid, project, image, video = (uuid4() for _ in range(4))
+    work = "/api/v1/work-requests"
+    root = "/api/v1/admin/work-history"
+    endpoint = f"{root}/{rid}"
+    body = {"id": str(rid), "agent_id": agent["id"], "version": 1, "input": {"topic": "test"}}
+    assert client.post(work, json=body, headers=headers).status_code == 201
+    assert client.put(f"{work}/{rid}/visibility?hidden=true", headers=headers).is_success
+    assert not client.get(work).json()["items"]
+    assert client.get(work+"?hidden=true").json()["items"][0]["id"] == str(rid)
+    with monkeypatch.context() as patch:
+        member_principal = Principal("member", db[1], ("member",))
+        patch.setattr(OwnerSessions, "principal", lambda self: member_principal)
+        with TestClient(create_app(Settings(_env_file=None, database_url=db[0]))) as member:
+            assert member.get(root).status_code == 403
+            assert member.post(endpoint+"/delete", json={"token": "a"*64}).status_code == 403
+            assert member.get(work).json()["items"][0]["id"] == str(rid)
+    assert client.put(f"{work}/{rid}/visibility?hidden=false", headers=headers).is_success
+    assert client.get(work).json()["items"][0]["id"] == str(rid)
+    args = (db[1], rid)
+    with psycopg.connect(db[0]) as conn:
+        conn.execute("INSERT INTO script_stages(workspace_id,request_id) VALUES(%s,%s)", args)
+        conn.execute("INSERT INTO script_versions(workspace_id,request_id,version,operation_id,"
+                     "title,narration,source) VALUES(%s,%s,1,%s,'title','content','manual')",
+                     (*args, uuid4()))
+        conn.execute("INSERT INTO character_projects(workspace_id,id,request_id,name,characters) "
+                     "VALUES(%s,%s,%s,'project','[]')", (db[1], project, rid))
+        conn.execute("INSERT INTO character_image_jobs(workspace_id,id,project_id,character_id,"
+                     "version,model,character,change,status,image) VALUES(%s,%s,%s,'a',1,'m',"
+                     "'{\"name\":\"a\"}','','succeeded',%s)", (db[1], image, project, b"image"))
+        conn.execute("INSERT INTO video_clip_jobs(workspace_id,id,request_id,answer_version,"
+                     "clip_id,model_snapshot,generation_input,status,video) VALUES("
+                     "%s,%s,%s,1,'clip',"
+                     "'{}','{}','review',%s)", (db[1], video, rid, b"video"))
+    preview_url = endpoint+"/preview?delete_assets="+str(delete_assets).lower()
+    plan = client.get(preview_url).json()
+    assert plan["summary"] == dict(requests=1, answers=1, images=1, videos=1,
+                                   delete_assets=delete_assets)
+    assert not plan["blockers"]
+    command = {"delete_assets": delete_assets, "token": plan["token"]}
+    with psycopg.connect(db[0]) as conn:
+        conn.execute("UPDATE customer_requests SET status='queued' WHERE workspace_id=%s AND id=%s",
+                     args)
+    assert client.post(endpoint+"/delete", json=command, headers=headers).status_code == 409
+    assert not client.get(root+"?deleted=true").json()["items"]
+    with psycopg.connect(db[0]) as conn:
+        conn.execute("UPDATE customer_requests SET status='succeeded' WHERE workspace_id=%s "
+                     "AND id=%s", args)
+        other = uuid4()
+        conn.execute("INSERT INTO customer_requests(workspace_id,id,agent_id,version,input) "
+                     "VALUES (%s,%s,%s,1,%s)", (db[1], other, agent["id"],
+                                                 Jsonb({"asset": str(image)})))
+    assert client.get(endpoint+"/preview?delete_assets=true").json()["blockers"]
+    assert not client.get(endpoint+"/preview").json()["blockers"]
+    with psycopg.connect(db[0]) as conn:
+        conn.execute("DELETE FROM customer_requests WHERE workspace_id=%s AND id=%s",
+                     (db[1], other))
+    command["token"] = client.get(preview_url).json()["token"]
+    with psycopg.connect(db[0]) as conn:
+        conn.execute("INSERT INTO ai_usage_events(workspace_id,id,run_id,request_id,source,"
+                     "name,step_id,step_name,provider,model,status,original_request,estimated_usd) "
+                     "VALUES(%s,%s,'run',%s,'script','agent','step','answer','fake','test','ok',"
+                     "'{}',1)", (db[1], uuid4(), str(rid)))
+        conn.execute("CREATE FUNCTION refuse_test_delete() RETURNS trigger LANGUAGE plpgsql AS $$ "
+                     "BEGIN RAISE EXCEPTION 'test' USING ERRCODE='23503'; END $$")
+        conn.execute("CREATE TRIGGER refuse_test_delete BEFORE DELETE ON customer_requests "
+                     "FOR EACH ROW EXECUTE FUNCTION refuse_test_delete()")
+    assert client.post(endpoint+"/delete", json=command, headers=headers).status_code == 409
+    assert client.get(f"{work}/{rid}").is_success
+    assert not client.get(root+"?deleted=true").json()["items"]
+    assert client.get(preview_url).json()["summary"] == plan["summary"]
+    with psycopg.connect(db[0]) as conn:
+        conn.execute("DROP TRIGGER refuse_test_delete ON customer_requests")
+    assert client.post(endpoint+"/delete", json=command, headers=headers).json() == plan["summary"]
+    assert client.post(endpoint+"/delete", json=command, headers=headers).json() == plan["summary"]
+    assert len(client.get(root+"?deleted=true").json()["items"]) == 1
+    assert client.get(f"{work}/{rid}").status_code == 404
+    assert client.post(work, json=body, headers=headers).status_code == 410
+    log = client.get(root+"?deleted=true").json()["items"][0]
+    assert log["actor"] == "local-owner" and log["summary"] == plan["summary"]
+    assert len(log["videos"]) == (0 if delete_assets else 1)
+    cards = client.get("/api/v1/characters/library").json()["items"]
+    assert not cards if delete_assets else cards[0]["source_deleted"]
+    assert client.get(f"/api/v1/video-clips/asset/{video}/video").status_code == (
+        404 if delete_assets else 200)
+    with psycopg.connect(db[0]) as conn:
+        cost, payload = conn.execute("SELECT estimated_usd,original_request FROM ai_usage_events "
+                                     "WHERE workspace_id=%s AND source='script' AND request_id=%s",
+                                     (db[1], str(rid))).fetchone()
+        assert cost == 1 and payload is None
+
+def test_conditional_input_settings_and_requests_round_trip(client):
+    headers = login(client)
+    draft = definition()
+    draft["input_schema"] = {
+        "type": "object", "required": ["mode"],
+        "properties": {
+            "mode": {"type": "string", "enum": ["draft", "image"]},
+            "reference": {"type": "string",
+                          "x-required-when": {"field": "mode", "equals": "image"}},
+        },
+    }
+    created = client.post("/api/v1/agents/save", json=draft, headers=headers)
+    assert created.status_code == 201, created.text
+    agent = created.json()
+    assert agent["draft"]["input_schema"]["properties"]["reference"]["x-required-when"] == {
+        "field": "mode", "equals": "image"}
+    version = agent["versions"][0]["version"]
+    for inputs, expected in [
+        ({"mode": "draft"}, 201),
+        ({"mode": "image"}, 422),
+        ({"mode": "image", "reference": "   "}, 422),
+        ({"mode": "image", "reference": "reference material"}, 201),
+    ]:
+        result = client.post("/api/v1/work-requests", headers=headers, json={
+            "id": str(uuid4()), "agent_id": agent["id"], "version": version, "input": inputs,
+        })
+        assert result.status_code == expected, result.text
+    bad = {**draft, "input_schema": {
+        **draft["input_schema"], "properties": {
+            "mode": {"type": "string", "enum": ["draft", "removed"]},
+            "reference": draft["input_schema"]["properties"]["reference"],
+        },
+    }}
+    rejected = client.put(f"/api/v1/agents/{agent['id']}/save", json=bad, headers={
+        **headers, "If-Match": f'"{agent["revision"]}"'})
+    assert rejected.status_code == 422, rejected.text
+    stored = client.get(f"/api/v1/agents/{agent['id']}").json()
+    assert stored["revision"] == agent["revision"]

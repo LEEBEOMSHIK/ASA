@@ -2,6 +2,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from asa.video_prompt_modules import VideoPromptModules
+
 
 class Limits(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
@@ -36,6 +38,7 @@ class AgentDraft(BaseModel):
     # Legacy payload compatibility only; execution and connections never branch on this field.
     purpose: Literal["general", "image_review"] = "general"
     after_tasks: AfterTasks = Field(default_factory=AfterTasks)
+    video_prompt_modules: VideoPromptModules = Field(default_factory=VideoPromptModules)
     provider: Literal["openai", "anthropic"] | None = None
     model: str | None = Field(default=None, min_length=1, max_length=200)
     input_schema: dict[str, Any]

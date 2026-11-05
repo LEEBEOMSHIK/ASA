@@ -7,12 +7,12 @@ export const defaultBrand: Branding = {revision:0,name:"AI Shorts Studio",logo:n
 export function BrandPreview({name,logo}: Pick<Branding,"name"|"logo">) {
   return <><span className="brand-mark" aria-hidden="true">{logo ? <img src={logo} alt=""/> : (name.trim()[0] || "A")}</span><span className="brand-name">{name}</span></>;
 }
-export function StudioBrand({ready=true, publicView=false, placement="sidebar"}: {
-  ready?:boolean; publicView?:boolean; placement?:"sidebar"|"header";
+export function StudioBrand({ready=true, syncFavicon=true, publicView=false, placement="sidebar"}: {
+  ready?:boolean; syncFavicon?:boolean; publicView?:boolean; placement?:"sidebar"|"header";
 }) {
   const [brand,setBrand]=useState<Pick<Branding,"name"|"logo">>(defaultBrand);
   useEffect(()=>{
-    if(!ready)return;
+    if(!ready || !syncFavicon)return;
     const href=brand.logo || "/icons/asa.svg";
     const type=brand.logo?"image/png":"image/svg+xml";
     const sync=()=>{
@@ -26,7 +26,7 @@ export function StudioBrand({ready=true, publicView=false, placement="sidebar"}:
     const observer=new MutationObserver(sync);
     observer.observe(document.head,{childList:true,subtree:true,attributes:true,attributeFilter:["href","type"]});
     return ()=>{observer.disconnect();document.querySelectorAll<HTMLLinkElement>('link#asa-favicon').forEach(icon=>{icon.type="image/svg+xml";icon.href="/icons/asa.svg";});};
-  },[ready,brand.logo]);
+  },[ready,brand.logo,syncFavicon]);
   useEffect(()=>{
     if(!ready)return;
     let active=true;

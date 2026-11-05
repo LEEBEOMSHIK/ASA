@@ -58,6 +58,7 @@ class ImageRequest(BaseModel):
     model: str = Field(min_length=1, max_length=100)
     change: str = Field(default="", max_length=3000)
     base_id: UUID | None = None
+    reference_overrides: dict[str, UUID] = Field(default_factory=dict, max_length=12)
 
 
 class ImageBatchRequest(BaseModel):
@@ -81,6 +82,7 @@ class ReviewRequest(BaseModel):
 class Approval(BaseModel):
     expected: UUID | None = None
     expected_latest_version: int = Field(ge=1, strict=True)
+    make_default: bool = False
 
 
 class ItemScope(BaseModel):
@@ -92,8 +94,15 @@ class ItemScope(BaseModel):
 JOB_COLUMNS = (
     "id::text,project_id::text,character_id,version,model,character,change,"
     "base_id::text,status,error_code,review_error_code,usage,estimated_usd,created_at::text,"
-    "started_at::text,finished_at::text"
+    "started_at::text,finished_at::text,scene_context"
 )
+
+
+def image_worker_online(conn: Any, workspace_id: UUID) -> bool:
+    return bool(conn.execute(
+        "SELECT 1 FROM image_worker_status WHERE workspace_id=%s "
+        "AND seen_at>now()-interval '90 seconds'", (workspace_id,),
+    ).fetchone())
 
 
 class CharacterRepository(RegistryRepository):
@@ -101,7 +110,8 @@ class CharacterRepository(RegistryRepository):
                 connection: psycopg.Connection[dict[str, Any]] | None = None) -> dict[str, Any]:
         with nullcontext(connection) if connection is not None else self._connect() as conn:
             row = conn.execute(
-                "SELECT id::text,request_id::text,source_version,name,characters,approved,"
+                "SELECT id::text,request_id::text,source_version,name,characters,"
+                "approved,approved_versions,"
                 "kind,context "
                 "FROM character_projects WHERE workspace_id=%s AND id=%s",
                 (self.workspace_id, project_id),
@@ -122,13 +132,7 @@ class CharacterRepository(RegistryRepository):
                 "ORDER BY created_at DESC",
                 (self.workspace_id, project_id),
             ).fetchall()
-            row["worker_online"] = bool(
-                conn.execute(
-                    "SELECT 1 FROM image_worker_status WHERE workspace_id=%s "
-                    "AND seen_at>now()-interval '90 seconds'",
-                    (self.workspace_id,),
-                ).fetchone()
-            )
+            row["worker_online"] = image_worker_online(conn, self.workspace_id)
             row["excluded"] = [
                 item["item_id"]
                 for item in conn.execute(
@@ -157,11 +161,16 @@ class CharacterRepository(RegistryRepository):
             )
             if row["kind"] == "scene":
                 from asa.registry.scene_images import readiness, source_views
-                row["blocked"] = readiness(row["context"])
-                row["scene_sources"] = source_views(row["context"])
+                row["blocked"] = readiness(row["context"]) if row["context"] else {}
+                row["scene_sources"] = source_views(row["context"]) if row["context"] else {}
                 row["work_progress"].update(kind="scene_images", label="씬 이미지",
                                             resume_anchor="followup-scene_images")
             return row
+
+    def _check_editable(self, conn: Any, request_id: UUID) -> None:
+        if conn.execute("SELECT 1 FROM work_deletions WHERE workspace_id=%s AND request_id=%s",
+                        (self.workspace_id, request_id)).fetchone():
+            raise RegistryError(410, "work_deleted")
 
     def set_scope(self, project_id: UUID, character_id: str, body: ItemScope) -> dict[str, Any]:
         with self._connect() as conn:
@@ -171,6 +180,7 @@ class CharacterRepository(RegistryRepository):
             ).fetchone()
             if not project or character_id not in {c["id"] for c in project["characters"]}:
                 raise RegistryError(404, "character_project_not_found")
+            self._check_editable(conn, project["request_id"])
             key = (
                 self.workspace_id,
                 project["request_id"],
@@ -221,7 +231,8 @@ class CharacterRepository(RegistryRepository):
                     source = conn.execute("SELECT input FROM customer_requests WHERE "
                                           "workspace_id=%s AND id=%s",
                                           (self.workspace_id, body.request_id)).fetchone()
-                assert source
+                if not source:
+                    raise RegistryError(404, "work_not_found")
                 kind = "scene"
                 context = {"plan": scene_plan.model_dump(), "input": source["input"]}
                 plan_items = items(scene_plan)
@@ -231,6 +242,9 @@ class CharacterRepository(RegistryRepository):
         except ValidationError as exc:
             raise RegistryError(422, "character_plan_invalid") from exc
         with self._connect() as conn:
+            if not conn.execute("SELECT 1 FROM customer_requests WHERE workspace_id=%s AND id=%s "
+                                "FOR KEY SHARE", (self.workspace_id, body.request_id)).fetchone():
+                raise RegistryError(404, "work_not_found")
             conn.execute(
                 "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
                 (f"character-import:{self.workspace_id}",),
@@ -302,6 +316,7 @@ class CharacterRepository(RegistryRepository):
             ).fetchone()
             if not project or body.character.id not in {c["id"] for c in project["characters"]}:
                 raise RegistryError(404, "character_project_not_found")
+            self._check_editable(conn, project["request_id"])
             existing = conn.execute(
                 f"SELECT {JOB_COLUMNS} FROM character_image_jobs WHERE workspace_id=%s AND id=%s",
                 (self.workspace_id, body.id),
@@ -313,20 +328,27 @@ class CharacterRepository(RegistryRepository):
                     or existing["change"] != body.change
                     or existing["model"] != body.model
                     or existing["base_id"] != (str(body.base_id) if body.base_id else None)
+                    or (existing.get("scene_context") or {}).get("reference_overrides", {})
+                    != {k: str(v) for k, v in body.reference_overrides.items()}
                 ):
                     raise RegistryError(409, "image_id_conflict")
                 return existing
             scene_context = None
             if project.get("kind") == "scene":
                 from asa.registry.scene_images import snapshot
-                scene_context = snapshot(self, project["context"], body.character.id)
+                scene_context = snapshot(
+                    self, project["context"], body.character.id, body.reference_overrides
+                )
+            elif body.reference_overrides:
+                raise RegistryError(422, "scene_reference_override_invalid")
             if conn.execute(
                 "SELECT 1 FROM work_item_preferences WHERE workspace_id=%s AND request_id=%s "
-                "AND source_version=%s AND kind='character_images' AND item_id=%s AND excluded",
+                "AND source_version=%s AND kind=%s AND item_id=%s AND excluded",
                 (
                     self.workspace_id,
                     project["request_id"],
                     project["source_version"],
+                    "scene_images" if project.get("kind") == "scene" else "character_images",
                     body.character.id,
                 ),
             ).fetchone():
@@ -384,7 +406,8 @@ class CharacterRepository(RegistryRepository):
             assert row
             return row
 
-    def approve(self, job_id: UUID, expected: UUID | None, expected_latest_version: int) -> None:
+    def approve(self, job_id: UUID, expected: UUID | None, expected_latest_version: int,
+                make_default: bool = False) -> None:
         with self._connect() as conn:
             job = conn.execute(
                 "SELECT * FROM character_image_jobs WHERE workspace_id=%s "
@@ -394,12 +417,14 @@ class CharacterRepository(RegistryRepository):
             if not job:
                 raise RegistryError(404, "image_not_found")
             project = conn.execute(
-                "SELECT approved,request_id,source_version FROM character_projects WHERE "
+                "SELECT approved,approved_versions,kind,request_id,source_version "
+                "FROM character_projects WHERE "
                 "workspace_id=%s "
                 "AND id=%s FOR UPDATE",
                 (self.workspace_id, job["project_id"]),
             ).fetchone()
             assert project
+            self._check_editable(conn, project["request_id"])
             latest = conn.execute(
                 "SELECT max(version) AS version FROM character_image_jobs "
                 "WHERE workspace_id=%s AND project_id=%s AND character_id=%s",
@@ -409,11 +434,12 @@ class CharacterRepository(RegistryRepository):
                 raise RegistryError(409, "image_review_changed")
             if conn.execute(
                 "SELECT 1 FROM work_item_preferences WHERE workspace_id=%s AND request_id=%s "
-                "AND source_version=%s AND kind='character_images' AND item_id=%s AND excluded",
+                "AND source_version=%s AND kind=%s AND item_id=%s AND excluded",
                 (
                     self.workspace_id,
                     project["request_id"],
                     project["source_version"],
+                    "scene_images" if project["kind"] == "scene" else "character_images",
                     job["character_id"],
                 ),
             ).fetchone():
@@ -428,29 +454,46 @@ class CharacterRepository(RegistryRepository):
             current = approved.get(job["character_id"])
             if current != (str(expected) if expected else None):
                 raise RegistryError(409, "image_approval_changed")
-            approved[job["character_id"]] = str(job_id)
+            confirmed = dict(project["approved_versions"])
+            cid = job["character_id"]
+            if project["kind"] == "character":
+                ids = list(confirmed.get(cid, [current] if current else []))
+                if make_default and str(job_id) not in ids:
+                    raise RegistryError(409, "character_version_not_confirmed")
+                if str(job_id) not in ids:
+                    ids.append(str(job_id))
+                confirmed[cid] = ids
+                if not current or make_default:
+                    approved[cid] = str(job_id)
+            else:
+                approved[cid] = str(job_id)
             conn.execute(
                 "INSERT INTO "
                 "work_item_preferences(workspace_id,request_id,source_version,"
                 "kind,item_id,reviewed_version) "
-                "SELECT %s,%s,%s,'character_images',%s,COALESCE(max(version),0) "
+                "SELECT %s,%s,%s,%s,%s,COALESCE(max(version),0) "
                 "FROM character_image_jobs WHERE workspace_id=%s AND project_id=%s AND "
                 "character_id=%s "
                 "ON CONFLICT(workspace_id,request_id,source_version,kind,item_id) "
-                "DO UPDATE SET reviewed_version=EXCLUDED.reviewed_version,updated_at=now()",
+                "DO UPDATE SET reviewed_version=CASE WHEN %s "
+                "THEN work_item_preferences.reviewed_version "
+                "ELSE EXCLUDED.reviewed_version END,updated_at=now()",
                 (
                     self.workspace_id,
                     project["request_id"],
                     project["source_version"],
+                    "scene_images" if project["kind"] == "scene" else "character_images",
                     job["character_id"],
                     self.workspace_id,
                     job["project_id"],
                     job["character_id"],
+                    make_default,
                 ),
             )
             conn.execute(
-                "UPDATE character_projects SET approved=%s WHERE workspace_id=%s AND id=%s",
-                (Jsonb(approved), self.workspace_id, job["project_id"]),
+                "UPDATE character_projects SET approved=%s,approved_versions=%s "
+                "WHERE workspace_id=%s AND id=%s",
+                (Jsonb(approved), Jsonb(confirmed), self.workspace_id, job["project_id"]),
             )
 
 
@@ -461,15 +504,18 @@ def character_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
         return CharacterRepository(settings.database_url, p.workspace_id)
 
     @router.get("/library")
-    def library(q: str = Query(default="", max_length=200),
+    def library(kind: str = Query(default="character", pattern="^(character|scene)$"),
+                q: str = Query(default="", max_length=200),
                 state: str = Query(default="",
                     pattern="^(|approved|review|excluded|queued|running|failed|unknown)$"),
                 project: str = Query(default="", max_length=36),
                 agent: str = Query(default="", max_length=36),
                 offset: int = Query(default=0, ge=0, le=100000),
+                confirmed_versions: bool = False,
                 r: CharacterRepository = Depends(repo)) -> dict[str, Any]:
         from asa.registry.character_library import library as load
-        return load(r, q, state, project, agent, offset)
+        return load(r, q, state, project, agent, offset, kind=kind,
+                    confirmed_versions=confirmed_versions)
 
     @router.get("/scene-library")
     def scene_library(q: str = Query(default="", max_length=200),
@@ -483,13 +529,14 @@ def character_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
     @router.post("/scene-library/selection")
     def scene_selection(body: SceneSelection,
                         r: CharacterRepository = Depends(repo)) -> dict[str, Any]:
-        return selected_scenes(r, body.image_ids)
+        return selected_scenes(r, body.image_ids, body.version_overrides)
 
     @router.get("/library/{image_id}/versions")
     def image_versions(image_id: UUID,
+                       kind: str = Query(default="character", pattern="^(character|scene)$"),
                        r: CharacterRepository = Depends(repo)) -> list[dict[str, Any]]:
         from asa.registry.character_library import versions
-        return versions(r, image_id)
+        return versions(r, image_id, kind)
 
     @router.post("/library/selection")
     def select_images(body: ImageSelection,
@@ -589,7 +636,7 @@ def character_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
     def approve(
         job_id: UUID, body: Approval, r: CharacterRepository = Depends(repo)
     ) -> dict[str, bool]:
-        r.approve(job_id, body.expected, body.expected_latest_version)
+        r.approve(job_id, body.expected, body.expected_latest_version, body.make_default)
         return {"ok": True}
 
     @router.get("/images/{job_id}/asset")

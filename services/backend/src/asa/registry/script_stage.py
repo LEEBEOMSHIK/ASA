@@ -13,6 +13,7 @@ from asa.models import AgentAnswer, Script
 from asa.registry.history import valid_input
 from asa.registry.repository import RegistryRepository
 from asa.registry.schemas import RegistryError
+from asa.video_prompt_modules import build_prompt_bundle
 
 
 class SaveScript(BaseModel):
@@ -288,6 +289,9 @@ class ScriptRepository(RegistryRepository):
                 prompt = json.dumps(
                     {
                         "agent_instructions": request["definition"]["instructions"],
+                        "video_prompt_bundle": build_prompt_bundle(
+                            request["definition"], request["input"]
+                        ),
                         "original_request": request["input"],
                         "input_schema": request["definition"]["input_schema"],
                         "previous_answer": previous_answer,

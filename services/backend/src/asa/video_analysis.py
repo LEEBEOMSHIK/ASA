@@ -69,11 +69,16 @@ def prepare(repo: Any, source_id: str, settings: Settings) -> dict[str, Any]:
                     '--use-extractors', 'youtube,instagram', '--socket-timeout', '15',
                     '--retries', '0', '--fragment-retries', '0', '--max-filesize',
                     str(MAX_BYTES), '--match-filters', 'duration <= 300 & !is_live',
+                    '--print', 'pre_process:asa-duration=%(duration)s', '--no-simulate',
                     '-f', 'bv*[height<=720][ext=mp4]/bv*[height<=720]',
                     '-o', str(folder / 'download.%(ext)s'), '--', url], 180)
                 candidates = [p for p in folder.glob('download.*')
                               if p.suffix in ('.mp4', '.webm', '.mkv')]
                 if result.returncode or len(candidates) != 1:
+                    duration = re.search(rb'^asa-duration=(\d+(?:\.\d+)?)\s*$',
+                                         result.stdout, re.MULTILINE)
+                    if duration and float(duration[1]) > 300:
+                        raise RegistryError(422, 'video_duration_limit')
                     raise RegistryError(422, 'video_link_unavailable')
                 path = candidates[0]
             analysis = extract_frames(path, folder, ffmpeg)
@@ -125,6 +130,7 @@ def video_content(repo: Any, value: Any, settings: Settings) -> list[dict[str, A
             read_source(repo, source_id)
     content: list[dict[str, Any]] = []
     successful = 0
+    failures: set[str] = set()
     for index, source_id in enumerate(sources, 1):
         try:
             prepared = prepare(repo, source_id, settings)
@@ -133,6 +139,7 @@ def video_content(repo: Any, value: Any, settings: Settings) -> list[dict[str, A
                                 'video_duration_limit', 'video_preparation_timeout',
                                 'video_upload_invalid'}:
                 raise
+            failures.add(exc.code)
             content.append({'type': 'text', 'text':
                 f'참고 영상 {index}: 분석 실패 — {ERRORS[exc.code]} '
                 '이 영상의 내용은 추측하지 말고 누락된 자료로 명시하세요.'})
@@ -156,5 +163,5 @@ def video_content(repo: Any, value: Any, settings: Settings) -> list[dict[str, A
                             {'type': 'image_url', 'image_url': {
                                 'url': 'data:image/jpeg;base64,' + frame['jpeg']}}])
     if sources and not successful:
-        raise RegistryError(422, 'video_all_unavailable')
+        raise RegistryError(422, failures.pop() if len(failures) == 1 else 'video_all_unavailable')
     return content

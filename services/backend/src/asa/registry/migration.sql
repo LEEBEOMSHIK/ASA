@@ -7,6 +7,11 @@ CREATE TABLE IF NOT EXISTS registry_agents (
     draft jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(workspace_id,id)
 );
+CREATE TABLE IF NOT EXISTS user_profiles (
+    workspace_id uuid NOT NULL REFERENCES registry_workspaces(id), user_id text NOT NULL,
+    display_name text NOT NULL, avatar text, revision integer NOT NULL,
+    PRIMARY KEY(workspace_id,user_id)
+);
 CREATE TABLE IF NOT EXISTS agent_favorites (
     workspace_id uuid NOT NULL, user_id text NOT NULL, agent_id uuid NOT NULL,
     PRIMARY KEY(workspace_id,user_id,agent_id),
@@ -357,3 +362,42 @@ END $$;
 DROP TRIGGER IF EXISTS asa_video_usage_trigger ON video_clip_jobs;
 CREATE TRIGGER asa_video_usage_trigger AFTER UPDATE OF status ON video_clip_jobs
     FOR EACH ROW WHEN (OLD.status IS DISTINCT FROM NEW.status) EXECUTE FUNCTION asa_video_usage();
+
+CREATE TABLE IF NOT EXISTS hidden_work_requests (
+ workspace_id uuid NOT NULL, request_id uuid NOT NULL, user_id text NOT NULL,
+ PRIMARY KEY(workspace_id,user_id,request_id),
+ FOREIGN KEY(workspace_id,request_id) REFERENCES customer_requests(workspace_id,id) ON DELETE CASCADE
+);
+DROP TRIGGER IF EXISTS asa_change ON hidden_work_requests;
+CREATE TRIGGER asa_change AFTER INSERT OR DELETE ON hidden_work_requests
+ FOR EACH ROW EXECUTE FUNCTION asa_notify_change();
+
+CREATE TABLE IF NOT EXISTS work_deletions (
+ workspace_id uuid NOT NULL REFERENCES registry_workspaces(id), request_id uuid NOT NULL,
+ name text NOT NULL, actor text NOT NULL, deleted_at timestamptz NOT NULL DEFAULT now(),
+ summary jsonb NOT NULL, PRIMARY KEY(workspace_id,request_id)
+);
+CREATE INDEX IF NOT EXISTS work_deletions_recent ON work_deletions(workspace_id,deleted_at DESC);
+CREATE TABLE IF NOT EXISTS retained_work_videos (
+ workspace_id uuid NOT NULL, id uuid NOT NULL, request_id uuid NOT NULL,
+ clip_id text NOT NULL, answer_version integer NOT NULL, video bytea NOT NULL,
+ PRIMARY KEY(workspace_id,id),
+ FOREIGN KEY(workspace_id,request_id) REFERENCES work_deletions(workspace_id,request_id)
+);
+CREATE OR REPLACE FUNCTION script_version_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ IF TG_OP='DELETE' AND EXISTS(SELECT 1 FROM work_deletions d
+  WHERE d.workspace_id=OLD.workspace_id AND d.request_id=OLD.request_id) THEN RETURN OLD; END IF;
+ RAISE EXCEPTION 'script_version_immutable';
+END $$;
+
+ALTER TABLE work_deletions ADD COLUMN IF NOT EXISTS confirmation_token text;
+
+-- Character approvals are additive; approved remains the single default per character.
+ALTER TABLE character_projects ADD COLUMN IF NOT EXISTS approved_versions jsonb NOT NULL DEFAULT '{}'::jsonb;
+UPDATE character_projects p SET approved_versions = p.approved_versions || (
+ SELECT jsonb_object_agg(e.key, jsonb_build_array(e.value))
+ FROM jsonb_each_text(p.approved) e WHERE NOT (p.approved_versions ? e.key)
+) WHERE p.kind='character' AND EXISTS (
+ SELECT 1 FROM jsonb_each_text(p.approved) e WHERE NOT (p.approved_versions ? e.key)
+);

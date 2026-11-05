@@ -5,6 +5,7 @@ import { pendingVideoUrl, videoLinkLabel } from "../lib/video-link";
 import { isVideoReference } from "./video-input";
 import { AgentIcon, Button, Card, StatusBadge } from "./ui";
 
+import { isInputRequired, inputConditionHint } from "../lib/input-requirements";
 import { AgentInput } from "./agent-input";
 
 function entries(schema: SchemaNode): [string, SchemaNode][] {
@@ -35,6 +36,8 @@ export function AgentRunPreview({ definition, onBack, customer = false, initialI
     event.preventDefault(); setError("");
     if (savingRef.current) return;
     for (const [key, node] of input) {
+      const required = isInputRequired(definition.input_schema, key, values);
+      if (!required && (values[key] === undefined || values[key] === "")) continue;
       if (isVideoReference(node)) {
         try {
           const parsed = JSON.parse(values[key] || "null");
@@ -49,8 +52,7 @@ export function AgentRunPreview({ definition, onBack, customer = false, initialI
           }
         } catch(e) { setError(e instanceof SyntaxError ? "영상 자료를 다시 선택해 주세요." : e instanceof Error ? e.message : "영상 자료를 확인해 주세요."); return; }
       }
-      const required = definition.input_schema.type !== "object" || definition.input_schema.required?.includes(key);
-      if (required && (values[key] === undefined || values[key] === "")) { setError(`${node.description || key}: 값을 입력하거나 선택해 주세요.`); return; }
+      if (required && !values[key]?.trim()) { setError(`${node.description || key}: 값을 입력하거나 선택해 주세요.`); return; }
       if (values[key] && node.enum && !node.enum.some(v => String(v) === values[key])) { setError(`${node.description || key}: 선택지에서 골라 주세요.`); return; }
       if (values[key] && ["number", "integer"].includes(node.type)) {
         const n = Number(values[key]);
@@ -60,6 +62,10 @@ export function AgentRunPreview({ definition, onBack, customer = false, initialI
       try {
         const parsed: unknown = JSON.parse(values[key]);
         if (node.type === "array" ? !Array.isArray(parsed) : parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
+        if (required && node["x-required-when"] && Object.keys(parsed as object).length === 0) {
+          setError(`${node.description || key}: 현재 조건에서 필수인 자료를 추가해 주세요.`);
+          return;
+        }
       } catch { setError(`${node.description || key}: ${node.type === "array" ? "목록 []" : "정보 묶음 {}"} 형태의 JSON을 입력해 주세요.`); return; }
     }
     if (onSave) {
@@ -72,7 +78,7 @@ export function AgentRunPreview({ definition, onBack, customer = false, initialI
       savingRef.current = true; setSaving(true);
       try {
         for (const [key, node] of input) {
-          if (!isVideoReference(node)) continue;
+          if (!isVideoReference(node) || payload[key] === undefined) continue;
           const videos = (node.type === "array" ? payload[key] : [payload[key]]) as Record<string,unknown>[];
           for (let i = 0; i < videos.length; i++) {
             const url = pendingVideoUrl(JSON.stringify(videos[i]));
@@ -97,9 +103,11 @@ export function AgentRunPreview({ definition, onBack, customer = false, initialI
       <form onSubmit={checkInput}>
         <fieldset disabled={saving} className="request-fields">
         {input.map(([key, node], i) => {
-          const required = definition.input_schema.type !== "object" || (definition.input_schema.required || []).includes(key);
-          const label = node.description || `입력 항목 ${i + 1}`;
+          const required = isInputRequired(definition.input_schema, key, values);
+          const label = node.description?.replace(/\s*(?:·\s*(?:선택|필수)|\((?:선택|필수)\))\s*$/, "").trim() || `입력 항목 ${i + 1}`;
+          const conditionHint = inputConditionHint(definition.input_schema, key);
           return <div className="run-field-section" key={key}>
+            {conditionHint && <p className="input-condition-hint" role="status">{conditionHint} {required ? "현재 필수 입력입니다." : "현재 선택 입력입니다."}</p>}
             <AgentInput node={node} id={`run-input-${key}`} label={label} required={required} value={values[key] ?? ""} onChange={v => { setValues(current => ({ ...current, [key]: v })); setChecked(false); setError(""); }} />
           </div>;
         })}

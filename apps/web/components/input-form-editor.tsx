@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { api, latestAgentTools, type Tool, type SchemaNode } from "../lib/registry";
 import { Button, Field, SelectCombobox } from "./ui";
+import { InputRequirementEditor } from "./input-requirement-editor";
 import { ChoiceOptionsEditor } from "./choice-options-editor";
 
 const modes = [["text", "짧은 글"], ["textarea", "긴 글"], ["radio", "라디오 버튼"], ["select", "선택 목록"], ["slider", "슬라이더"], ["number", "숫자"]];
@@ -25,16 +26,18 @@ export function InputFormEditor({ value, onChange }: { value: SchemaNode; onChan
     {Object.entries(properties).map(([key, node], index) => {
       const mode = node["x-widget"] || (node.enum ? "select" : node.type === "string" ? "textarea" : ["number", "integer"].includes(node.type) ? "number" : "advanced");
       const choice = mode === "radio" || mode === "select";
+      const dependents = Object.values(properties).filter(other => other["x-required-when"]?.field === key);
       const numeric = mode === "slider" || mode === "number";
       const changeMode = (next: string) => {
         const n: SchemaNode = { type: next === "slider" ? "integer" : next === "number" ? "number" : "string", description: node.description, "x-widget": next as SchemaNode["x-widget"] };
+        if (node["x-required-when"]) n["x-required-when"] = node["x-required-when"];
         if ((next === "text" || next === "textarea") && node["x-previous-answer"]) { n["x-previous-answer"] = true; n["x-answer-agent"] = node["x-answer-agent"]; }
         if (next === "radio" || next === "select") n.enum = ["선택지 1", "선택지 2"];
         if (next === "slider") { n.minimum = 1; n.maximum = 5; }
         update(key, n);
       };
       return <details className="input-field-card" key={key} open>
-        <summary>{index + 1}. {node.description || "새 입력 항목"} <span className="muted">· {required.includes(key) ? "필수" : "선택"}</span></summary>
+        <summary>{index + 1}. {node.description || "새 입력 항목"} <span className="muted">· {node["x-required-when"] ? "조건부 필수" : required.includes(key) ? "항상 필수" : "선택"}</span></summary>
         <div className="input-field-body">
           <div className="input-form-grid">
             <Field id={`form-name-${key}`} label="항목 이름">{p => <input {...p} maxLength={400} value={node.description || ""} placeholder="예: 무서운 정도" onChange={e => update(key, { ...node, description: e.target.value })} />}</Field>
@@ -42,8 +45,9 @@ export function InputFormEditor({ value, onChange }: { value: SchemaNode; onChan
           </div>
           {choice && <ChoiceOptionsEditor id={`form-options-${key}`} node={node} onChange={n => update(key, n)} />}
           {numeric && <div className="input-form-grid">{(["minimum", "maximum"] as const).map((bound, i) => <Field key={bound} id={`form-${bound}-${key}`} label={i ? "최댓값" : "최솟값"}>{p => <input {...p} type="number" step={mode === "slider" ? 1 : "any"} value={node[bound] ?? ""} onChange={e => { const n = { ...node }; if (e.target.value === "") delete n[bound]; else n[bound] = Number(e.target.value); update(key, n); }} />}</Field>)}</div>}
+          <InputRequirementEditor field={key} schema={value} onChange={onChange}/>
           <div className="input-field-options">
-            <label className="checkbox"><input type="checkbox" checked={required.includes(key)} onChange={e => onChange({ ...value, required: e.target.checked ? [...required, key] : required.filter(k => k !== key) })} />필수 입력</label>
+
             {mode !== "advanced" && <label className="checkbox"><input type="checkbox" checked={node.default !== undefined} onChange={e => { const n = { ...node }; if (!e.target.checked) delete n.default; else n.default = choice ? node.enum?.[0] ?? "" : numeric ? node.minimum ?? 0 : ""; update(key, n); }} />기본값 사용</label>}
           </div>
           {(mode === "text" || mode === "textarea") && <div className="input-history-setting">
@@ -53,7 +57,8 @@ export function InputFormEditor({ value, onChange }: { value: SchemaNode; onChan
             <p className="helper-text">설정에서는 출처 에이전트를 정합니다. 실행할 때 사용자가 해당 에이전트의 이전 작업과 답변 버전을 골라 가져옵니다. 직접 입력도 가능합니다. 저장 후 새 실행 화면에 반영되며, 자동화의 앞 블록 결과 연결에는 영향을 주지 않습니다.</p>
           </div>}
           {node.default !== undefined && mode !== "advanced" && <Field id={`form-default-${key}`} label="기본값" hint="새 실행 화면을 열 때 미리 채웁니다. 사용자가 바꿀 수 있습니다.">{p => choice ? <select {...p} value={String(node.default)} onChange={e => update(key, { ...node, default: e.target.value })}>{!node.enum?.includes(node.default!) && <option value={String(node.default)}>선택지를 다시 선택하세요</option>}{(node.enum || []).map((v, i) => <option key={i} value={String(v)}>{String(v)}</option>)}</select> : <input {...p} type={numeric ? "number" : "text"} min={node.minimum} max={node.maximum} step={mode === "slider" ? 1 : "any"} value={String(node.default)} onChange={e => update(key, { ...node, default: numeric ? e.target.value === "" ? "" : Number(e.target.value) : e.target.value })} />}</Field>}
-          <div className="input-field-footer"><span className="helper-text">연결 이름: {key} · 이름을 바꿔도 기존 연결은 유지됩니다.</span><Button variant="secondary" onClick={() => { const next = { ...properties }; delete next[key]; onChange({ ...value, properties: next, required: required.filter(k => k !== key) }); }}>항목 삭제<span className="sr-only"> {node.description || key}</span></Button></div>
+          {dependents.length > 0 && <p id={`dependent-${key}`} className="helper-text">이 항목을 조건으로 사용하는 입력이 {dependents.length}개 있습니다. 삭제하려면 해당 입력의 조건을 먼저 변경하세요.</p>}
+          <div className="input-field-footer"><span className="helper-text">연결 이름: {key} · 이름을 바꿔도 기존 연결은 유지됩니다.</span><Button variant="secondary" disabled={dependents.length > 0} aria-describedby={dependents.length ? `dependent-${key}` : undefined} onClick={() => { const next = { ...properties }; delete next[key]; onChange({ ...value, properties: next, required: required.filter(k => k !== key) }); }}>항목 삭제<span className="sr-only"> {node.description || key}</span></Button></div>
         </div>
       </details>;
     })}

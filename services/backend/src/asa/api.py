@@ -13,17 +13,19 @@ from asa.registry.automation_categories import automation_category_router
 from asa.registry.automations import automation_router
 from asa.registry.branding import branding_router
 from asa.registry.categories import category_router
-from asa.registry.characters import character_router
+from asa.registry.characters import character_router, image_worker_online
 from asa.registry.history import history_router
 from asa.registry.model_catalog import model_catalog_router
 from asa.registry.monitoring import monitoring_router
+from asa.registry.profile import profile_router
 from asa.registry.routes import registry_router
 from asa.registry.runtime import runtime_router
 from asa.registry.schemas import RegistryError
-from asa.registry.script_routes import script_router
 from asa.registry.script_queue import ScriptQueue
-from asa.registry.video_planning import video_planning_router
+from asa.registry.script_routes import script_router
 from asa.registry.video_jobs import video_job_router
+from asa.registry.video_planning import video_planning_router
+from asa.registry.work_management import management_router
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -39,10 +41,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def agent_worker_status(principal: Principal = Depends(sessions.principal)) -> dict[str, bool]:
         queue = ScriptQueue(settings.model_copy(update={"workspace_id": principal.workspace_id}))
         with queue._connect() as conn:
-            return {"online": queue.worker_online(conn)}
+            return {"online": queue.worker_online(conn),
+                    "image_online": image_worker_online(conn, queue.workspace_id)}
 
     app.include_router(sessions.router())
+    app.include_router(profile_router(settings, sessions))
     app.include_router(registry_router(settings, sessions))
+    app.include_router(management_router(settings, sessions))
     app.include_router(history_router(settings, sessions))
     app.include_router(script_router(settings, sessions))
     app.include_router(automation_router(settings, sessions))

@@ -83,6 +83,15 @@ def validate_definition(
             {"x-widget", "default", "x-previous-answer", "x-answer-agent", "x-video-model"}
             if path.startswith("input_schema") else set()
         )
+        if path.startswith("input_schema.properties.") and path.count(".") == 2:
+            form_keys.add("x-required-when")
+        if "x-required-when" in node:
+            from asa.registry.input_requirements import valid_condition
+            field = path.rsplit(".", 1)[-1]
+            if (not path.startswith("input_schema.properties.") or path.count(".") != 2
+                    or not valid_condition(field, node["x-required-when"], draft.input_schema)):
+                issue("input_required_when", path + ".x-required-when",
+                      "조건 항목과 선택값을 확인하세요. 항상 필수와 함께 설정할 수 없습니다.")
         for key in node.keys() - (keywords[kind] | {"type", "description"} | form_keys):
             issue("schema_keyword", path + "." + key, "지원하지 않는 스키마 속성입니다.")
         if "description" in node and (

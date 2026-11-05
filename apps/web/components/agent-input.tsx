@@ -1,10 +1,11 @@
+import { ExpandableTextarea } from "./expandable-textarea";
 import { SceneImageInput, isSceneReference } from "./scene-image-input";
 import { VideoModelInput } from "./video-model-input";
 import { VideoInput, isVideoReference } from "./video-input";
 import type { ReactNode } from "react";
 import { PreviousAnswerInput } from "./previous-answer-input";
 import type { SchemaNode } from "../lib/registry";
-import { Button, Field } from "./ui";
+import { Button, Field, InputRequirement } from "./ui";
 import { CharacterImageInput, isCharacterReference } from "./character-library";
 
 export function AgentInput({ node, id, label, required, value, onChange }: { node: SchemaNode; id: string; label: string; required: boolean; value: string; onChange: (v: string) => void }) {
@@ -19,12 +20,25 @@ export function AgentInput({ node, id, label, required, value, onChange }: { nod
     "1:1": "1:1 · 정사각형 — 피드 이미지",
   };
   const isRatio = node.type === "string" && !!node.enum?.length && node.enum.every(v => typeof v === "string" && v in ratioLabels);
-  const requiredHint = required ? "필수 입력" : "선택 입력";
   const hint = isRatio
-    ? `${requiredHint} · 가로:세로 비율입니다. 쇼츠용 장면은 9:16 세로형을 선택하세요. 장면의 구도와 제작 지침에 적용되며, 기존 캐릭터 기준 이미지는 변경되지 않습니다.`
-    : requiredHint;
-  if (widget === "radio") return <fieldset className="input-radio-group"><legend>{label} <span className="helper-text">{hint}</span></legend><div className="input-radio-options">{(node.enum || []).map((option, i) => <label key={i} className="input-radio-option"><input type="radio" name={id} required={required} checked={value === String(option)} value={String(option)} onChange={e => onChange(e.target.value)} /><span>{String(option)}</span></label>)}</div>{!required && value !== "" && <Button variant="secondary" onClick={() => onChange("")}>선택 해제</Button>}</fieldset>;
-  const renderInput = (action?:ReactNode, receipt?:ReactNode) => <div><Field id={id} label={label} hint={hint} labelAction={action}>{p => widget === "slider" ? <div className="input-slider">
+    ? `가로:세로 비율입니다. 쇼츠용 장면은 9:16 세로형을 선택하세요. 장면의 구도와 제작 지침에 적용되며, 기존 캐릭터 기준 이미지는 변경되지 않습니다.`
+    : undefined;
+  if (widget === "radio") return <fieldset className="input-radio-group"><legend>{label}<InputRequirement required={required}/></legend>{hint && <p className="helper-text">{hint}</p>}<div className="input-radio-options">{(node.enum || []).map((option, i) => <label key={i} className="input-radio-option"><input type="radio" name={id} required={required} checked={value === String(option)} value={String(option)} onChange={e => onChange(e.target.value)} /><span>{String(option)}</span></label>)}</div>{!required && value !== "" && <Button variant="secondary" onClick={() => onChange("")}>선택 해제</Button>}</fieldset>;
+  if (node.type === "string" && !node.enum && widget !== "text") {
+    const renderLongText = (importAction?: ReactNode, receipt?: ReactNode) => <div>
+      <ExpandableTextarea id={id} label={label} viewOnly required={required} rows={4}
+        value={value} maxLength={node.maxLength || 65536} placeholder="이번 작업의 내용을 입력하세요"
+        onChange={e => onChange(e.target.value)}
+        renderField={(input, expandAction) => <Field id={id} label={label} required={required}
+          labelAction={<>{importAction}{expandAction}</>}>{() => input}</Field>}/>
+      {receipt}
+    </div>;
+    return node["x-previous-answer"] === true
+      ? <PreviousAnswerInput agentId={node["x-answer-agent"]} label={label} value={value}
+          maxLength={node.maxLength || 65536} onChange={onChange}>{renderLongText}</PreviousAnswerInput>
+      : renderLongText();
+  }
+  const renderInput = (action?:ReactNode, receipt?:ReactNode) => <div><Field id={id} label={label} required={required} hint={hint} labelAction={action}>{p => widget === "slider" ? <div className="input-slider">
     <output htmlFor={id} aria-live="polite">{value === "" ? "아직 선택하지 않았습니다" : `${value}단계`}</output>
     <input {...p} type="range" min={node.minimum} max={node.maximum} step={1} value={value || node.minimum || 0} onChange={e => onChange(e.target.value)} />
     <div className="input-range-labels"><span>최소 {node.minimum}</span><span>최대 {node.maximum}</span></div>

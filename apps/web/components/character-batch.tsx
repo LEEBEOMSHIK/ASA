@@ -10,9 +10,10 @@ type Props = {
   renderPicker?:(eligible:string[],selected:string[],toggle:(id:string)=>void,busy:boolean)=>ReactNode;
   controlledOpen?:boolean; onToggle?:()=>void; unit?:string; blocked?:Record<string,string[]>; projectId:string; characters:Character[]; excluded:string[];
   jobs:{character_id:string;status:string}[]; models:string[]; enabled:boolean;
+  getReferenceOverrides?:(character:Character)=>Record<string,string>;
   getDraft:(character:Character)=>Character; refresh:()=>Promise<void>;
 };
-export function CharacterBatch({projectId,characters,excluded,jobs,models,enabled,getDraft,refresh,unit="캐릭터",blocked={},controlledOpen,onToggle,renderPicker}:Props) {
+export function CharacterBatch({projectId,characters,excluded,jobs,models,enabled,getDraft,getReferenceOverrides,refresh,unit="캐릭터",blocked={},controlledOpen,onToggle,renderPicker}:Props) {
   const [localOpen,setOpen]=useState(false);
   const open=controlledOpen ?? localOpen;
   const [selected,setSelected]=useState<string[]>([]);
@@ -27,7 +28,7 @@ export function CharacterBatch({projectId,characters,excluded,jobs,models,enable
   async function generate() {
     if(busy || !picked.length)return;
     setBusy(true);setFeedback("");
-    const payload=picked.map(c=>({character:getDraft(c),model,change:"",base_id:null}));
+    const payload=picked.map(c=>({character:getDraft(c),model,change:"",base_id:null,reference_overrides:getReferenceOverrides?.(c) || {}}));
     const signature=JSON.stringify(payload);
     if(dispatch.current?.signature!==signature)dispatch.current={signature,ids:payload.map(()=>crypto.randomUUID())};
     try {

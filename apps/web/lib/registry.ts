@@ -6,9 +6,19 @@ export type SchemaNode = {
   "x-previous-answer"?: boolean;
   "x-video-model"?: boolean;
   "x-answer-agent"?: string;
+  "x-required-when"?: { field: string; equals: string | number | boolean };
   "x-widget"?: "text" | "textarea" | "radio" | "select" | "slider" | "number";
 };
 export type Definition = {
+  video_prompt_modules?: {
+    enabled: boolean;
+    mode: "auto" | "manual";
+    profile_id?: "animation_2d" | "animation_3d" | "live_action" | null;
+    user_style_field?: string | null;
+    confirmed_style_field?: string | null;
+    reference_style_field?: string | null;
+    metadata_style_field?: string | null;
+  };
   icon?: AgentIconId;
   name: string; description: string; instructions: string; model_profile: string;
   requires_approval?: boolean;
@@ -53,6 +63,8 @@ export async function api<T>(path: string, method = "GET", body?: unknown, revis
 export function message(error: unknown): string {
   if (!(error instanceof ApiError)) return "서버에 연결할 수 없습니다. 잠시 후 다시 시도하세요.";
   const messages: Record<string, string> = {
+    work_deleted: "영구 삭제된 작업입니다.",
+    deletion_changed: "작업 상태가 변경되었거나 처리 중입니다. 삭제 범위를 다시 확인하세요.",
     video_generation_disabled: "영상 생성 연결이 준비되지 않았습니다. 관리자에게 연결 상태를 확인해 주세요.",
     video_plan_invalid: "클립의 순서와 시간이 이어지는지 확인하고 계획을 수정해 주세요.",
     video_model_mismatch: "계획의 영상 모델과 요청에서 선택한 모델이 다릅니다.",

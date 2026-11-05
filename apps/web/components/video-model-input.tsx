@@ -50,7 +50,7 @@ export function VideoModelInput({node,id,label,required,value,onChange}: {
   const tone = failed ? "danger" : !data ? "neutral" :
     supportsCheck(data,value) && data.key_configured && data.enabled && data.worker_online ? "success" : "warning";
   const actionLabel=selectedLabel+(busy?" 연결 확인 중":" 연결 확인");
-  return <div className="field"><Field id={id} label={label} hint="클립 길이와 영상 생성에 사용할 모델입니다. 연결 전에도 프롬프트를 계획할 수 있어요.">{p=>
+  return <div className="field"><Field id={id} label={label} required={required} hint="클립 길이와 영상 생성에 사용할 모델입니다. 연결 전에도 프롬프트를 계획할 수 있어요.">{p=>
     <div className="video-model-row"><div className="video-model-control"><select {...p} required={required} disabled={busy} value={value} onChange={e=>onChange(e.target.value)}>
       <option value="">모델 선택</option>{node.enum?.map(v=><option key={String(v)} value={String(v)}>
         {data?.models.find(m=>m.key===v)?.label ?? String(v)} · {status(String(v))}</option>)}</select>

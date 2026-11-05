@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const config: NextConfig = {
+  devIndicators: { position: "top-right" },
   output: "standalone", poweredByHeader: false,
   experimental: { proxyClientMaxBodySize: "28mb" },
   async rewrites() {

@@ -1,0 +1,42 @@
+.scene-reference-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: var(--space-4);
+}
+.scene-reference-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+.scene-reference-card p { margin: 0; overflow-wrap: anywhere; }
+.scene-reference-card summary { cursor: pointer; font-weight: 600; }
+.scene-reference-card details[open] > .character-field { margin-top: var(--space-3); }
+.scene-reference-card select { width: 100%; min-width: 0; }
+.scene-reference-card .reference-selection-card {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+}
+.scene-reference-card .reference-selection-card img {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+}
+.scene-reference-card .reference-selection-card span {
+  display: grid;
+  gap: var(--space-1);
+  overflow-wrap: anywhere;
+}
+/* Nested scene details must leave enough room to read version choices on phones. */
+@media (max-width: 600px) {
+  .scene-image-context > .scene-cast { padding: 0; border: 0; }
+  .scene-reference-card { padding: var(--space-3); }
+  .scene-reference-card .reference-selection-card { padding: 0; border: 0; }
+}

@@ -27,17 +27,34 @@ function connectedAgentCount(agent: Agent) {
   return new Set(refs.map(ref => ref.split(":")[1])).size;
 }
 
+function ToolCards({ tools }: { tools: Tool[] }) {
+  return <div className="catalog-grid">{tools.map(tool => <Card key={tool.id}>
+    <StatusBadge tone={tool.launch_path || tool.available ? "success" : "neutral"}>
+      {tool.launch_path ? "전용 화면에서 사용" : tool.available ? "등록 가능" : "준비 중"}
+    </StatusBadge>
+    <h2><a href={`/tools/${encodeURIComponent(tool.id)}`}>{tool.name} <small>v{tool.version}</small></a></h2>
+    <p>{tool.description}</p>
+    {tool.unavailable_reason && <p className="muted">{tool.unavailable_reason}</p>}
+    <a href={`/tools/${encodeURIComponent(tool.id)}`}>사용 방법과 예시 보기 →</a>
+  </Card>)}</div>;
+}
+
 export function ToolList() {
   const [tools, setTools] = useState<Tool[] | null>(null);
   const [error, setError] = useState("");
-  useEffect(() => { api<Tool[]>("/tools").then(setTools).catch(e => setError(message(e))); }, []);
-  return <><div className="page-heading"><div><p className="eyebrow">TOOL LIBRARY</p><h1>사용할 수 있는 도구</h1>
-    <p className="muted">도구를 눌러 사용 방법과 입력·결과 예시를 확인하세요.</p></div></div>
-    {error ? <p role="alert">{error}</p> : tools === null ? <p role="status">도구를 불러오는 중입니다…</p> :
-      <div className="catalog-grid">{tools.map(tool => <Card key={tool.id}>
-        <div className="badge-row"><StatusBadge>{tool.kind === "asa" ? "ASA 도구" : "내 에이전트"}</StatusBadge>
-          <StatusBadge tone={tool.launch_path || tool.available ? "success" : "warning"}>{tool.launch_path ? "전용 화면에서 사용" : tool.available ? "등록 가능" : "준비 중"}</StatusBadge></div>
-        <h2><a href={`/tools/${encodeURIComponent(tool.id)}`}>{tool.name} <small>v{tool.version}</small></a></h2><p>{tool.description}</p><p className="muted">{tool.unavailable_reason}</p>
-        <a href={`/tools/${encodeURIComponent(tool.id)}`}>사용 방법과 예시 보기 →</a>
-      </Card>)}</div>}</>;
+  useEffect(() => {
+    api<Tool[]>("/tools").then(items => setTools(items.filter(tool => tool.kind === "asa")))
+      .catch(e => setError(message(e)));
+  }, []);
+  const available = tools?.filter(tool => tool.available || tool.launch_path) ?? [];
+  const upcoming = tools?.filter(tool => !tool.available && !tool.launch_path) ?? [];
+  return <><div className="page-heading"><div><p className="eyebrow">TOOL LIBRARY</p><h1>ASA 도구 라이브러리</h1>
+    <p className="muted">ASA에서 제공하는 도구의 사용 방법과 입력·결과 예시를 확인하세요.</p></div></div>
+    {error ? <p role="alert">{error}</p> : tools === null ? <p role="status">도구를 불러오는 중입니다…</p> : <>
+      {available.length ? <ToolCards tools={available}/> : <p>사용할 수 있는 ASA 도구가 없습니다.</p>}
+      {upcoming.length > 0 && <details className="settings-disclosure"><summary>준비 중인 도구 · {upcoming.length}개</summary>
+        <div className="settings-content"><ToolCards tools={upcoming}/></div>
+      </details>}
+    </>}
+  </>;
 }

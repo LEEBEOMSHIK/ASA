@@ -18,6 +18,7 @@ from asa.registry.repository import RegistryRepository
 from asa.registry.schemas import RegistryError
 from asa.registry.sse import snapshot_stream
 from asa.tools.search import SEARCH_ID, search_ready
+from asa.video_prompt_modules import freeze_module_catalog
 
 SEOUL = timezone(timedelta(hours=9))
 
@@ -151,6 +152,8 @@ class RunRepository(RegistryRepository):
                     tool["search_provider"] = self.settings.search_provider
                 elif step.tool_id not in ("asa.text.inspect:1", "asa.characters.approved:1"):
                     raise RegistryError(422, "runtime_tool_unavailable")
+                if tool.get("definition", {}).get("video_prompt_modules", {}).get("enabled"):
+                    tool["video_prompt_catalog"] = freeze_module_catalog(tool["definition"])
                 manifest.append(tool)
             if ai_count > 20:
                 raise RegistryError(422, "runtime_call_limit")

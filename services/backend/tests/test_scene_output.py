@@ -111,10 +111,11 @@ def test_scene_non_cast_reference_is_attached_without_adding_cast(monkeypatch):
                "review_notes": "모자의 형태만 참고"}]}}
     before = deepcopy(context)
     seen = []
-    def selected(repo, ids):
-        seen.extend(str(i) for i in ids)
+    def selected(repo, refs, overrides):
+        seen.extend(r['image_id'] for r in refs)
+        assert overrides == {}
         return {"format": "asa_character_selection_v1", "characters": [cast, prop]}
-    monkeypatch.setattr("asa.registry.character_library.selected_handoff", selected)
+    monkeypatch.setattr("asa.registry.scene_images.resolve_references", selected)
     monkeypatch.setattr("asa.tools.character_handoff.image_content", lambda repo, value: [])
     assert readiness(context) == {"scene_1": []}
     result = snapshot(None, context, "scene_1")

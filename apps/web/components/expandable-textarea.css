@@ -15,3 +15,11 @@
 .expandable-textarea .field-title-actions { display:flex; align-items:center; flex-wrap:wrap; gap:var(--space-2); min-height:44px; }
 .expandable-textarea .field-title-actions > label { min-width:0; }
 .expandable-textarea .field-title-actions > .expanded-editor-trigger { margin-inline-start:auto; flex-shrink:0; }
+.expanded-reading {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--font-body);
+  line-height: 1.8;
+  width: min(100%, 76ch);
+  margin-inline: auto;
+}

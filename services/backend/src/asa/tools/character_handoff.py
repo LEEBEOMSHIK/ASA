@@ -1,4 +1,5 @@
 """Explicit, workspace-scoped handoff of approved character image snapshots."""
+
 from typing import Any
 from uuid import UUID
 
@@ -18,21 +19,39 @@ def handoff(project: dict[str, Any]) -> dict[str, Any]:
         cid = character["id"]
         if cid in excluded:
             continue
-        job = next((j for j in project["jobs"]
-                    if j["character_id"] == cid and j["id"] == project["approved"].get(cid)
-                    and j["status"] == "succeeded"), None)
+        job = next(
+            (
+                j
+                for j in project["jobs"]
+                if j["character_id"] == cid
+                and j["id"] == project["approved"].get(cid)
+                and j["status"] == "succeeded"
+            ),
+            None,
+        )
         if not job or states.get(cid) != "approved":
             raise RegistryError(409, "character_handoff_not_ready")
         # The confirmed image's immutable settings, never unsaved UI edits or plan defaults.
-        characters.append({**job["character"], "image_id": job["id"],
-                           "image_version": job["version"], "image_change": job["change"]})
-    return {"format": FORMAT, "project_id": project["id"],
-            "source_request_id": project["request_id"],
-            "source_version": project["source_version"], "characters": characters}
+        characters.append(
+            {
+                **job["character"],
+                "image_id": job["id"],
+                "image_version": job["version"],
+                "image_change": job["change"],
+            }
+        )
+    return {
+        "format": FORMAT,
+        "project_id": project["id"],
+        "source_request_id": project["request_id"],
+        "source_version": project["source_version"],
+        "characters": characters,
+    }
 
 
 def read_handoff(repo: Any, project_id: str) -> dict[str, Any]:
     from asa.registry.characters import CharacterRepository
+
     source = CharacterRepository(repo.dsn, repo.workspace_id)
     with source._connect() as conn:
         # Consistent read across approval, exclusions and image records.
@@ -41,32 +60,64 @@ def read_handoff(repo: Any, project_id: str) -> dict[str, Any]:
 
 
 def handoff_tool() -> dict[str, Any]:
-    props = {k: {"type": "string"} for k in (
-        "id", "name", "facts", "appearance", "proposed", "scene_ids", "image_prompt",
-        "image_id", "image_change")}
+    props = {
+        k: {"type": "string"}
+        for k in (
+            "id",
+            "name",
+            "facts",
+            "appearance",
+            "proposed",
+            "scene_ids",
+            "image_prompt",
+            "image_id",
+            "image_change",
+        )
+    }
     props["image_version"] = {"type": "integer"}
     return {
-        "id": HANDOFF_ID, "name": "확정 캐릭터 가져오기", "kind": "asa", "version": 1,
+        "id": HANDOFF_ID,
+        "name": "확정 캐릭터 가져오기",
+        "kind": "asa",
+        "version": 1,
         "description": "사용하는 캐릭터의 확정 설정과 기준 이미지만 다음 단계에 전달합니다.",
         "usage": "캐릭터 결과의 프로젝트 ID를 입력하고 이 도구의 전체 결과를 다음 AI 입력에 "
-                 "연결하세요. 필요한 캐릭터가 모두 확정되어야 실행됩니다. 대본·장면은 별도로 "
-                 "원문을 연결하세요. 이미지 입력 지원 모델이 필요합니다.",
-        "available": True, "execution_available": True, "dependencies": [],
-        "side_effect": "read", "cost": "free", "unavailable_reason": "",
-        "input_schema": {"type": "object", "properties": {
-            "project_id": {"type": "string", "description": "캐릭터 결과의 프로젝트 ID"}},
-            "required": ["project_id"]},
-        "output_schema": {"type": "object", "properties": {
-            "format": {"type": "string"}, "project_id": {"type": "string"},
-            "source_request_id": {"type": "string"}, "source_version": {"type": "integer"},
-            "characters": {"type": "array", "maxItems": 12,
-                           "items": {"type": "object", "properties": props}}}},
+        "연결하세요. 필요한 캐릭터가 모두 확정되어야 실행됩니다. 대본·장면은 별도로 "
+        "원문을 연결하세요. 이미지 입력 지원 모델이 필요합니다.",
+        "available": True,
+        "execution_available": True,
+        "dependencies": [],
+        "side_effect": "read",
+        "cost": "free",
+        "unavailable_reason": "",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "string", "description": "캐릭터 결과의 프로젝트 ID"}
+            },
+            "required": ["project_id"],
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "format": {"type": "string"},
+                "project_id": {"type": "string"},
+                "source_request_id": {"type": "string"},
+                "source_version": {"type": "integer"},
+                "characters": {
+                    "type": "array",
+                    "maxItems": 12,
+                    "items": {"type": "object", "properties": props},
+                },
+            },
+        },
     }
 
 
 def image_content(repo: Any, value: Any) -> list[dict[str, Any]]:
     """Attach assets only for explicit handoff envelopes; never fetch arbitrary URLs."""
     import base64
+
     images: dict[str, dict[str, Any]] = {}
 
     def visit(node: Any) -> None:
@@ -74,16 +125,31 @@ def image_content(repo: Any, value: Any) -> list[dict[str, Any]]:
             from asa.registry.character_library import SELECTION_FORMAT, selected_handoff
             from asa.registry.scene_selection import FORMAT as SCENE_FORMAT
             from asa.registry.scene_selection import selected_scenes
+
             if node.get("format") == SCENE_FORMAT:
                 try:
-                    ids = [UUID(c["image_id"]) for c in node["scenes"]]
+                    ids = [UUID(c.get("base_image_id", c["image_id"])) for c in node["scenes"]]
+                    overrides = {
+                        UUID(c["base_image_id"]): UUID(c["image_id"])
+                        for c in node["scenes"]
+                        if c.get("base_image_id")
+                    }
                 except (KeyError, ValueError, TypeError):
                     raise RegistryError(422, "scene_selection_invalid") from None
-                current = selected_scenes(repo, ids)
+                current = (
+                    selected_scenes(repo, ids, overrides)
+                    if overrides
+                    else selected_scenes(repo, ids)
+                )
                 if node != current:
                     raise RegistryError(409, "character_handoff_changed")
                 for scene in current["scenes"]:
-                    images[scene["image_id"]] = {**scene, "media_label": "확정 씬"}
+                    images[scene["image_id"]] = {
+                        **scene,
+                        "media_label": "씬별 선택 이미지"
+                        if scene.get("base_image_id")
+                        else "확정 씬",
+                    }
             elif node.get("format") == SELECTION_FORMAT:
                 try:
                     ids = [UUID(c["image_id"]) for c in node["characters"]]
@@ -118,19 +184,31 @@ def image_content(repo: Any, value: Any) -> list[dict[str, Any]]:
         for image_id, char in images.items():
             row = conn.execute(
                 "SELECT image FROM character_image_jobs WHERE workspace_id=%s "
-                "AND id=%s AND status='succeeded'", (repo.workspace_id, UUID(image_id)),
+                "AND id=%s AND status='succeeded'",
+                (repo.workspace_id, UUID(image_id)),
             ).fetchone()
             if not row:
-                row = conn.execute('SELECT image FROM character_reference_uploads '
-                                   'WHERE workspace_id=%s AND id=%s',
-                                   (repo.workspace_id, UUID(image_id))).fetchone()
+                row = conn.execute(
+                    "SELECT image FROM character_reference_uploads WHERE workspace_id=%s AND id=%s",
+                    (repo.workspace_id, UUID(image_id)),
+                ).fetchone()
             if not row or not row["image"]:
                 raise RegistryError(409, "character_handoff_image_missing")
-            content.extend([
-                {"type": "text", "text": f"{char.get('media_label', '캐릭터')} {char['name']} "
-                 f"({char['id']}) "
-                 f"기준 이미지 v{char['image_version']} · {char.get('image_change', '')}"},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64," +
-                 base64.b64encode(bytes(row["image"])).decode()}},
-            ])
+            content.extend(
+                [
+                    {
+                        "type": "text",
+                        "text": f"{char.get('media_label', '캐릭터')} {char['name']} "
+                        f"({char['id']}) "
+                        f"기준 이미지 v{char['image_version']} · {char.get('image_change', '')}",
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": "data:image/png;base64,"
+                            + base64.b64encode(bytes(row["image"])).decode()
+                        },
+                    },
+                ]
+            )
     return content

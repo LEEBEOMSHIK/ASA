@@ -31,20 +31,46 @@ AUTOMATION_ANSWERS = """
 """
 
 
+def _title(value: Any) -> str:
+    if not isinstance(value, str):
+        return ''
+    value = value.strip().strip('*').strip()
+    return '' if value in {'미제공', '미정', '없음', '제목 없음', '제목 미제공'} else value
+
+
+def _text_title(text: str) -> str:
+    # Accept both **제목:** 작품 and **제목: 작품** before considering headings.
+    match = re.search(r'^\s*(?:[-*]\s+|#{1,6}\s+)?\**(?:작품\s*)?제목\**\s*[:：]\**[ \t]*(.+)$',
+                      text, re.MULTILINE)
+    if match and (explicit := _title(match[1])):
+        return explicit
+    first = text.lstrip().partition('\n')[0].strip()
+    if first.startswith('# '):
+        heading = _title(first[2:])
+        if (not re.match(r'^(?:[A-Z]|\d+)[.)]\s|^(?:씬|장면)\s*\d+', heading)
+                and heading not in {'전체 구성 요약', '전체 구성', '공통 시각 설정',
+                                    '장면 구성', '대본'}):
+            return heading
+    return ''
+
+
 def work_summary(answer: Any, title: str | None, request: Any) -> dict[str, str]:
     """Use saved content to identify a work item; never generate a new title with AI."""
     values = request.values() if isinstance(request, dict) else [request]
     summary = ' · '.join(v.strip() for v in values if isinstance(v, str) and v.strip())
-    heading = answer.get('title') if isinstance(answer, dict) else None
-    if not isinstance(heading, str) or not heading.strip():
-        heading = title or ''
-    if not heading and isinstance(answer, str):
-        heading = next((line.lstrip('# ').strip() for line in answer.splitlines()
-                        if line.startswith('# ')), '')
-        if not heading:
-            match = re.search(r'^\s*\*\*제목:\s*(.+?)\*\*', answer, re.MULTILINE)
-            heading = match.group(1) if match else ''
-    heading = heading.strip() or summary or '제목 없는 작업'
+    fields = answer if isinstance(answer, dict) else {}
+    heading = _title(fields.get('title')) or _title(fields.get('제목')) or _title(title)
+    body = answer if isinstance(answer, str) else fields.get('result')
+    if not heading and isinstance(body, str):
+        heading = _text_title(body)
+    if not heading and isinstance(request, dict):
+        script = request.get('script')
+        if isinstance(script, str):
+            heading = _text_title(script)
+            if not heading:
+                line = next((line.strip() for line in script.splitlines() if line.strip()), '')
+                heading = f'대본 발췌 · {line[:72]}' if line else ''
+    heading = heading or summary or '제목 없는 작업'
     return {'title': heading[:120], 'request_preview': summary[:240]}
 
 

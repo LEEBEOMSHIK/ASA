@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from asa.config import Settings
+from asa.registry.input_requirements import conditional_fields, has_input_value, required_fields
 from asa.registry.schemas import ValidationIssue
 from asa.registry.service import safe_number
 
@@ -161,7 +162,13 @@ def validate_graph(graph: GraphDefinition, tools: list[dict[str, Any]],
                 issue(n.id, "사용 가능한 도구를 선택하세요.")
             else:
                 schema = tool["input_schema"]
-                required = schema.get("required", []) if schema.get("type") == "object" else ["$"]
+                literals = {key: binding.value for key, binding in n.bindings.items()
+                            if binding.source == "literal"}
+                required = (required_fields(schema, literals)
+                            if schema.get("type") == "object" else {"$"})
+                for key in conditional_fields(schema, literals) & literals.keys():
+                    if not has_input_value(literals[key]):
+                        issue(n.id, "현재 조건에서 필수인 입력값을 채워 주세요.")
                 if not set(required) <= n.bindings.keys():
                     issue(n.id, "필수 입력을 연결하세요.")
                 for key, binding in n.bindings.items():

@@ -1,7 +1,7 @@
 "use client";
 import { useRef, useState } from "react";
 import { api, message, type SchemaNode } from "../lib/registry";
-import { Button, ExternalLink, Field } from "./ui";
+import { Button, ExternalLink, Field, InputRequirement } from "./ui";
 import { videoLinkLabel } from "../lib/video-link";
 
 export function isVideoReference(node: SchemaNode): boolean {
@@ -69,7 +69,7 @@ export function VideoInput({multiple=false,id,label,required,value,onChange}:Pro
   }
   const full=list.length>=limit;
   return <fieldset className="video-reference-input" aria-describedby={id+"-source-rule"}>
-    <legend><span className="video-input-heading">{label}<small>{required?"필수":"선택"} · {multiple?(required?"총 1~5개":"최대 5개"):"1개"}</small></span></legend>
+    <legend><span className="video-input-heading">{label}<InputRequirement required={required}/><small>{multiple?(required?"총 1~5개":"최대 5개"):"1개"}</small></span></legend>
     <p id={id+"-source-rule"} className="video-input-guide">{multiple
       ? "파일만 올려도, 공개 링크만 추가해도 됩니다. 두 방식을 섞어도 됩니다."
       : "파일을 올리거나 공개 링크를 추가하세요. 한 가지 방법이면 충분합니다."}</p>

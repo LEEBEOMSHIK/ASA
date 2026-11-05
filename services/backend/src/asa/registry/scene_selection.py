@@ -14,13 +14,22 @@ FORMAT = "asa_scene_selection_v1"
 class SceneSelection(BaseModel):
     model_config = ConfigDict(extra="forbid")
     image_ids: list[UUID] = Field(min_length=1, max_length=32)
+    version_overrides: dict[UUID, UUID] = Field(default_factory=dict, max_length=32)
 
 
-def selected_scenes(repo: Any, image_ids: list[UUID]) -> dict[str, Any]:
+def selected_scenes(
+    repo: Any, image_ids: list[UUID], version_overrides: dict[UUID, UUID] | None = None
+) -> dict[str, Any]:
     from asa.registry.characters import CharacterRepository
 
     if not 1 <= len(image_ids) <= 32 or len(set(image_ids)) != len(image_ids):
         raise RegistryError(422, "scene_selection_invalid")
+    overrides = version_overrides or {}
+    if not set(overrides).issubset(image_ids):
+        raise RegistryError(422, "scene_selection_invalid")
+    if any(base != selected for base, selected in overrides.items()):
+        raise RegistryError(422, "scene_single_confirmed_version_required")
+    requested = list(set(image_ids))
     source = CharacterRepository(repo.dsn, repo.workspace_id)
     with source._connect() as conn:
         conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
@@ -28,10 +37,10 @@ def selected_scenes(repo: Any, image_ids: list[UUID]) -> dict[str, Any]:
             "SELECT id,project_id,character_id,scene_context FROM "
             "character_image_jobs WHERE workspace_id=%s AND id=ANY(%s) "
             "AND status='succeeded' AND image IS NOT NULL",
-            (repo.workspace_id, image_ids),
+            (repo.workspace_id, requested),
         ).fetchall()
         indexed = {row["id"]: row for row in rows}
-        if len(indexed) != len(image_ids):
+        if len(indexed) != len(requested):
             raise RegistryError(404, "scene_selection_missing")
         projects = {r["project_id"]: source.project(r["project_id"], conn) for r in rows}
         scenes = []

@@ -21,6 +21,7 @@ from asa.tools.catalog import inspect_text
 from asa.tools.character_handoff import HANDOFF_ID, image_content, read_handoff
 from asa.tools.model_search import search_answer
 from asa.tools.search import SEARCH_ID, search_ready, web_search
+from asa.video_prompt_modules import bundled_instructions, prepare_video_prompt_tool
 
 
 class State(TypedDict):
@@ -62,7 +63,7 @@ def generate(repo: RunRepository, tool: dict[str, Any], value: Any) -> Any:
                     if attachments else ("human", text))
     with tracing_context(enabled=False):
         result = model.with_structured_output(schema).invoke([
-            ("system", tool["definition"]["instructions"]), request,
+            ("system", bundled_instructions(tool)), request,
         ], **call_config())
     if not isinstance(result, dict):
         raise ValueError("invalid_output")
@@ -171,6 +172,10 @@ def process(repo: RunRepository) -> bool:
                     output = web_search(repo.settings, actual)
                     row.update(provider=repo.settings.search_provider)
                 else:
+                    tool = prepare_video_prompt_tool(tool, actual)
+                    if "video_prompt_bundle" in tool:
+                        row["video_prompt_bundle"] = tool["video_prompt_bundle"]
+                        persist("running", cursor)
                     output = observed_generate(repo, run, tool, step["id"], actual, generate)
                     row.update(provider=tool["provider"], model=tool["model"])
             else:

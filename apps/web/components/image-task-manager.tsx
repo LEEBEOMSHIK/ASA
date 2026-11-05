@@ -13,11 +13,12 @@ type Props = {
   project: {id:string;characters:BatchProps["characters"];jobs:ApprovalProps["jobs"];excluded:string[];blocked?:Record<string,string[]>;approved:ApprovalProps["approved"];reviews:ApprovalProps["reviews"];work_progress:ApprovalProps["progress"]};
   options: {models:string[];enabled:boolean};
   currentId?:string; onSelect:(id:string)=>void;
+  getReferenceOverrides?:BatchProps["getReferenceOverrides"];
   getDraft:BatchProps["getDraft"]; refresh:()=>Promise<void>;
 };
 
 /** Shared manager for image-producing workflows; task adapters supply labels and data. */
-export function ImageTaskManager({title,unit,project,options,currentId,onSelect,getDraft,refresh}:Props) {
+export function ImageTaskManager({title,unit,project,options,currentId,onSelect,getDraft,getReferenceOverrides,refresh}:Props) {
   const [batchMode,setBatchMode]=useState<"generate"|"approve"|null>(null);
   function imagePicker(selection?:{eligible:string[];selected:string[];toggle:(id:string)=>void;busy:boolean;images?:Record<string,{id:string;version:number}>}) {
     return <nav className={`character-picker scene-manager-picker${selection?.images ? " image-review-picker" : ""}`} aria-label={selection?`작업할 ${unit} 선택`:`작업할 ${unit}`}>{project.characters.map(c=>{
@@ -36,7 +37,7 @@ export function ImageTaskManager({title,unit,project,options,currentId,onSelect,
   return (
       <div className="image-batch-tools" role="region" aria-label={title}>
       <h3 className="image-batch-tools-title">{title} · {project.characters.length}개</h3>
-      <CharacterBatch renderPicker={(eligible,selected,toggle,busy)=>imagePicker({eligible,selected,toggle,busy})} controlledOpen={batchMode==="generate"} onToggle={()=>setBatchMode(v=>v==="generate"?null:"generate")} unit={unit} blocked={project.blocked} key={project.id} projectId={project.id} characters={project.characters} excluded={project.excluded} jobs={project.jobs} models={options.models} enabled={options.enabled} getDraft={getDraft} refresh={refresh}/>
+      <CharacterBatch renderPicker={(eligible,selected,toggle,busy)=>imagePicker({eligible,selected,toggle,busy})} controlledOpen={batchMode==="generate"} onToggle={()=>setBatchMode(v=>v==="generate"?null:"generate")} unit={unit} blocked={project.blocked} key={project.id} projectId={project.id} characters={project.characters} excluded={project.excluded} jobs={project.jobs} models={options.models} enabled={options.enabled} getDraft={getDraft} getReferenceOverrides={getReferenceOverrides} refresh={refresh}/>
       <ImageBatchApproval renderPicker={(candidates,selected,toggle,busy)=>imagePicker({eligible:candidates.map(c=>c.job.character_id),selected:candidates.filter(c=>selected.includes(c.job.id)).map(c=>c.job.character_id),toggle:id=>{const c=candidates.find(c=>c.job.character_id===id);if(c)toggle(c.job.id);},busy,images:Object.fromEntries(candidates.map(c=>[c.job.character_id,c.job]))})} controlledOpen={batchMode==="approve"} onToggle={()=>setBatchMode(v=>v==="approve"?null:"approve")} key={`approval-${project.id}`} characters={project.characters} jobs={project.jobs} approved={project.approved} excluded={project.excluded} progress={project.work_progress} reviews={project.reviews || []} refresh={refresh}/>
       <div className="scene-status-summary" role="status" aria-label={`${title} 상태 요약`}>{([
         ["pending","미생성"],["queued","생성 대기"],["running","생성 중"],["review","검토 필요"],["approved","확정"],["failed","실패"],["unknown","결과 확인 필요"],["excluded","제외"]

@@ -14,6 +14,12 @@ from asa.registry.graph_automation import (
     preview_graph,
     validate_graph,
 )
+from asa.registry.input_requirements import (
+    conditional_fields,
+    has_input_value,
+    required_fields,
+    requirements_met,
+)
 from asa.registry.model_catalog import effective_settings
 from asa.registry.repository import RegistryRepository
 from asa.registry.schemas import RegistryError, ValidationIssue
@@ -48,7 +54,7 @@ def accepts(value: Any, schema: dict[str, Any]) -> bool:
     kind = schema.get("type")
     if kind == "object":
         props = schema.get("properties", {})
-        return (isinstance(value, dict) and set(schema.get("required", [])) <= value.keys()
+        return (isinstance(value, dict) and requirements_met(schema, value)
                 and value.keys() <= props.keys()
                 and all(accepts(v, props[k]) for k, v in value.items()))
     if kind == "array":
@@ -92,7 +98,12 @@ def check_flow(draft: Automation, tools: list[dict[str, Any]],
             continue
         schema = tool["input_schema"]
         target_fields = fields(schema)
-        required = schema.get("required", []) if schema.get("type") == "object" else ["$"]
+        literals = {key: binding.value for key, binding in step.bindings.items()
+                    if binding.source == "literal"}
+        required = required_fields(schema, literals) if schema.get("type") == "object" else {"$"}
+        for key in conditional_fields(schema, literals) & literals.keys():
+            if not has_input_value(literals[key]):
+                issue(f"{path}.{key}", "현재 조건에서 필수인 입력값을 채워 주세요.")
         for key in required:
             if key not in step.bindings:
                 issue(f"{path}.{key}", "필수 입력의 출처를 선택하세요.")

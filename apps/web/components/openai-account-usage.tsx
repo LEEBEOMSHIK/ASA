@@ -41,20 +41,31 @@ export function OpenAIAccountUsage() {
     return ()=>{active=false;clearInterval(timer);};
   },[refresh]);
   const data=snapshot?.data;
+  const connected = !!(snapshot?.configured && data && snapshot.last_synced_at && !snapshot.stale);
+  const status = busy ? "조회 중" : failure ? "연결 확인 필요"
+    : snapshot?.error_code === "not_configured" ? "연결 필요"
+    : snapshot?.error_code ? "갱신 실패" : connected ? "연결됨" : "조회 전";
+  const tone = busy ? "neutral" : failure || snapshot?.error_code ? "warning" : connected ? "success" : "neutral";
   return <section className="official-usage" aria-label="OpenAI 공식 집계">
     <Card>
-      <div className="usage-heading"><div><h2>OpenAI 공식 집계</h2><p className="muted">공급자가 집계한 사용 비용입니다. 충전 잔액이나 ASA 요청별 예상 비용과는 다릅니다.</p></div>
+      <div className="usage-heading"><div><div className="official-usage-title">
+        <h2>OpenAI 공식 집계</h2>
+        <StatusBadge tone={tone}>{status}</StatusBadge>
+        {snapshot?.stale && <StatusBadge tone="warning">이전 정상 데이터</StatusBadge>}
+      </div><p className="muted">공급자가 집계한 사용 비용입니다. 충전 잔액이나 ASA 요청별 예상 비용과는 다릅니다.</p></div>
         <Button variant="secondary" disabled={busy} onClick={()=>setRefresh(v=>v+1)}>공식 집계 새로고침</Button></div>
-      <div className="badge-row"><StatusBadge tone={snapshot?.error_code||failure?"warning":"neutral"}>{busy?"조회 중":failure?"연결 확인 필요":snapshot?.error_code==="not_configured"?"연결 필요":snapshot?.error_code?"갱신 실패":snapshot?"연결됨":"조회 전"}</StatusBadge>
-        {snapshot?.stale && <StatusBadge tone="warning">이전 정상 데이터</StatusBadge>}</div>
       <p className="muted">조회 범위: {snapshot?.project_id?`프로젝트 ${snapshot.project_id}`:"OpenAI 조직 전체"} · 날짜 기준 UTC · 화면을 보는 동안 15분마다 갱신</p>
       <p className="helper-text">다른 서비스의 API 사용이 포함될 수 있습니다. 기존 ASA 예상 비용과 더하지 마세요. 공급자의 집계 반영은 지연될 수 있습니다.</p>
       {busy && <p role="status">공식 사용량을 확인하고 있습니다…</p>}
       {(failure||snapshot?.error_code) && <p role="alert">{failure||errors[snapshot!.error_code!]||"공식 데이터를 확인할 수 없습니다."}</p>}
       {failure&&data&&<p className="muted">연결 실패로 마지막 조회 데이터를 표시합니다.</p>}
-      <div className="official-usage-links"><ExternalLink href="https://platform.openai.com/settings/organization/billing/overview">충전 잔액·결제 확인</ExternalLink><ExternalLink href="https://platform.openai.com/settings/organization/usage">OpenAI 사용량 화면</ExternalLink></div>
+      <div className="official-usage-links"><ExternalLink href="https://platform.openai.com/settings/organization/billing/overview">결제 개요</ExternalLink><ExternalLink href="https://platform.openai.com/settings/organization/usage">OpenAI 사용량 화면</ExternalLink></div>
       <p className="helper-text">마지막 정상 조회: {snapshot?.last_synced_at?new Date(snapshot.last_synced_at).toLocaleString("ko-KR"):"아직 없음"}</p>
       <details className="official-usage-setup"><summary>연결 설정 안내</summary><p>서버 환경변수 ASA_OPENAI_ADMIN_API_KEY에 별도 Admin API Key를 설정한 뒤 API 서버를 재시작하세요. 이 화면에는 키를 입력하지 않습니다.</p><p>ASA_OPENAI_USAGE_PROJECT_ID를 설정하면 해당 프로젝트만 조회합니다. 생략하면 조직 전체를 조회합니다. 계정 공식 집계는 소유자 전용입니다.</p><p>새로고침은 최소 30초 간격으로 공급자를 조회합니다. 서버 재시작 시 캐시는 초기화됩니다.</p><ExternalLink href="https://platform.openai.com/settings/organization/admin-keys">Admin API Key 관리</ExternalLink></details>
+    </Card>
+    <Card><h3>혜택 크레딧 잔액</h3>
+      <p className="muted">사용량 조회에는 혜택 잔액이 포함되지 않습니다. 혜택을 연결한 OpenAI 조직의 Credit grants에서 남은 금액과 만료일을 확인하세요.</p>
+      <ExternalLink href="https://platform.openai.com/settings/organization/billing/credit-grants">OpenAI에서 혜택 잔액 확인</ExternalLink>
     </Card>
     {data && <>
       <div className="usage-metrics">{[["today","오늘"],["month","이번 달"],["days7","최근 7일"],["days30","최근 30일"]].map(([key,label])=><Card key={key}><span>{label} · 공식 집계 USD</span><strong>{money(data.costs[key])}</strong></Card>)}</div>

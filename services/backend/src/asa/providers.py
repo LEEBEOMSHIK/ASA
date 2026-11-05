@@ -9,6 +9,7 @@ from asa.config import Settings
 from asa.models import AgentAnswer, Script
 from asa.registry.history import valid_input
 from asa.telemetry import call_config
+from asa.video_prompt_modules import bundled_instructions
 
 
 def make_script_generator(settings: Settings) -> Callable[[str], Script]:
@@ -96,7 +97,7 @@ def make_agent_generator(
         human: Any = (HumanMessage(content=[{'type': 'text', 'text': text}, *attachments])
                       if attachments else ('human', text))
         messages: list[Any] = [
-            ("system", contract['agent_instructions']),
+            ("system", bundled_instructions(contract)),
             human,
         ]
         if video_constraints:

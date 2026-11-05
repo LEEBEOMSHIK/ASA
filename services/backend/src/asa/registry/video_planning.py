@@ -1,8 +1,10 @@
 """Authenticated, non-generating video request preparation."""
-import json
-import httpx
-from typing import Any
 
+import json
+from typing import Any
+from uuid import UUID
+
+import httpx
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -23,8 +25,12 @@ def profile(settings: Settings, key: str, revision: str) -> VideoModelProfile:
     return model
 
 
-def prepare(repo: RegistryRepository, settings: Settings,
-            body: VideoPreparation) -> dict[str, Any]:
+def prepare(
+    repo: RegistryRepository,
+    settings: Settings,
+    body: VideoPreparation,
+    source_selection: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     model = profile(settings, body.model_key, body.model_revision)
     if body.aspect_ratio not in model.aspect_ratios:
         raise RegistryError(422, "video_aspect_ratio_unsupported")
@@ -32,7 +38,25 @@ def prepare(repo: RegistryRepository, settings: Settings,
         raise RegistryError(422, "video_audio_unsupported")
     ids = list(dict.fromkeys(clip.image_id for clip in body.clips))
     # Server resolves current approval, exclusion and workspace ownership; no client URLs.
-    selected = selected_scenes(repo, ids)
+    if source_selection is None:
+        selected = selected_scenes(repo, ids)
+    else:
+        try:
+            sources = {s["image_id"]: s for s in source_selection["scenes"]}
+            requested = [sources[str(i)] for i in ids]
+            bases = [UUID(s.get("base_image_id", s["image_id"])) for s in requested]
+            overrides = {
+                UUID(s["base_image_id"]): UUID(s["image_id"])
+                for s in requested
+                if s.get("base_image_id")
+            }
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RegistryError(422, "video_scene_reference_mismatch") from exc
+        selected = (
+            selected_scenes(repo, bases, overrides) if overrides else selected_scenes(repo, bases)
+        )
+        if selected["scenes"] != requested:
+            raise RegistryError(409, "video_scene_reference_mismatch")
     images = {scene["image_id"]: scene for scene in selected["scenes"]}
     prepared = []
     for clip in body.clips:
@@ -43,44 +67,54 @@ def prepare(repo: RegistryRepository, settings: Settings,
             raise RegistryError(422, "video_duration_unsupported")
         if not clip.prompt.strip():
             raise RegistryError(422, "video_prompt_limit")
-        prompt = "\n\n".join(part for part in (
-            clip.prompt.strip(),
-            f"시작 상태 / Start: {clip.continuity_in}" if clip.continuity_in else "",
-            f"종료 상태 / End: {clip.continuity_out}" if clip.continuity_out else "",
-        ) if part)
+        prompt = "\n\n".join(
+            part
+            for part in (
+                clip.prompt.strip(),
+                f"시작 상태 / Start: {clip.continuity_in}" if clip.continuity_in else "",
+                f"종료 상태 / End: {clip.continuity_out}" if clip.continuity_out else "",
+            )
+            if part
+        )
         if not prompt or len(prompt) > model.max_prompt_chars:
             raise RegistryError(422, "video_prompt_limit")
-        prepared.append({
-            "clip_id": clip.clip_id,
-            "scene_id": clip.scene_id,
-            "shot_id": clip.shot_id,
-            "source_excerpt": clip.source_excerpt,
-            "source_start_seconds": clip.source_start_seconds,
-            "source_end_seconds": clip.source_end_seconds,
-            "trim_seconds": clip.duration_seconds - (
-                clip.source_end_seconds - clip.source_start_seconds),
-            "split_reason": clip.split_reason,
-            # This is an internal snapshot, never sent wholesale to the provider.
-            "reference_snapshot": image,
-            "generation_input": {
-                "prompt": prompt,
-                "duration_seconds": clip.duration_seconds,
-                "aspect_ratio": body.aspect_ratio,
-                "resolution": model.resolution,
-                "audio": body.audio,
-                "start_image_id": str(clip.image_id),
-            },
-        })
-    return {"format": "asa_video_preparation_v1", "status": "prepared_not_submitted",
-            "model_key": body.model_key, "model_snapshot": model.model_dump(),
-            "clips": prepared, "generation_started": False}
+        prepared.append(
+            {
+                "clip_id": clip.clip_id,
+                "scene_id": clip.scene_id,
+                "shot_id": clip.shot_id,
+                "source_excerpt": clip.source_excerpt,
+                "source_start_seconds": clip.source_start_seconds,
+                "source_end_seconds": clip.source_end_seconds,
+                "trim_seconds": clip.duration_seconds
+                - (clip.source_end_seconds - clip.source_start_seconds),
+                "split_reason": clip.split_reason,
+                # This is an internal snapshot, never sent wholesale to the provider.
+                "reference_snapshot": image,
+                "generation_input": {
+                    "prompt": prompt,
+                    "duration_seconds": clip.duration_seconds,
+                    "aspect_ratio": body.aspect_ratio,
+                    "resolution": model.resolution,
+                    "audio": body.audio,
+                    "start_image_id": str(clip.image_id),
+                },
+            }
+        )
+    return {
+        "format": "asa_video_preparation_v1",
+        "status": "prepared_not_submitted",
+        "model_key": body.model_key,
+        "model_snapshot": model.model_dump(),
+        "clips": prepared,
+        "generation_started": False,
+    }
 
 
 def planner_constraints(settings: Settings, contract: dict[str, Any]) -> str | None:
     """Opt-in schema marker. Never infer video behavior from an agent's name."""
     properties = contract.get("input_schema", {}).get("properties", {})
-    fields = [key for key, value in properties.items()
-              if value.get("x-video-model") is True]
+    fields = [key for key, value in properties.items() if value.get("x-video-model") is True]
     if not fields:
         return None
     if len(fields) != 1:
@@ -117,15 +151,26 @@ def video_planning_router(settings: Settings, sessions: OwnerSessions) -> APIRou
     def models(principal: Principal = Depends(sessions.principal)) -> dict[str, Any]:
         repo = RegistryRepository(settings.database_url, principal.workspace_id)
         with repo._connect() as conn:
-            online = conn.execute("SELECT 1 FROM pg_stat_activity WHERE datname=current_database() "
-                                  "AND application_name=%s LIMIT 1",
-                                  (f"asa-video-{repo.workspace_id}",)).fetchone() is not None
-        return {"models": [{"key": key, **model.model_dump()}
-                           for key, model in settings.video_model_profiles.items()
-                           if model.enabled], "worker_online": online,
-                "key_configured": bool(settings.runway_api_key.get_secret_value()),
-                "enabled": settings.video_ai_enabled, "generation_available": settings.video_ai_enabled
-                and bool(settings.runway_api_key.get_secret_value())}
+            online = (
+                conn.execute(
+                    "SELECT 1 FROM pg_stat_activity WHERE datname=current_database() "
+                    "AND application_name=%s LIMIT 1",
+                    (f"asa-video-{repo.workspace_id}",),
+                ).fetchone()
+                is not None
+            )
+        return {
+            "models": [
+                {"key": key, **model.model_dump()}
+                for key, model in settings.video_model_profiles.items()
+                if model.enabled
+            ],
+            "worker_online": online,
+            "key_configured": bool(settings.runway_api_key.get_secret_value()),
+            "enabled": settings.video_ai_enabled,
+            "generation_available": settings.video_ai_enabled
+            and bool(settings.runway_api_key.get_secret_value()),
+        }
 
     @router.post("/runway-connection")
     def runway_connection(principal: Principal = Depends(sessions.principal)) -> dict[str, str]:
@@ -133,9 +178,11 @@ def video_planning_router(settings: Settings, sessions: OwnerSessions) -> APIRou
         if not key:
             return {"status": "missing"}
         try:
-            response = httpx.get("https://api.dev.runwayml.com/v1/organization",
-                                 headers={"Authorization": f"Bearer {key}",
-                                          "X-Runway-Version": "2024-11-06"}, timeout=5)
+            response = httpx.get(
+                "https://api.dev.runwayml.com/v1/organization",
+                headers={"Authorization": f"Bearer {key}", "X-Runway-Version": "2024-11-06"},
+                timeout=5,
+            )
         except httpx.HTTPError:
             return {"status": "unreachable"}
         if response.status_code == 200:
@@ -143,16 +190,21 @@ def video_planning_router(settings: Settings, sessions: OwnerSessions) -> APIRou
         return {"status": "denied" if response.status_code in (401, 403) else "unreachable"}
 
     @router.post("/durations")
-    def durations(body: DurationRequest,
-                  principal: Principal = Depends(sessions.principal)) -> dict[str, Any]:
+    def durations(
+        body: DurationRequest, principal: Principal = Depends(sessions.principal)
+    ) -> dict[str, Any]:
         model = profile(settings, body.model_key, body.model_revision)
-        return {"clips": duration_plan(body.seconds, model.durations),
-                "notice": "길이 배분 제안입니다. 대사와 동작의 분할은 별도로 검토하세요."}
+        return {
+            "clips": duration_plan(body.seconds, model.durations),
+            "notice": "길이 배분 제안입니다. 대사와 동작의 분할은 별도로 검토하세요.",
+        }
 
     @router.post("/prepare")
-    def preparation(body: VideoPreparation,
-                    principal: Principal = Depends(sessions.principal)) -> dict[str, Any]:
-        return prepare(RegistryRepository(settings.database_url, principal.workspace_id),
-                       settings, body)
+    def preparation(
+        body: VideoPreparation, principal: Principal = Depends(sessions.principal)
+    ) -> dict[str, Any]:
+        return prepare(
+            RegistryRepository(settings.database_url, principal.workspace_id), settings, body
+        )
 
     return router

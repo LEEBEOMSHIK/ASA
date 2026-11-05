@@ -8,12 +8,13 @@ import { ImageModelSelect } from "./image-model-select";
 import { itemStateLabel, progressLabel, progressCounts, type WorkProgress } from "../lib/work-progress";
 import "./character-studio.css";
 import { CharacterHandoff } from "./character-handoff";
+import { SceneReferenceVersions, type UsedReference } from "./scene-reference-versions";
 import { ImageTaskManager } from "./image-task-manager";
 
 type Character = { id: string; name: string; facts: string; appearance: string; proposed: string; scene_ids: string; image_prompt: string };
-type Job = ImageJob & { review_error_code?:string|null; id: string; character_id: string; version: number; model: string; character: Character; change: string; base_id: string | null; status: string; error_code: string | null; estimated_usd: string | null };
-type SceneSource = {script:string;script_matched:boolean;scene:string;scene_matched:boolean;characters:{id:string;name:string;image_id:string|null}[]};
-type Project = { scene_sources?:Record<string,SceneSource>; kind: "character"|"scene"; blocked?:Record<string,string[]>; context?:{plan:{summary:string;checks:string[];shots:{scene_id:string;shot_id:string;video_notes:string;review_notes:string}[]};input:{aspect_ratio?:string}}; reviews: AssetReview[]; review_config: {agent_ref:string;mode:string}|null; id: string; name: string; request_id: string; source_version: number; characters: Character[]; approved: Record<string,string>; jobs: Job[]; worker_online: boolean; excluded: string[]; work_progress: WorkProgress };
+type Job = ImageJob & { scene_context?:{reference_overrides?:Record<string,string>;references?:{characters:UsedReference[]}}; review_error_code?:string|null; id: string; character_id: string; version: number; model: string; character: Character; change: string; base_id: string | null; status: string; error_code: string | null; estimated_usd: string | null };
+type SceneSource = {script:string;script_matched:boolean;scene:string;scene_matched:boolean;characters:{id:string;name:string;image_id:string|null;role?:string}[]};
+type Project = { scene_sources?:Record<string,SceneSource>; kind: "character"|"scene"; blocked?:Record<string,string[]>; context?:{plan:{summary:string;checks:string[];shots:{scene_id:string;shot_id:string;video_notes:string;review_notes:string}[]};input:{aspect_ratio?:string}}; reviews: AssetReview[]; review_config: {agent_ref:string;mode:string}|null; id: string; name: string; request_id: string; source_version: number; characters: Character[]; approved: Record<string,string>; approved_versions?: Record<string,string[]>; jobs: Job[]; worker_online: boolean; excluded: string[]; work_progress: WorkProgress };
 type Options = { agents: Tool[]; models: string[]; enabled: boolean };
 type LibraryEntry = {id:string;name:string;request_id:string;source_version:number};
 const states: Record<string,string> = {queued:"이미지 생성 대기", running:"이미지 생성 중", succeeded:"검토 가능", failed:"생성 실패", unknown:"호출 결과 확인 필요", cancelled:"생성 취소됨"};
@@ -44,6 +45,7 @@ export function CharacterResults({requestId,version,scene=false}:{requestId:stri
   const [activeId,setActiveId]=useState("");
   const [retry,setRetry]=useState(0);
   const drafts=useRef<Record<string,Character>>({});
+  const referenceDrafts=useRef<Record<string,Record<string,string>>>({});
   async function refresh() {if(project){const p=await api<Project>(`/characters/projects/${project.id}`);setProject(p);}}
   useEffect(()=>{
     let alive=true;
@@ -65,7 +67,7 @@ export function CharacterResults({requestId,version,scene=false}:{requestId:stri
   },[project?.id]);
   const activeIndex=Math.max(0,project?.characters.findIndex(c=>c.id===activeId) ?? 0);
   const currentId=project?.characters[activeIndex]?.id;
-  return <section id={scene?"followup-scene_images":"followup-character_images"} className="character-studio" aria-label={scene?"씬별 이미지":"등장인물과 기준 이미지"}><div className="character-heading"><h2>{scene?"씬별 이미지":"등장인물과 기준 이미지"}</h2>{!scene && <a className="button button--secondary" href="/characters">캐릭터 보관함</a>}</div>
+  return <section id={scene?"followup-scene_images":"followup-character_images"} className="character-studio" aria-label={scene?"씬별 이미지":"등장인물과 기준 이미지"}><div className="character-heading"><h2>{scene?"씬별 이미지":"등장인물과 기준 이미지"}</h2><a className="button button--secondary" href={scene?"/characters?view=scenes":"/characters"}>이미지 보관함</a></div>
     {error && <p role="alert" className="notice">{error}{!project && <Button variant="secondary" onClick={()=>setRetry(n=>n+1)}>다시 불러오기</Button>}</p>}
     {!project && !error && <p role="status">이미지 작업을 불러오는 중…</p>}
     {project && <><div className="character-overview">
@@ -73,22 +75,24 @@ export function CharacterResults({requestId,version,scene=false}:{requestId:stri
       <div className="character-progress" role="status"><strong>{progressLabel(project.work_progress)}</strong><p>{progressCounts(project.work_progress)}</p></div>
       {!scene && <CharacterHandoff project={project}/>}
       {scene && project.context && <div className="scene-preflight"><strong>AI 분석 요약 · 참고</strong><p>{project.context.plan.summary}</p><details><summary>AI 참고 의견 보기</summary><ul>{project.context.plan.checks.map((c,i)=><li key={i}>{c}</li>)}</ul></details><p className="helper-text">AI 의견은 참고용이며 생성·수정 여부는 사용자가 결정합니다. 실제 기준 이미지 누락이나 연결 오류가 있을 때만 생성을 제한합니다. 대본·장면 원문은 변경하지 않습니다.</p></div>}
-      <ImageTaskManager key={project.id} title={`${unit} 이미지 관리`} unit={unit} project={project} options={options} currentId={currentId} onSelect={setActiveId} getDraft={c=>drafts.current[`${project.id}:${c.id}`] || c} refresh={refresh}/>
+      <ImageTaskManager key={project.id} title={`${unit} 이미지 관리`} unit={unit} project={project} options={options} currentId={currentId} onSelect={setActiveId} getReferenceOverrides={c=>referenceDrafts.current[`${project.id}:${c.id}`] || {}} getDraft={c=>drafts.current[`${project.id}:${c.id}`] || c} refresh={refresh}/>
       <p className="muted">{unit}별로 설정을 확인하고 이미지를 생성·확정하세요. 다른 {unit}으로 이동해도 입력은 유지됩니다. 페이지를 떠나기 전에는 생성·수정 요청을 보내야 변경 내용이 저장됩니다.</p>
     </div>
     <div className="character-navigation"><Button variant="secondary" disabled={activeIndex===0} onClick={()=>setActiveId(project.characters[activeIndex-1].id)}>← 이전 {unit}</Button><span aria-live="polite">{activeIndex+1} / {project.characters.length} · {project.characters[activeIndex].name}</span><Button variant="secondary" disabled={activeIndex===project.characters.length-1} onClick={()=>setActiveId(project.characters[activeIndex+1].id)}>다음 {unit} →</Button></div>
-    <div className="character-workbench">{project.characters.map(c=><div key={`${project.id}:${c.id}`} hidden={c.id!==currentId}><CharacterCard character={c} project={project} options={options} refresh={refresh} onError={setError} onDraft={value=>{drafts.current[`${project.id}:${c.id}`]=value;}}/></div>)}</div></>}
+    <div className="character-workbench">{project.characters.map(c=><div key={`${project.id}:${c.id}`} hidden={c.id!==currentId}><CharacterCard character={c} project={project} options={options} refresh={refresh} onError={setError} onReferences={value=>{referenceDrafts.current[`${project.id}:${c.id}`]=value;}} onDraft={value=>{drafts.current[`${project.id}:${c.id}`]=value;}}/></div>)}</div></>}
 
   </section>;
 }
 
-function CharacterCard({character,project,options,refresh,onError,onDraft}:{character:Character;project:Project;options:Options;refresh:()=>Promise<void>;onError:(s:string)=>void;onDraft:(c:Character)=>void}) {
+function CharacterCard({character,project,options,refresh,onError,onDraft,onReferences}:{character:Character;project:Project;options:Options;refresh:()=>Promise<void>;onError:(s:string)=>void;onDraft:(c:Character)=>void;onReferences:(value:Record<string,string>)=>void}) {
   const scene=project.kind==="scene";
   const blocked=project.blocked?.[character.id] || [];
   const advice=scene ? project.context?.plan.shots[Number(character.id.split("_")[1])-1]?.review_notes : undefined;
   const initialJobs=project.jobs.filter(j=>j.character_id===character.id && j.status==="succeeded");
   const initial=initialJobs.find(j=>j.id===project.approved[character.id]) || initialJobs[0] || project.jobs.find(j=>j.character_id===character.id);
   const [draft,setDraft]=useState(initial?.character || character);const [change,setChange]=useState("");const [model,setModel]=useState(options.models[0] || "");
+  const [referenceOverrides,setReferenceOverrides]=useState<Record<string,string>>(initial?.scene_context?.reference_overrides || {});
+  useEffect(()=>{onReferences(referenceOverrides);},[referenceOverrides,onReferences]);
   const [chosen,setChosen]=useState("");const [busy,setBusy]=useState(false);
   useEffect(()=>{onDraft(draft);},[draft,onDraft]);
   function updateDraft(value:Character){setDraft(value);onDraft(value);}
@@ -120,7 +124,7 @@ function CharacterCard({character,project,options,refresh,onError,onDraft}:{char
   async function generate() {
     setBusy(true);onError("");
     try {
-      const payload={character:draft,model,change:shown?change:"",base_id:shown?.id || null};
+      const payload={character:draft,model,change:shown?change:"",base_id:shown?.id || null,reference_overrides:referenceOverrides};
       const signature=JSON.stringify(payload);
       if(dispatch.current?.signature!==signature)dispatch.current={signature,id:crypto.randomUUID()};
       await api(`/characters/projects/${project.id}/images`,"POST",{id:dispatch.current.id,...payload});
@@ -129,9 +133,10 @@ function CharacterCard({character,project,options,refresh,onError,onDraft}:{char
     }
     catch(e){onError(message(e));}finally{setBusy(false);}
   }
-  async function approve() {
+  const confirmedIds = scene ? [project.approved[character.id]].filter(Boolean) : project.approved_versions?.[character.id] || [project.approved[character.id]].filter(Boolean);
+  async function approve(makeDefault = false) {
     if(!shown)return;setBusy(true);
-    try {await api(`/characters/images/${shown.id}/approve`,"POST",{expected:project.approved[character.id] || null,expected_latest_version:latest?.version});await refresh();}
+    try {await api(`/characters/images/${shown.id}/approve`,"POST",{expected:project.approved[character.id] || null,expected_latest_version:latest?.version,make_default:makeDefault});await refresh();}
     catch(e){onError(message(e));await refresh().catch(()=>{});}finally{setBusy(false);}
   }
   async function cancel() {
@@ -152,24 +157,17 @@ function CharacterCard({character,project,options,refresh,onError,onDraft}:{char
     {active?.status==="running" && <p className="muted">이미 생성 처리가 시작되어 중단을 보장할 수 없습니다. API 비용이 발생할 수 있으며, 완성 후 사용할 버전을 선택할 수 있습니다.</p>}
     <div className="character-editor-layout"><div className="character-preview character-form">
     {shown ? <><img className="character-image" src={`/api/v1/characters/images/${shown.id}/asset`} alt={`${character.name} 기준 이미지 v${shown.version}`}/>
-      <label className="character-field">이미지 버전<select value={shown.id} onChange={e=>{setChosen(e.target.value);const j=success.find(j=>j.id===e.target.value);if(j)setDraft(j.character);}}>{success.map(j=><option key={j.id} value={j.id}>v{j.version}{project.approved[character.id]===j.id?" · 확정된 기준":" · 검토본"}</option>)}</select></label>
+      <label className="character-field">이미지 버전<select value={shown.id} onChange={e=>{setChosen(e.target.value);const j=success.find(j=>j.id===e.target.value);if(j){setDraft(j.character);setReferenceOverrides(j.scene_context?.reference_overrides || {});}}}>{success.map(j=><option key={j.id} value={j.id}>v{j.version}{project.approved[character.id]===j.id?" · 기본 이미지":confirmedIds.includes(j.id)?" · 확정":" · 검토본"}</option>)}</select></label>
       <p className="muted">{shown.model} · 예상 비용 {shown.estimated_usd===null?"미확인":`$${Number(shown.estimated_usd).toFixed(5)}`}</p>
-      <Button variant="secondary" disabled={busy || !!active || (project.approved[character.id]===shown.id && itemState==="approved")} onClick={()=>void approve()}>이 버전을 기준 이미지로 확정</Button></>
+      <div className="button-row"><Button variant="secondary" disabled={busy || !!active || (scene ? project.approved[character.id]===shown.id && itemState==="approved" : confirmedIds.includes(shown.id) && itemState==="approved")} onClick={()=>void approve()}>{scene?"이 버전을 기준 이미지로 확정":confirmedIds.includes(shown.id)?"확정된 버전":"이 버전 확정"}</Button>{!scene&&confirmedIds.includes(shown.id)&&project.approved[character.id]!==shown.id&&<Button variant="secondary" disabled={busy||!!active} onClick={()=>void approve(true)}>기본 이미지로 사용</Button>}</div>{!scene&&<p className="helper-text">여러 버전을 확정할 수 있습니다. 기본 이미지는 하나이며, 다른 확정 버전은 필요한 씬에서 선택합니다.</p>}</>
       : <div className="character-empty">{active ? "이미지가 완성되면 여기에 표시됩니다." : scene ? "씬 설정과 참조 자료를 확인하고 이미지를 만들어 보세요." : "설정을 확인하고 첫 기준 이미지를 만들어 보세요."}</div>}
-    {latest?.status==="succeeded" && latest.id!==shown?.id && <Button variant="secondary" onClick={()=>{setChosen(latest.id);setDraft(latest.character);}}>새 이미지 v{latest.version} 확인</Button>}
+    {latest?.status==="succeeded" && latest.id!==shown?.id && <Button variant="secondary" onClick={()=>{setChosen(latest.id);setDraft(latest.character);setReferenceOverrides(latest.scene_context?.reference_overrides||{});}}>새 이미지 v{latest.version} 확인</Button>}
     {latest && !active && latest.status!=="succeeded" && <p role="status" className="character-status">v{latest.version} · {states[latest.status]}{latest.status==="unknown" && " · 중복 과금 방지를 위해 자동 재시도하지 않습니다."}{latest.status==="failed" && ` · ${latest.error_code || "API 오류"}`}</p>}
     </div><div className="character-form">
     {scene && <section className="scene-image-context" aria-label="이미지와 연결된 장면 내용">
       <div className="character-heading"><h4>{shown?"이 이미지에 담은 장면":"이미지로 만들 장면"}</h4><span className="muted">{shown?`v${shown.version} 생성 당시 설정`:"현재 설정"}</span></div>
       {source && <>
-        <details className="scene-cast"><summary>이 씬에 연결된 캐릭터 · {source.characters.length}명</summary>
-          <div className="scene-cast-grid">{source.characters.map(c=><div className="scene-cast-item" key={c.id}>
-            {c.image_id && <img src={`/api/v1/characters/images/${c.image_id}/asset`} alt={`${c.name} 기준 이미지`} loading="lazy"/>}
-            <div><strong>{c.name}</strong><span className="helper-text">{c.image_id?"연결된 기준 이미지":"기준 이미지 없음"}</span></div>
-          </div>)}</div>
-          {!source.characters.length && <p className="helper-text">연결된 캐릭터가 없는 씬입니다.</p>}
-          <p className="helper-text">이미지 제작 계획에 연결된 인물입니다. 아래 원본 장면의 등장인물과 비교해 확인하세요.</p>
-        </details>
+        <SceneReferenceVersions references={source.characters} value={referenceOverrides} onChange={setReferenceOverrides} disabled={busy || !!active} used={shown?.scene_context?.references?.characters}/>
         <details className="scene-source" open><summary>{source.script_matched?"대본 원문 · 일치하는 대응 구간":"대본 원문 · 전체"}</summary>
           {!source.script_matched && <p className="helper-text">대응 구간을 정확하게 찾지 못해 전달받은 대본 전체를 표시합니다.</p>}
           <div className="scene-source-text">{source.script || "전달받은 대본이 없습니다."}</div>

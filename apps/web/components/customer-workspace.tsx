@@ -1,16 +1,37 @@
 "use client";
+import { ProfileMenu } from "./profile-menu";
 import { AgentGroups } from "./agent-groups";
 import { AgentWorkerStatus } from "./agent-worker-status";
-import { SidebarToggle, useSidebarCollapse } from "./sidebar-toggle";
-import { useEffect, useRef, useState } from "react";
+import { SidebarHome, SidebarToggle, useSidebarCollapse } from "./sidebar-toggle";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { api, ApiError, message, setCsrf, type Tool, type WorkDetail } from "../lib/registry";
 import { AgentRunPreview } from "./agent-run-preview";
-import { AgentIcon, Button, Card, StatusBadge } from "./ui";
+import { AgentIcon, Button, Card, StatusBadge, StudioNavigation } from "./ui";
 import { WorkHistory } from "./work-history";
 import { CustomerSidebar } from "./customer-sidebar";
 
 export function CustomerWorkspace() {
-  const sidebar = useSidebarCollapse();
+  const menu = useSidebarCollapse();
+  const [sidebarWidth,setSidebarWidth]=useState(340);
+  const dragOffset=useRef<number|null>(null);
+  const widthKey="asa-workspace-sidebar-width";
+  function clampWidth(width:number) {
+    return Math.round(Math.max(256,Math.min(width,520,window.innerWidth*0.48)));
+  }
+  useEffect(()=>{
+    function restore(){
+      let saved=340;
+      try {const v=Number(localStorage.getItem(widthKey));if(v>0 && Number.isFinite(v))saved=v;} catch {}
+      setSidebarWidth(clampWidth(saved));
+    }
+    restore();window.addEventListener("resize",restore);
+    return ()=>window.removeEventListener("resize",restore);
+  },[]);
+  function resize(width:number,save:boolean){
+    const next=clampWidth(width);
+    setSidebarWidth(next);
+    if(save)try{localStorage.setItem(widthKey,String(next));}catch{}
+  }
   const [tools, setTools] = useState<Tool[]>([]);
   const [selected, setSelected] = useState<Tool | null>(null);
   const [view, setView] = useState<"new" | "history">("new");
@@ -90,11 +111,30 @@ export function CustomerWorkspace() {
   function canLeaveScript() { return !scriptDirty || window.confirm("저장하지 않은 대본 수정이 있습니다. 변경을 버리고 이동할까요?"); }
   function navigateNew() { if (!canLeaveScript()) return; newRequest(); closeMenu(); main.current?.focus(); }
   function navigateHistory(id: string) { if (!canLeaveScript()) return; setSelected(null); setSource(null); setHistoryId(id); setView("history"); closeMenu(); main.current?.focus(); }
-  const sidebarProps = { roles, ready: status === "ready", saving, view, activeId: historyId, refreshKey: sidebarRefresh, onNew: navigateNew, onHistory: navigateHistory };
-  return <div className={`customer-app ${sidebar.collapsed ? "is-sidebar-collapsed" : ""}`}>
+  async function logout(){
+    if(saving || !canLeaveScript())return;
+    try {await api("/session","DELETE");setCsrf("");window.location.replace("/login");}
+    catch(e){window.alert(message(e));}
+  }
+  const sidebarProps = { onLogout:logout, roles, ready: status === "ready", saving, view, activeId: historyId, refreshKey: sidebarRefresh, onNew: navigateNew, onHistory: navigateHistory };
+  return <div className={`customer-app workspace-layout ${menu.collapsed ? "" : "menu-expanded"}`} style={{"--workspace-sidebar-width":sidebarWidth+"px"} as CSSProperties}>
     <a className="skip-link" href="#main">본문으로 건너뛰기</a>
-    <aside id="customer-navigation" className="customer-sidebar" aria-label="작업 탐색"><SidebarToggle collapsed={sidebar.collapsed} toggle={sidebar.toggle} controls="customer-navigation"/><CustomerSidebar {...sidebarProps} /></aside>
-    <dialog id="customer-menu" className="customer-menu-dialog" ref={menuDialog} onClose={() => setMenuOpen(false)} aria-label="작업 메뉴"><div className="sidebar-mobile-close"><Button variant="secondary" onClick={closeMenu}>메뉴 닫기</Button></div>{menuOpen && <CustomerSidebar {...sidebarProps} />}</dialog>
+    <aside id="customer-navigation" className="customer-sidebar" aria-label="작업 탐색">
+      <div className="workspace-icon-rail" id="workspace-menu"><SidebarToggle collapsed={menu.collapsed} toggle={menu.toggle} controls="workspace-menu"/>
+        {menu.collapsed && <SidebarHome/>}
+        <StudioNavigation active="/" includeHome={!menu.collapsed} includeAdmin={status==="ready" && roles.some(role=>role==="owner" || role==="admin")} />
+        {status==="ready" && <ProfileMenu compact={menu.collapsed} onLogout={logout} disabled={saving}/>}
+      </div>
+      <div id="workspace-recent-panel"><CustomerSidebar {...sidebarProps} compactNavigation /></div>
+      <div className="workspace-resizer" role="separator" tabIndex={0} aria-label="왼쪽 영역 너비" aria-orientation="vertical" aria-controls="workspace-recent-panel"
+        aria-valuemin={256} aria-valuemax={520} aria-valuenow={sidebarWidth} aria-valuetext={sidebarWidth+"픽셀"} title="드래그하거나 좌우 방향키로 너비 조절"
+        onPointerDown={e=>{if(e.button!==0)return;dragOffset.current=e.clientX-sidebarWidth;e.currentTarget.setPointerCapture(e.pointerId);}}
+        onPointerMove={e=>{if(dragOffset.current!==null)resize(e.clientX-dragOffset.current,false);}}
+        onPointerUp={e=>{if(dragOffset.current!==null)resize(e.clientX-dragOffset.current,true);dragOffset.current=null;}}
+        onLostPointerCapture={()=>{dragOffset.current=null;}}
+        onKeyDown={e=>{const widths:Record<string,number>={ArrowLeft:sidebarWidth-16,ArrowRight:sidebarWidth+16,Home:256,End:520};if(e.key in widths){e.preventDefault();resize(widths[e.key],true);}}}/>
+    </aside>
+    <dialog id="customer-menu" className="customer-menu-dialog" ref={menuDialog} onClose={event => { if (event.target === event.currentTarget) setMenuOpen(false); }} aria-label="작업 메뉴"><div className="sidebar-mobile-close"><Button variant="secondary" onClick={closeMenu}>메뉴 닫기</Button></div>{menuOpen && <CustomerSidebar {...sidebarProps} />}</dialog>
     <div className="customer-content"><header className="customer-topbar"><Button variant="secondary" className="customer-menu-toggle" aria-expanded={menuOpen} aria-controls="customer-menu" onClick={() => { setMenuOpen(true); menuDialog.current?.showModal(); }}>☰ 작업 메뉴</Button><span>{view === "new" ? "새 작업" : "작업 상세"}</span><span className="muted">나만의 AI 작업 공간</span></header>
     {status === "ready" && <AgentWorkerStatus/>}
     <main id="main" ref={main} tabIndex={-1} className="shell customer-workspace">

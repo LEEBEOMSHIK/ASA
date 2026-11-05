@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, message, type WorkItem } from "../lib/registry";
 import { workStatus } from "./work-history";
 import { Button, StatusBadge, StudioNavigation } from "./ui";
-import { ThemeSelect } from "./theme-provider";
+import { ProfileMenu } from "./profile-menu";
 import { progressLabel, progressCounts } from "../lib/work-progress";
 
 function RecentWorkStatus({ item }: { item: WorkItem }) {
@@ -20,10 +20,20 @@ function RecentWorkStatus({ item }: { item: WorkItem }) {
   </span></StatusBadge>;
 }
 
-export function CustomerSidebar({ roles, ready, saving, view, activeId, refreshKey, onNew, onHistory }: {
-  roles: string[]; ready: boolean; saving: boolean; view: "new" | "history"; activeId?: string; refreshKey: number;
+export function CustomerSidebar({ compactNavigation=false, onLogout, roles, ready, saving, view, activeId, refreshKey, onNew, onHistory }: {
+  compactNavigation?: boolean; onLogout:()=>Promise<void>; roles: string[]; ready: boolean; saving: boolean; view: "new" | "history"; activeId?: string; refreshKey: number;
   onNew: () => void; onHistory: (id: string) => void;
 }) {
+  const [hiddenView,setHiddenView]=useState(false);
+  const [menuItem,setMenuItem]=useState("");
+  const [changing,setChanging]=useState(false);
+  async function changeVisibility(item: WorkItem) {
+    setChanging(true);
+    try {
+      await api("/work-requests/"+item.id+"/visibility?hidden="+!hiddenView,"PUT");
+      setMenuItem("");setRetry(n=>n+1);
+    } catch(e) {setError(message(e));} finally {setChanging(false);}
+  }
   const [items, setItems] = useState<WorkItem[]>([]);
   const [pollError, setPollError] = useState("");
   const [error, setError] = useState("");
@@ -41,7 +51,7 @@ export function CustomerSidebar({ roles, ready, saving, view, activeId, refreshK
     const current = generation.current;
     busy.current = true; setLoading(true); setError("");
     try {
-      const data = await api<{ items: WorkItem[]; has_more: boolean }>(`/work-requests?offset=${offset.current}`);
+      const data = await api<{ items: WorkItem[]; has_more: boolean }>(`/work-requests?offset=${offset.current}&hidden=${hiddenView}`);
       if (current !== generation.current) return;
       setItems(previous => {
         const merged = new Map(previous.map(item => [item.id, item]));
@@ -53,7 +63,7 @@ export function CustomerSidebar({ roles, ready, saving, view, activeId, refreshK
       setMore(hasMore.current);
     } catch (e) { if (current === generation.current) setError(message(e)); }
     finally { if (current === generation.current) { busy.current = false; setLoading(false); } }
-  }, [ready]);
+  }, [ready, hiddenView]);
   useEffect(() => {
     generation.current += 1; busy.current = false; offset.current = 0; hasMore.current = true;
     setItems([]); setMore(false); setError(""); setLoading(false);
@@ -71,17 +81,15 @@ export function CustomerSidebar({ roles, ready, saving, view, activeId, refreshK
   }, [ready, loading, error, more, loadMore]);
   useEffect(() => {
     if (!ready) return;
-    const events = new EventSource(`/api/v1/work-requests/events?pages=${Math.min(100, Math.max(1, Math.ceil(items.length / 20)))}`);
+    const pages = Math.min(100, Math.max(1, Math.ceil(items.length / 20)));
+    const events = new EventSource(`/api/v1/work-requests/events?hidden=${hiddenView}&pages=${pages}`);
     events.addEventListener("snapshot", event => {
-      const data = JSON.parse((event as MessageEvent).data) as {items: WorkItem[]};
-      const updates = new Map(data.items.map(item => [item.id, item]));
-      setItems(previous => {
-        const merged = new Map(previous.map(item => [item.id, item]));
-        updates.forEach((item, id) => merged.set(id, item));
-        const next = [...merged.values()].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.id.localeCompare(a.id));
-        offset.current = next.length;
-        return next;
-      });
+      const data = JSON.parse((event as MessageEvent).data) as {items: WorkItem[];has_more:boolean};
+      if (busy.current || offset.current > pages * 20) return;
+      setItems(data.items);
+      offset.current = data.items.length;
+      hasMore.current = data.has_more;
+      setMore(data.has_more);
       setPollError("");
       window.dispatchEvent(new CustomEvent("asa-work-update", {detail: data.items}));
     });
@@ -89,28 +97,30 @@ export function CustomerSidebar({ roles, ready, saving, view, activeId, refreshK
     events.addEventListener("unavailable", disconnected);
     events.onerror = disconnected;
     return () => events.close();
-  }, [ready, Math.ceil(items.length / 20)]);
+  }, [ready, hiddenView, Math.ceil(items.length / 20)]);
   return <div className="customer-sidebar-content">
-    <StudioBrand ready={ready}/>
+    <StudioBrand ready={ready} syncFavicon={compactNavigation}/>
     <nav aria-label="작업 메뉴" className="sidebar-navigation">
       <button className="sidebar-link sidebar-new" disabled={!ready || saving} aria-current={view === "new" ? "page" : undefined} onClick={onNew}><span aria-hidden="true">＋</span>새 작업</button>
     </nav>
-    <StudioNavigation active="/" includeAdmin={ready && roles.some(role => role === "owner" || role === "admin")} />
-    <section ref={scrollArea} className="sidebar-recent" aria-label="최근 작업"><div className="sidebar-section-heading"><h2>최근 작업</h2>{ready && <button className="sidebar-refresh" disabled={loading || saving} onClick={() => setRetry(value => value + 1)} aria-label="최근 작업 새로고침">↻</button>}</div>
+    {!compactNavigation && <StudioNavigation active="/" includeAdmin={ready && roles.some(role => role === "owner" || role === "admin")} />}
+    <section ref={scrollArea} className="sidebar-recent" aria-label="최근 작업"><div className="sidebar-section-heading"><h2>{hiddenView?"숨긴 작업":"최근 작업"}</h2>{ready && <button className="sidebar-refresh" disabled={loading || saving} onClick={() => setRetry(value => value + 1)} aria-label="최근 작업 새로고침">↻</button>}</div>
       {!ready ? <p className="muted sidebar-note">로그인하면 이전 작업을 확인할 수 있어요.</p> : <>
+      <button className="work-visibility-switch" onClick={()=>{setHiddenView(v=>!v);setMenuItem("");}}>{hiddenView?"최근 작업으로 돌아가기":"숨긴 작업 보기"}</button>
       {pollError && <p role="status" className="sidebar-note">{pollError}</p>}
       {items.length > 0 &&
       <ul className="sidebar-work-list">{items.map(item => <li key={item.id}><button disabled={saving} className="sidebar-work" aria-current={view === "history" && activeId === item.id ? "page" : undefined} onClick={() => onHistory(item.id)}>
         <span className="sidebar-work-name">{item.name}</span>{item.is_test && <StatusBadge>테스트 요청</StatusBadge>}<span className="sidebar-work-meta"><time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time><RecentWorkStatus item={item}/></span>
         {item.work_progress && <span className="sidebar-followup"><span className="sidebar-followup-summary"><strong>{item.work_progress.label}</strong><span>{progressCounts(item.work_progress)}</span></span><span className="sidebar-followup-action">{item.work_progress.status === "complete" ? "결과 확인" : "이어서 작업"} →</span></span>}
-      </button></li>)}</ul>}
+      </button><button type="button" className="work-item-options" aria-label={item.name+" 작업 옵션"} aria-expanded={menuItem===item.id} onClick={()=>setMenuItem(menuItem===item.id?"":item.id)}>⋯</button>
+      {menuItem===item.id&&<Button variant="secondary" disabled={changing} onClick={()=>void changeVisibility(item)}>{hiddenView?"최근 작업에 복원":"내 목록에서 숨기기"}</Button>}</li>)}</ul>}
       {loading && <p role="status" className="muted sidebar-note">작업을 더 불러오는 중…</p>}
       {error && <div className="sidebar-note"><p role="alert">{error}</p><Button variant="secondary" onClick={() => void loadMore()}>다시 시도</Button></div>}
-      {!loading && !error && items.length === 0 && <p className="muted sidebar-note">저장한 작업이 여기에 모입니다.</p>}
+      {!loading && !error && items.length === 0 && <p className="muted sidebar-note">{hiddenView?"숨긴 작업이 없습니다.":"저장한 작업이 여기에 모입니다."}</p>}
       <div ref={sentinel} className="sidebar-load-more">{more && !loading && !error && <Button variant="secondary" onClick={() => void loadMore()}>오래된 작업 더 보기</Button>}</div>
       {!loading && !error && !more && items.length > 0 && <p className="muted sidebar-note">모든 작업을 불러왔어요.</p>}
       </>}
     </section>
-    <div className="sidebar-footer"><ThemeSelect /><span className="muted">내 작업 공간</span><span className="muted">{ready ? roles.includes("owner") ? "소유자 · 관리자 권한" : roles.includes("admin") ? "관리자" : "일반 사용자" : "로그인 전"}</span></div>
+    {!compactNavigation && ready && <ProfileMenu onLogout={onLogout} disabled={saving}/>}
   </div>;
 }

@@ -8,6 +8,7 @@ from starlette.responses import StreamingResponse
 
 from asa.auth.session import OwnerSessions, Principal
 from asa.config import Settings
+from asa.registry.input_requirements import requirements_met
 from asa.registry.repository import RegistryRepository
 from asa.registry.schemas import RegistryError
 from asa.registry.service import safe_number
@@ -33,7 +34,7 @@ def valid_input(value: Any, schema: dict[str, Any]) -> bool:
         properties = schema.get("properties", {})
         return (
             isinstance(value, dict)
-            and set(schema.get("required", [])) <= value.keys()
+            and requirements_met(schema, value)
             and value.keys() <= properties.keys()
             and all(valid_input(v, properties[k]) for k, v in value.items())
         )
@@ -76,7 +77,7 @@ class HistoryRepository(RegistryRepository):
             attach_progress(conn, self.workspace_id, [row])
             return row
 
-    def history(self, offset: int) -> dict[str, Any]:
+    def history(self, offset: int, hidden: bool = False) -> dict[str, Any]:
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT r.is_test,r.id::text,r.status,r.error,r.updated_at::text,"
@@ -85,8 +86,10 @@ class HistoryRepository(RegistryRepository):
                 "AND a.request_id=r.id ORDER BY a.created_at DESC,a.id DESC LIMIT 1) error_code,"
                 "v.definition->>'name' AS name FROM customer_requests r "
                 "JOIN registry_versions v USING(workspace_id,agent_id,version) "
-                "WHERE r.workspace_id=%s ORDER BY r.created_at DESC,r.id DESC LIMIT 21 OFFSET %s",
-                (self.workspace_id, offset),
+                "WHERE r.workspace_id=%s AND EXISTS (SELECT 1 FROM hidden_work_requests h "
+                "WHERE h.workspace_id=r.workspace_id AND h.request_id=r.id AND h.user_id=%s)=%s "
+                "ORDER BY r.created_at DESC,r.id DESC LIMIT 21 OFFSET %s",
+                (self.workspace_id, self.requested_by, hidden, offset),
             ).fetchall()
             attach_progress(conn, self.workspace_id, rows[:20])
             return {"items": rows[:20], "has_more": len(rows) > 20}
@@ -95,6 +98,9 @@ class HistoryRepository(RegistryRepository):
         with self._connect() as conn:
             conn.execute("SELECT id FROM registry_workspaces WHERE id=%s FOR UPDATE",
                          (self.workspace_id,))
+            if conn.execute("SELECT 1 FROM work_deletions WHERE workspace_id=%s AND request_id=%s",
+                            (self.workspace_id, body.id)).fetchone():
+                raise RegistryError(410, "work_deleted")
             existing = conn.execute(
                 "SELECT agent_id,version,input,source_id,is_test FROM customer_requests "
                 "WHERE workspace_id=%s AND id=%s", (self.workspace_id, body.id),
@@ -159,17 +165,34 @@ def history_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
         return repository
 
     @router.get("")
-    def history(offset: int = Query(0, ge=0, le=100000),
+    def history(offset: int = Query(0, ge=0, le=100000), hidden: bool = False,
                 repository: HistoryRepository = Depends(repo)) -> dict[str, Any]:
-        return repository.history(offset)
+        return repository.history(offset, hidden)
+
+    @router.put("/{request_id}/visibility")
+    def visibility(request_id: UUID, hidden: bool, repository: HistoryRepository = Depends(repo)
+                   ) -> dict[str, bool]:
+        with repository._connect() as conn:
+            args = (repository.workspace_id, request_id, repository.requested_by)
+            if not conn.execute("SELECT id FROM customer_requests WHERE workspace_id=%s AND id=%s "
+                                "FOR KEY SHARE", args[:2]).fetchone():
+                raise RegistryError(404, "work_not_found")
+            if hidden:
+                conn.execute("INSERT INTO hidden_work_requests(workspace_id,request_id,user_id) "
+                             "VALUES (%s,%s,%s) ON CONFLICT DO NOTHING", args)
+            else:
+                conn.execute("DELETE FROM hidden_work_requests WHERE workspace_id=%s AND "
+                             "request_id=%s AND user_id=%s", args)
+        return {"hidden": hidden}
 
     @router.get("/events")
-    def events(request: Request, pages: int = Query(1, ge=1, le=100),
+    def events(request: Request, hidden: bool = False, pages: int = Query(1, ge=1, le=100),
                repository: HistoryRepository = Depends(repo)) -> StreamingResponse:
         def load() -> dict[str, Any]:
             sessions.principal(request)
-            return {"items": [item for page in range(pages)
-                              for item in repository.history(page * 20)["items"]]}
+            chunks = [repository.history(page * 20, hidden) for page in range(pages)]
+            return {"items": [item for chunk in chunks for item in chunk["items"]],
+                    "has_more": chunks[-1]["has_more"]}
         return snapshot_stream(request, load, repository.dsn, repository.workspace_id)
 
     @router.get("/answer-sources")

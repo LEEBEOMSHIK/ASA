@@ -6,6 +6,7 @@
     "type": "object",
     "properties": {
       "script": {
+        "x-previous-answer": true,
         "type": "string",
         "description": "완성된 대본",
         "x-widget": "textarea",
@@ -13,6 +14,7 @@
         "maxLength": 30000
       },
       "scenes": {
+        "x-previous-answer": true,
         "type": "string",
         "description": "장면 구성 결과",
         "x-widget": "textarea",

@@ -13,6 +13,7 @@ from asa.telemetry import observed_generate
 from asa.tools.catalog import inspect_text
 from asa.tools.character_handoff import HANDOFF_ID, read_handoff
 from asa.tools.search import SEARCH_ID, search_ready, web_search
+from asa.video_prompt_modules import prepare_video_prompt_tool
 
 
 class GraphState(TypedDict):
@@ -111,6 +112,10 @@ def execute_graph_run(
                         output = web_search(repo.settings, actual)
                         row.update(provider=repo.settings.search_provider)
                     else:
+                        tool = prepare_video_prompt_tool(tool, actual)
+                        if "video_prompt_bundle" in tool:
+                            row["video_prompt_bundle"] = tool["video_prompt_bundle"]
+                            persist("running")
                         output = observed_generate(repo, run, tool, row["id"], actual, generate)
                         row.update(provider=tool["provider"], model=tool["model"])
                 else:
