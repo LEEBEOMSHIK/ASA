@@ -879,3 +879,10 @@ ASA206 IMPLEMENTED / 검증 일부 보류: 파일·공개 링크 혼합 최대4�
 
 ### 영상 AI 비교 개선 · IN PROGRESS
 - 공급자 선택과 비교 기준을 분리하고 동일 길이·통화 비용, 차액과 근거별 장점을 비교하는 화면으로 개선한다.
+
+진행 중 · 영상 AI 비교 가격 기준을 목표 영상1편·클립 단가/개수·계산식으로 명시, 프롬프트/이미지 비용 별도 설명 및 공식 Runway API 연동 절차 추가. 실제 설정 변경/호출 없음.
+완료 · 영상1편 길이·각클립1회·단가×개수 계산식·전체 재생성1회 비용·별도 프롬프트/이미지 제작비 표시. 공식 Runway setup/API/pricing 문서 확인 후 계정/키/크레딧→서버 설정→연결 확인→첫 클립 안내와 기타 모델 추가 절차 추가. 키/설정 변경·유료 호출 없음. Chrome1600×885 밝은/어두운,1분9540원/5분47700원 계산 전환 확인(1325원/USD), API 펼침/접힘·마지막 출처까지 점검. 조건3개 top 동일/높이51.997px, API gap16px·문단8px·단계 왼쪽좌표 동일. 390×844 양테마 DOM 가로넘침없음·명령줄 줄바꿈 확인, 좁은 화면 시각/실기기 미검증. 테마/viewport 복원·임시탭 닫음. 증거 .local/diagnostics/comparison-price-dark.png, comparison-api-dark.png, comparison-api-light.png. pytest389(118.87초)/mypy64/typecheck/build/diffcheck 통과, Ruff 기존97건. 커밋/푸시 없음.
+
+진행 중 · 비교표 9개 모델별 공식 API 경로·모델 ID·인증·생성/조회·출처와 확인 한계 추가. 직접/중개 API 및 ASA 구현 상태 구분, 테마/좁은 화면 간격 검증. 설정 변경·유료 호출 없음.
+완료 · 비교표9개 모델의 모델별 펼침 안내 추가: 계정/인증·모델ID·생성/조회·제한·ASA상태·공식 출처. Runway/BytePlus/BFL/xAI/Alibaba 직접 경로와 Gemini/Kling/MiniMax Runway 중개 경로 구분. Gemini 직접EAP 제한, Kling/MiniMax 직접 호출 명세 미확인, FLUX 힉스필드 상품 대응 미확인 표시. 힉스필드 가격과 API요금 분리. Chrome1600×885 밝은/어두운 실제 화면,9개 펼침/키보드 접힘·포커스 확인. desktop dt/dd 시작top 동일·열gap16px,390×844 양테마 DOM 넘침없음·모바일행gap8px(54개 행 어두운 상태검사). 모바일 캡처 CDP timeout으로 좁은화면 시각/실기기 미검증. 읽기안내만으로 오류/비활성/선택 입력 신규상태 해당없음. 테마·viewport복원·임시탭닫음. 증거 .local/diagnostics/model-api-dark.png,model-api-light.png,model-api-limitations.png. pytest389(117.77초)/mypy64/typecheck/build/diffcheck 통과,전체 Ruff 기존97건. 설정변경·유료호출·커밋/푸시 없음.
+커밋 준비 · 영상 AI 비교 가격 설명·9개 API 안내와 해당 기록만 포함. 이전 메뉴/프롬프트 변경은 로컬 보존. 직전 전체 검증 결과 유지, 사용자 자료·스크린샷·생성물은 제외.
