@@ -12,6 +12,17 @@ CREATE TABLE IF NOT EXISTS user_profiles (
     display_name text NOT NULL, avatar text, revision integer NOT NULL,
     PRIMARY KEY(workspace_id,user_id)
 );
+CREATE TABLE IF NOT EXISTS user_navigation_colors (
+    workspace_id uuid NOT NULL REFERENCES registry_workspaces(id), user_id text NOT NULL,
+    menu text NOT NULL CHECK (menu IN ('home','automations','agents','characters','tools',
+        'video-comparison','admin-agents','work-history','models','monitoring','branding')),
+    color text CHECK (color IN ('red','orange','green','blue','purple','pink')),
+    revision integer NOT NULL CHECK (revision > 0),
+    PRIMARY KEY(workspace_id,user_id,menu)
+);
+ALTER TABLE user_navigation_colors DROP CONSTRAINT IF EXISTS user_navigation_colors_color_check;
+ALTER TABLE user_navigation_colors ADD CONSTRAINT user_navigation_colors_color_check
+    CHECK (color IN ('red','orange','green','blue','purple','pink') OR color ~ '^#[0-9a-fA-F]{6}$');
 CREATE TABLE IF NOT EXISTS agent_favorites (
     workspace_id uuid NOT NULL, user_id text NOT NULL, agent_id uuid NOT NULL,
     PRIMARY KEY(workspace_id,user_id,agent_id),
@@ -400,4 +411,107 @@ UPDATE character_projects p SET approved_versions = p.approved_versions || (
  FROM jsonb_each_text(p.approved) e WHERE NOT (p.approved_versions ? e.key)
 ) WHERE p.kind='character' AND EXISTS (
  SELECT 1 FROM jsonb_each_text(p.approved) e WHERE NOT (p.approved_versions ? e.key)
+);
+
+-- Provider task IDs are opaque strings; preserve all existing Runway UUIDs.
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema()
+               AND table_name='video_clip_jobs' AND column_name='provider_task' AND data_type='uuid') THEN
+        ALTER TABLE video_clip_jobs ALTER COLUMN provider_task TYPE text USING provider_task::text;
+    END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS local_worker_controls (
+ workspace_id uuid NOT NULL REFERENCES registry_workspaces(id),
+ kind text NOT NULL CHECK (kind IN ('script','image')),
+ token uuid NOT NULL, desired boolean NOT NULL DEFAULT false,
+ state text NOT NULL CHECK (state IN ('starting','running','stopping','stopped','failed')),
+ busy boolean NOT NULL DEFAULT false, seen_at timestamptz,
+ requested_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(workspace_id,kind)
+);
+
+CREATE TABLE IF NOT EXISTS user_work_names (
+ workspace_id uuid NOT NULL, request_id uuid NOT NULL, user_id text NOT NULL,
+ name text CHECK (name IS NULL OR (length(btrim(name)) BETWEEN 1 AND 120)),
+ revision integer NOT NULL DEFAULT 1,
+ PRIMARY KEY(workspace_id,request_id,user_id),
+ FOREIGN KEY(workspace_id,request_id) REFERENCES customer_requests(workspace_id,id) ON DELETE CASCADE
+);
+DROP TRIGGER IF EXISTS asa_change ON user_work_names;
+CREATE TRIGGER asa_change AFTER INSERT OR UPDATE OR DELETE ON user_work_names
+ FOR EACH ROW EXECUTE FUNCTION asa_notify_change();
+
+ALTER TABLE local_worker_controls DROP CONSTRAINT IF EXISTS local_worker_controls_kind_check;
+ALTER TABLE local_worker_controls ADD CONSTRAINT local_worker_controls_kind_check
+ CHECK (kind IN ('script','image','audio'));
+
+CREATE TABLE IF NOT EXISTS audio_settings (
+ workspace_id uuid NOT NULL, request_id uuid NOT NULL, answer_version integer NOT NULL,
+ revision integer NOT NULL, settings jsonb NOT NULL,
+ PRIMARY KEY(workspace_id,request_id,answer_version),
+ FOREIGN KEY(workspace_id,request_id) REFERENCES customer_requests(workspace_id,id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS audio_assets (
+ workspace_id uuid NOT NULL REFERENCES registry_workspaces(id), id uuid NOT NULL,
+ name text NOT NULL, data bytea NOT NULL, duration double precision NOT NULL,
+ sha256 text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(workspace_id,id)
+);
+CREATE TABLE IF NOT EXISTS audio_jobs (
+ workspace_id uuid NOT NULL, id uuid NOT NULL, request_id uuid NOT NULL,
+ answer_version integer NOT NULL, kind text NOT NULL CHECK(kind IN ('speech','compose')),
+ cue_id text NOT NULL DEFAULT '', fingerprint text NOT NULL, input jsonb NOT NULL,
+ status text NOT NULL CHECK(status IN ('queued','running','review','approved','failed','unknown')),
+ media bytea, duration double precision, transcript text, error_code text,
+ created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(workspace_id,id),
+ UNIQUE(workspace_id,request_id,answer_version,kind,fingerprint),
+ FOREIGN KEY(workspace_id,request_id) REFERENCES customer_requests(workspace_id,id) ON DELETE CASCADE
+);
+
+ALTER TABLE audio_jobs ADD COLUMN IF NOT EXISTS started_at timestamptz;
+
+-- Keep terminal attempts as audit history; a new explicit operation may retry them.
+DO $$ DECLARE constraint_name text; BEGIN
+ FOR constraint_name IN SELECT conname FROM pg_constraint
+  WHERE conrelid='audio_jobs'::regclass AND contype='u'
+ LOOP EXECUTE format('ALTER TABLE audio_jobs DROP CONSTRAINT %I',constraint_name); END LOOP;
+END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS audio_jobs_live_input ON audio_jobs
+ (workspace_id,request_id,answer_version,kind,fingerprint)
+ WHERE status NOT IN ('failed','unknown');
+
+CREATE OR REPLACE FUNCTION asa_audio_usage() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ IF NEW.kind <> 'speech' THEN RETURN NEW; END IF;
+ IF NEW.status='running' THEN
+  INSERT INTO ai_usage_events(workspace_id,id,run_id,request_id,source,name,revision,
+   step_id,step_name,provider,model,requested_at,cost_state)
+  VALUES(NEW.workspace_id,NEW.id,NEW.id::text,NEW.request_id::text,'audio','음성 생성',
+   NEW.answer_version,NEW.cue_id,NEW.cue_id,'openai',NEW.input->'model'->>'model',
+   NEW.started_at,'usage_unknown') ON CONFLICT DO NOTHING;
+ ELSIF NEW.status IN ('review','failed','unknown') THEN
+  UPDATE ai_usage_events SET status=CASE WHEN NEW.status='review' THEN 'succeeded' ELSE 'failed' END,
+   finished_at=now(),duration_ms=(extract(epoch FROM now()-NEW.started_at)*1000)::integer,
+   error_code=NEW.error_code,usage=jsonb_build_object('audio_seconds',NEW.duration),
+   cost_state='usage_unknown' WHERE workspace_id=NEW.workspace_id AND id=NEW.id;
+ END IF;
+ RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS asa_audio_usage_trigger ON audio_jobs;
+CREATE TRIGGER asa_audio_usage_trigger AFTER UPDATE OF status ON audio_jobs
+ FOR EACH ROW WHEN (OLD.status IS DISTINCT FROM NEW.status) EXECUTE FUNCTION asa_audio_usage();
+
+-- Library organization is separate from immutable production records.
+CREATE TABLE IF NOT EXISTS library_works (
+ workspace_id uuid NOT NULL REFERENCES registry_workspaces(id), id uuid NOT NULL,
+ name text NOT NULL CHECK(length(name) BETWEEN 1 AND 120), revision integer NOT NULL DEFAULT 1,
+ PRIMARY KEY(workspace_id,id)
+);
+CREATE TABLE IF NOT EXISTS library_assignments (
+ workspace_id uuid NOT NULL REFERENCES registry_workspaces(id), subject text NOT NULL,
+ work_id uuid, revision integer NOT NULL,
+ PRIMARY KEY(workspace_id,subject),
+ FOREIGN KEY(workspace_id,work_id) REFERENCES library_works(workspace_id,id)
 );

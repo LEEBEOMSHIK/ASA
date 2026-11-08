@@ -4,15 +4,17 @@ import argparse
 import threading
 import time
 from typing import Any
+from uuid import UUID
 
 from psycopg.types.json import Jsonb
 
 from asa.config import Settings
-from asa.database import changes, release_lock
+from asa.database import release_lock
 from asa.registry.characters import CharacterRepository
 from asa.registry.image_reviews import enqueue_automatic, process_review
 from asa.telemetry import redact
 from asa.tools.character_images import IMAGE_RATES, generate_image, image_cost, image_prompt
+from asa.worker_control import accepting_work, run_worker
 
 
 def heartbeat(repo: CharacterRepository) -> None:
@@ -60,6 +62,8 @@ def tick(settings: Settings) -> bool:
 
 def process(repo: CharacterRepository, settings: Settings) -> bool:
     with repo._connect() as conn:
+        if not accepting_work(conn, repo.workspace_id, "image"):
+            return False
         stale = conn.execute(
             "UPDATE character_image_jobs SET status='unknown',"
             "error_code='worker_interrupted',finished_at=now() "
@@ -205,24 +209,10 @@ def process(repo: CharacterRepository, settings: Settings) -> bool:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--once", action="store_true")
+    parser.add_argument("--control-token", type=UUID)
     args = parser.parse_args()
     settings = Settings()
-    hub = changes(settings.database_url)
-    scope = str(settings.workspace_id)
-    while True:
-        version = hub.version(scope, "image")
-        try:
-            worked = tick(settings)
-        except Exception:
-            print("Image worker temporarily unavailable; retrying.", flush=True)
-            if args.once:
-                raise
-            time.sleep(5)
-            continue
-        if args.once:
-            break
-        if not worked:
-            hub.wait(scope, "image", version, 30)
+    run_worker(settings, "image", lambda: tick(settings), args.control_token, once=args.once)
 
 
 if __name__ == "__main__":

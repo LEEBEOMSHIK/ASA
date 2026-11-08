@@ -5,16 +5,8 @@ import { pendingVideoUrl, videoLinkLabel } from "../lib/video-link";
 import { isVideoReference } from "./video-input";
 import { AgentIcon, Button, Card, StatusBadge } from "./ui";
 
-import { isInputRequired, inputConditionHint } from "../lib/input-requirements";
+import { inputEntries as entries, isInputRequired, inputConditionHint, isInputVisible } from "../lib/input-requirements";
 import { AgentInput } from "./agent-input";
-
-function entries(schema: SchemaNode): [string, SchemaNode][] {
-  if (schema.type !== "object") return [["value", schema]];
-  const properties = schema.properties || {};
-  // JSONB object key order is not presentation order. Required is an ordered array.
-  const keys = [...new Set([...(schema.required || []), ...Object.keys(properties)])];
-  return keys.filter(key => key in properties).map(key => [key, properties[key]]);
-}
 
 export function AgentRunPreview({ definition, onBack, customer = false, initialInput, onSave }: {
   definition: Pick<Definition, "name" | "description" | "input_schema"> & Partial<Pick<Definition, "instructions" | "icon">>;
@@ -31,7 +23,7 @@ export function AgentRunPreview({ definition, onBack, customer = false, initialI
   const [error, setError] = useState("");
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => { heading.current?.focus(); }, []);
-  const input = entries(definition.input_schema);
+  const input = entries(definition.input_schema).filter(([, node]) => isInputVisible(node, values));
   async function checkInput(event: React.FormEvent) {
     event.preventDefault(); setError("");
     if (savingRef.current) return;
@@ -108,7 +100,7 @@ export function AgentRunPreview({ definition, onBack, customer = false, initialI
           const conditionHint = inputConditionHint(definition.input_schema, key);
           return <div className="run-field-section" key={key}>
             {conditionHint && <p className="input-condition-hint" role="status">{conditionHint} {required ? "현재 필수 입력입니다." : "현재 선택 입력입니다."}</p>}
-            <AgentInput node={node} id={`run-input-${key}`} label={label} required={required} value={values[key] ?? ""} onChange={v => { setValues(current => ({ ...current, [key]: v })); setChecked(false); setError(""); }} />
+            <AgentInput node={node} id={`run-input-${key}`} label={label} required={required} value={values[key] ?? ""} videoStyle={values.video_style ?? ""} onChange={v => { setValues(current => ({ ...current, [key]: v })); setChecked(false); setError(""); }} />
           </div>;
         })}
         {input.length === 0 && <p>입력 없이 실행하도록 설정된 에이전트입니다.</p>}

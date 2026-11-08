@@ -6,6 +6,8 @@ import { workStatus } from "./work-history";
 import { Button, StatusBadge, StudioNavigation } from "./ui";
 import { ProfileMenu } from "./profile-menu";
 import { progressLabel, progressCounts } from "../lib/work-progress";
+import { WorkNameDialog } from "./work-name-dialog";
+import { WorkContextMenu } from "./work-context-menu";
 
 function RecentWorkStatus({ item }: { item: WorkItem }) {
   const progress = item.status === "succeeded" ? item.work_progress : undefined;
@@ -27,6 +29,8 @@ export function CustomerSidebar({ compactNavigation=false, onLogout, roles, read
   const [hiddenView,setHiddenView]=useState(false);
   const [menuItem,setMenuItem]=useState("");
   const [changing,setChanging]=useState(false);
+  const [renaming,setRenaming]=useState<WorkItem|null>(null);
+  const renameTrigger=useRef<HTMLButtonElement|null>(null);
   async function changeVisibility(item: WorkItem) {
     setChanging(true);
     try {
@@ -110,10 +114,13 @@ export function CustomerSidebar({ compactNavigation=false, onLogout, roles, read
       {pollError && <p role="status" className="sidebar-note">{pollError}</p>}
       {items.length > 0 &&
       <ul className="sidebar-work-list">{items.map(item => <li key={item.id}><button disabled={saving} className="sidebar-work" aria-current={view === "history" && activeId === item.id ? "page" : undefined} onClick={() => onHistory(item.id)}>
-        <span className="sidebar-work-name">{item.name}</span>{item.is_test && <StatusBadge>테스트 요청</StatusBadge>}<span className="sidebar-work-meta"><time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time><RecentWorkStatus item={item}/></span>
+        <span className="sidebar-work-name" title={item.display_title||item.name}>{item.display_title||item.name}</span>
+        <span className="sidebar-work-description">{item.title_source==="agent"?"제목 없음":item.name}{item.context&&` · ${item.context}`}{item.title_source==="input"&&" · 입력 기준"}</span>
+        <span className="sidebar-work-reference">요청 #{item.id.slice(0,8)}</span>
+        {item.is_test && <StatusBadge>테스트 요청</StatusBadge>}<span className="sidebar-work-meta"><time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time><RecentWorkStatus item={item}/></span>
         {item.work_progress && <span className="sidebar-followup"><span className="sidebar-followup-summary"><strong>{item.work_progress.label}</strong><span>{progressCounts(item.work_progress)}</span></span><span className="sidebar-followup-action">{item.work_progress.status === "complete" ? "결과 확인" : "이어서 작업"} →</span></span>}
-      </button><button type="button" className="work-item-options" aria-label={item.name+" 작업 옵션"} aria-expanded={menuItem===item.id} onClick={()=>setMenuItem(menuItem===item.id?"":item.id)}>⋯</button>
-      {menuItem===item.id&&<Button variant="secondary" disabled={changing} onClick={()=>void changeVisibility(item)}>{hiddenView?"최근 작업에 복원":"내 목록에서 숨기기"}</Button>}</li>)}</ul>}
+      </button><button type="button" className="work-item-options" aria-haspopup="menu" aria-label={(item.display_title||item.name)+" 작업 옵션"} aria-expanded={menuItem===item.id} onClick={event=>{renameTrigger.current=event.currentTarget;setMenuItem(menuItem===item.id?"":item.id);}}>⋯</button>
+      {menuItem===item.id&&renameTrigger.current&&<WorkContextMenu anchor={renameTrigger.current} busy={changing} hidden={hiddenView} onClose={()=>setMenuItem(current=>current===item.id?"":current)} onRename={()=>{setMenuItem("");setRenaming(item);}} onVisibility={()=>void changeVisibility(item)}/>}</li>)}</ul>}
       {loading && <p role="status" className="muted sidebar-note">작업을 더 불러오는 중…</p>}
       {error && <div className="sidebar-note"><p role="alert">{error}</p><Button variant="secondary" onClick={() => void loadMore()}>다시 시도</Button></div>}
       {!loading && !error && items.length === 0 && <p className="muted sidebar-note">{hiddenView?"숨긴 작업이 없습니다.":"저장한 작업이 여기에 모입니다."}</p>}
@@ -122,5 +129,6 @@ export function CustomerSidebar({ compactNavigation=false, onLogout, roles, read
       </>}
     </section>
     {!compactNavigation && ready && <ProfileMenu onLogout={onLogout} disabled={saving}/>}
+    {renaming&&<WorkNameDialog item={renaming} onClose={()=>{setRenaming(null);renameTrigger.current?.focus();}} onSaved={saved=>setItems(previous=>previous.map(item=>item.id===saved.id?{...item,...saved}:item))}/>}
   </div>;
 }

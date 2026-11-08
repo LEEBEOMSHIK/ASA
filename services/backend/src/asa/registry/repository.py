@@ -25,9 +25,30 @@ def migrate(dsn: str, workspace_id: UUID) -> None:
 
 
 class RegistryRepository:
-    def __init__(self, dsn: str, workspace_id: UUID):
+    def __init__(self, dsn: str, workspace_id: UUID, *, can_edit_common: bool = True):
         self.dsn = dsn
         self.workspace_id = workspace_id
+        self.can_edit_common = can_edit_common
+
+    def _check_common(self, draft: AgentDraft, previous: dict[str, Any] | None = None) -> None:
+        if self.can_edit_common:
+            return
+        old_modules = (previous or {}).get("video_prompt_modules") or {}
+        props = ((previous or {}).get("input_schema") or {}).get("properties", {})
+        old_video = bool(old_modules.get("editor_managed") or old_modules.get("selection_required")
+                         or (isinstance(props, dict) and any(
+                             isinstance(node, dict) and node.get("x-video-model") is True
+                             for node in props.values())))
+        old = old_modules.get("common_instructions", "")
+        if not self.can_edit_common and draft.video_prompt_modules.common_instructions != old:
+            raise RegistryError(403, "common_instructions_admin_required")
+        if not self.can_edit_common and (
+            draft.video_prompt_modules.editor_managed or old_video
+        ):
+            if (draft.instructions != (previous or {}).get("instructions", "")
+                    or (old_video
+                        and not draft.video_prompt_modules.editor_managed)):
+                raise RegistryError(403, "common_instructions_admin_required")
 
     def _connect(self) -> AbstractContextManager[psycopg.Connection[dict[str, Any]]]:
         return connection(self.dsn, dictionary=True)
@@ -54,6 +75,7 @@ class RegistryRepository:
             ).fetchall()
 
     def create(self, draft: AgentDraft, connection: Any = None) -> dict[str, Any]:
+        self._check_common(draft)
         agent_id = str(uuid4())
         with nullcontext(connection) if connection is not None else self._connect() as conn:
             conn.execute(
@@ -82,6 +104,7 @@ class RegistryRepository:
             row = self._agent(conn, agent_id, lock=True)
             if row["revision"] != revision:
                 raise RegistryError(409, "revision_conflict")
+            self._check_common(draft, row["draft"])
             conn.execute(
                 "UPDATE registry_agents SET draft=%s,revision=revision+1,updated_at=now() "
                 "WHERE workspace_id=%s AND id=%s",

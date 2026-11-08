@@ -81,9 +81,94 @@ def test_disabled_preserves_legacy_instructions():
     assert result["style_profile_ids"] == []
     assert result["fallback"]
     assert not result["warnings"]
+
+
+def test_editor_bodies_are_selected_and_frozen():
+    config = definition(editor_managed=True, common_instructions="공통",
+                        style_instructions={"animation_2d": "2D", "live_action": "실사"})
+    catalog = freeze_module_catalog(config)
+    config["video_prompt_modules"]["style_instructions"]["animation_2d"] = "수정 후"
+    result = build_prompt_bundle(config, {"style": "animation_2d"}, catalog=catalog)
+    assert result["instructions"] == config["instructions"] + "\n\n2D"
+    assert result["instructions"].count(config["instructions"]) == 1
+    assert result["style_profile_ids"] == ["common", "animation_2d"]
+    assert result["fallback"] is False
+    assert "수정 후" not in result["instructions"]
     assert bundled_instructions({"agent_instructions": "old queued instruction"}) == (
         "old queued instruction"
     )
+
+
+def test_preexisting_editor_catalog_preserves_original_composition():
+    config = definition(editor_managed=True)
+    old_catalog = {key: {"body": body, "version": "1", "sha256": "old"}
+                   for key, body in [("common", "old common"), ("animation_2d", "old 2D")]}
+    result = build_prompt_bundle(config, {"style": "animation_2d"}, catalog=old_catalog)
+    assert result["instructions"] == "old common\n\nold 2D\n\n" + config["instructions"]
+
+
+def test_required_selection_ignores_legacy_toggle_and_manual_profile():
+    from asa.registry.schemas import RegistryError
+
+    config = definition(selection_required=True, enabled=False, mode="manual",
+                        profile_id="live_action", style_instructions={
+                            "animation_2d": "2D only", "live_action": "real only"})
+    result = build_prompt_bundle(config, {"video_style": "animation_2d"})
+    assert result["instructions"] == config["instructions"] + "\n\n2D only"
+    assert "real only" not in result["instructions"]
+    with pytest.raises(RegistryError, match="video_style_required"):
+        build_prompt_bundle(config, {})
+    with pytest.raises(RegistryError, match="video_style_instructions_missing"):
+        build_prompt_bundle(config, {"video_style": "animation_3d"})
+
+
+def test_video_input_contract_gets_required_style_without_changing_instructions():
+    from asa.registry.schemas import AgentDraft
+
+    draft = AgentDraft.model_validate({
+        "name": "Any name", "instructions": "original", "input_schema": {
+            "type": "object", "properties": {"model": {"type": "string", "x-video-model": True}}
+        }, "output_schema": {"type": "string"},
+    })
+    assert draft.instructions == "original"
+    assert draft.video_prompt_modules.selection_required
+    assert draft.video_prompt_modules.enabled
+    assert "video_style" in draft.input_schema["required"]
+    assert draft.input_schema["properties"]["video_style"]["enum"] == [
+        "animation_2d", "animation_3d", "live_action"]
+
+
+@pytest.mark.parametrize("required", [[{}], [[]]])
+def test_invalid_required_does_not_crash_video_normalization(required):
+    from asa.registry.schemas import AgentDraft
+    from asa.registry.service import validate_definition
+
+    draft = AgentDraft.model_validate({"name": "video", "instructions": "common",
+        "input_schema": {"type": "object", "required": required,
+                         "properties": {"model": {"type": "string", "x-video-model": True}}},
+        "output_schema": {"type": "string"}})
+    assert validate_definition(draft, {})
+
+
+def test_existing_style_name_collision_can_be_repaired_without_unlocking_common():
+    from uuid import uuid4
+
+    from asa.registry.repository import RegistryRepository
+    from asa.registry.schemas import AgentDraft, RegistryError
+
+    old = {"name": "video", "instructions": "common", "input_schema": {
+        "type": "object", "properties": {"video_style": {"type": "string"},
+                                         "model": {"type": "string", "x-video-model": True}}},
+        "output_schema": {"type": "string"}}
+    repaired = {**old, "input_schema": {"type": "object", "properties": {
+        "old_style": {"type": "string"}, "model": {"type": "string", "x-video-model": True}}}}
+    draft = AgentDraft.model_validate(repaired)
+    member = RegistryRepository("", uuid4(), can_edit_common=False)
+    member._check_common(draft, old)
+    changed = draft.model_copy(update={"instructions": "changed"})
+    with pytest.raises(RegistryError, match="common_instructions_admin_required"):
+        member._check_common(changed, old)
+    RegistryRepository("", uuid4())._check_common(changed, old)
 
 
 @pytest.mark.parametrize("inputs", ["normal text input", ["animation_2d"]])

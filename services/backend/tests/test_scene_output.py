@@ -97,18 +97,32 @@ def test_ai_scene_opinion_does_not_block_but_missing_references_do():
 
 def test_scene_non_cast_reference_is_attached_without_adding_cast(monkeypatch):
     from copy import deepcopy
-    from asa.registry.scene_images import readiness, snapshot, prompt
-    from asa.registry.schemas import RegistryError
+
     import pytest
+
+    from asa.registry.scene_images import prompt, readiness, snapshot
+    from asa.registry.schemas import RegistryError
 
     cast = {"id": "ghost", "image_id": "00000000-0000-0000-0000-000000000001"}
     prop = {"id": "friend", "image_id": "00000000-0000-0000-0000-000000000002"}
     unused = {"id": "unused", "image_id": "00000000-0000-0000-0000-000000000003"}
-    context = {"input": {"script": "모자만 참고", "scenes": "친구는 등장하지 않는다",
-               "cast": {"format": "asa_character_selection_v1", "characters": [cast, prop, unused]}},
-               "plan": {"shots": [{"character_ids": ["ghost"],
-               "reference_image_ids": [prop["image_id"]], "ready": False,
-               "review_notes": "모자의 형태만 참고"}]}}
+    context = {
+        "input": {
+            "script": "모자만 참고",
+            "scenes": "친구는 등장하지 않는다",
+            "cast": {"format": "asa_character_selection_v1", "characters": [cast, prop, unused]},
+        },
+        "plan": {
+            "shots": [
+                {
+                    "character_ids": ["ghost"],
+                    "reference_image_ids": [prop["image_id"]],
+                    "ready": False,
+                    "review_notes": "모자의 형태만 참고",
+                }
+            ]
+        },
+    }
     before = deepcopy(context)
     seen = []
     def selected(repo, refs, overrides):

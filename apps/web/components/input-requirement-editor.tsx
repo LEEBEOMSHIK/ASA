@@ -12,7 +12,7 @@ export function InputRequirementEditor({ field, schema, onChange }: {
   const rule = node["x-required-when"];
   const mode = rule ? "conditional" : required.includes(field) ? "always" : "optional";
   const sources = Object.entries(properties).filter(([key, value]) =>
-    key !== field && conditionChoices(value).length > 0);
+    key !== field && conditionChoices(value).length > 0 && (!node["x-visible-when"] || !value["x-visible-when"]));
   const choices = conditionChoices(properties[rule?.field || ""]);
   const valid = rule && sources.some(([key]) => key === rule.field) &&
     choices.some(value => value === rule.equals && value !== "");
@@ -20,11 +20,13 @@ export function InputRequirementEditor({ field, schema, onChange }: {
 
   function updateRule(next: NonNullable<SchemaNode["x-required-when"]>) {
     onChange({ ...schema, required: required.filter(key => key !== field),
-      properties: { ...properties, [field]: { ...node, "x-required-when": next } } });
+      properties: { ...properties, [field]: { ...node, "x-required-when": next,
+        ...(node["x-visible-when"] ? {"x-visible-when": next} : {}) } } });
   }
   function changeMode(next: string) {
     const updated = { ...node };
     delete updated["x-required-when"];
+    delete updated["x-visible-when"];
     if (next === "conditional") updated["x-required-when"] = { field: "", equals: "" };
     onChange({ ...schema, properties: { ...properties, [field]: updated },
       required: next === "always" ? [...required.filter(key => key !== field), field]
@@ -60,7 +62,9 @@ export function InputRequirementEditor({ field, schema, onChange }: {
         </Field>
       </div>
       {!sources.length && <p className="helper-text">먼저 다른 입력 항목에 라디오 버튼이나 선택 목록을 추가해 주세요.</p>}
-      <p className="helper-text">그 외에는 선택 입력입니다. 조건이 바뀌어도 사용자가 입력한 내용은 유지됩니다.</p>
+      <p className="helper-text">{node["x-visible-when"]
+        ? "조건에 맞을 때만 표시합니다. 다른 선택으로 바꾸면 입력 내용은 화면에 보관하지만 요청에는 보내지 않습니다."
+        : "그 외에는 선택 입력입니다. 조건이 바뀌어도 사용자가 입력한 내용은 유지됩니다."}</p>
     </div>}
   </div>;
 }

@@ -28,8 +28,8 @@
 .image-library-dialog[open] { display:flex; flex-direction:column; }
 .image-library-dialog::backdrop { background:#0009; }
 .image-library-dialog-heading,.image-library-dialog-footer { display:flex; align-items:center; flex-wrap:wrap; gap:var(--space-3); padding:var(--space-4) var(--space-6); flex-shrink:0; }
-.image-library-dialog-heading { justify-content:space-between; border-bottom:1px solid var(--border); }
-.image-library-dialog-heading h2 { font-size:var(--font-heading); margin:0; }
+.image-library-dialog-heading { flex-wrap:nowrap; align-items:flex-start; justify-content:space-between; border-bottom:1px solid var(--border); }
+.image-library-dialog-heading h2 { min-width:0; flex:1; overflow-wrap:anywhere; font-size:var(--font-heading); margin:0; }
 .image-library-icon.button { padding:0; width:44px; height:44px; flex-shrink:0; }
 .image-library-dialog-body { padding:var(--space-6); overflow:auto; min-height:0; }
 .image-library-dialog-footer { justify-content:flex-end; border-top:1px solid var(--border); }
@@ -57,7 +57,7 @@
  .image-library-toolbar { align-items:flex-start; }
  .image-library-dialog { width:calc(100vw - 16px); max-height:94dvh; }
  .image-library-dialog-heading,.image-library-dialog-body,.image-library-dialog-footer { padding:var(--space-4); }
- .image-library-dialog-heading h2 { font-size:1.125rem; }
+ .image-library-dialog-heading h2 { min-width:0; flex:1; overflow-wrap:anywhere; font-size:1.125rem; }
  .image-library-dialog-footer .button { flex:1; }
  .image-library-dialog-footer>span { flex-basis:100%; }
 }

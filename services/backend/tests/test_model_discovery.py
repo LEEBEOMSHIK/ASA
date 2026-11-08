@@ -37,14 +37,15 @@ def test_conditional_tariff_is_not_misrepresented() -> None:
 
 
 def test_claude_cache_rates() -> None:
-    doc = """Model ID: `claude-example`
-### Pricing
-| Input | $3 / MTok |
-| Output | $15 / MTok |
-| [Cache read](url) | $0.30 / MTok |
-| [5m cache write](url) | $3.75 / MTok |
-| [1h cache write](url) | $6 / MTok |
-"""
+    doc = (
+        'Model ID: `claude-example`\n'
+        '### Pricing\n'
+        '| Input | $3 / MTok |\n'
+        '| Output | $15 / MTok |\n'
+        '| [Cache read](url) | $0.30 / MTok |\n'
+        '| [5m cache write](url) | $3.75 / MTok |\n'
+        '| [1h cache write](url) | $6 / MTok |\n'
+    )
     result = discovery.parse_document(
         "anthropic",
         "claude-example",
@@ -152,12 +153,16 @@ def test_openai_long_context_document_and_estimate() -> None:
 def test_claude_tiered_rates() -> None:
     from asa.telemetry import estimate
 
-    doc = """Model ID: `claude-example`
-### Pricing
-| Input | $0.10 / MTok for prompts up to 100,000 tokens; $0.50 / MTok for prompts over 100,000 tokens |
-| Output | $0.50 / MTok for prompts up to 100,000 tokens; $2.50 / MTok for prompts over 100,000 tokens |
-| Cache read | $0.01 / MTok for prompts up to 100,000 tokens; $0.05 / MTok for prompts over 100,000 tokens |
-"""
+    doc = (
+        'Model ID: `claude-example`\n'
+        '### Pricing\n'
+        '| Input | $0.10 / MTok for prompts up to 100,000 tokens; $0.50 / MTok for p'
+        'rompts over 100,000 tokens |\n'
+        '| Output | $0.50 / MTok for prompts up to 100,000 tokens; $2.50 / MTok for '
+        'prompts over 100,000 tokens |\n'
+        '| Cache read | $0.01 / MTok for prompts up to 100,000 tokens; $0.05 / MTok '
+        'for prompts over 100,000 tokens |\n'
+    )
     price = discovery.parse_document("anthropic", "claude-example", doc).price
     assert price is not None and price.long_context is not None
     amount, state = estimate(

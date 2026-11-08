@@ -30,8 +30,10 @@ export function ChoiceOptionsEditor({ id, node, onChange }: { id: string; node: 
         const text = String(value);
         const error = !text.trim() ? "선택지 내용을 입력하거나 이 선택지를 삭제하세요." : options.some((v, i) => i !== index && String(v).trim() === text.trim()) ? "같은 선택지가 있습니다. 서로 다른 내용을 입력하세요." : undefined;
         return <div className="choice-option-row" key={index}>
-          <Field id={`${id}-${index}`} label={`선택지 ${index + 1}`} error={error}>{p => <input {...p} ref={el => { inputs.current[index] = el; el?.setCustomValidity(error || ""); }} required value={text} placeholder="선택지 내용" onChange={e => rename(index, e.target.value)} onBlur={e => { if (e.target.value !== e.target.value.trim()) rename(index, e.target.value.trim()); }} />}</Field>
-          <Button variant="secondary" disabled={options.length <= 1} aria-label={`선택지 ${index + 1} 삭제${text ? `: ${text}` : ""}`} onClick={() => remove(index)}>삭제</Button>
+          <Field id={`${id}-${index}`} label={`선택지 ${index + 1}`} error={error}>{p => <div className="choice-option-controls">
+            <input {...p} ref={el => { inputs.current[index] = el; el?.setCustomValidity(error || ""); }} required value={text} placeholder="선택지 내용" onChange={e => rename(index, e.target.value)} onBlur={e => { if (e.target.value !== e.target.value.trim()) rename(index, e.target.value.trim()); }} />
+            <Button variant="secondary" disabled={options.length <= 1} aria-label={`선택지 ${index + 1} 삭제${text ? `: ${text}` : ""}`} onClick={() => remove(index)}>삭제</Button>
+          </div>}</Field>
         </div>;
       })}
     </div>

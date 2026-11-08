@@ -46,9 +46,43 @@ def validate_definition(
         issues.append(ValidationIssue(code=code, field_path=path, message=message))
 
     # Instructions have their own character limit; Korean text needs multiple UTF-8 bytes.
-    settings_json = json.dumps(draft.model_dump(exclude={"instructions"}), ensure_ascii=False)
+    settings_payload = draft.model_dump(exclude={"instructions"})
+    settings_payload["video_prompt_modules"].pop("common_instructions", None)
+    settings_payload["video_prompt_modules"].pop("style_instructions", None)
+    settings_json = json.dumps(settings_payload, ensure_ascii=False)
     if len(settings_json.encode()) > 65536:
         issue("payload_size", "definition", "지침을 제외한 설정은 64 KiB 이하여야 합니다.")
+    modules = draft.video_prompt_modules
+    if modules.enabled and modules.editor_managed:
+        path = "video_prompt_modules"
+        if not draft.instructions.strip():
+            issue("prompt_common_missing", path, "관리자가 공통 지침을 먼저 입력해야 합니다.")
+        if modules.mode == "manual":
+            if (not modules.profile_id
+                    or not modules.style_instructions.get(modules.profile_id, "").strip()):
+                issue("prompt_style_missing", path,
+                      "적용할 영상 스타일을 선택하고 지침을 입력하세요.")
+        else:
+            fields = [modules.user_style_field, modules.confirmed_style_field,
+                      modules.reference_style_field, modules.metadata_style_field]
+            props = draft.input_schema.get("properties", {})
+            def style_field(field: str) -> bool:
+                node = props.get(field) if isinstance(props, dict) else None
+                if not isinstance(node, dict):
+                    return False
+                if node.get("type") == "string":
+                    return True
+                children = node.get("properties")
+                media = children.get("media_type") if isinstance(children, dict) else None
+                return (node.get("type") == "object" and isinstance(media, dict)
+                        and media.get("type") == "string")
+
+            if not any(fields) or any(field and not style_field(field) for field in fields):
+                issue("prompt_style_field", path, "자동 선택에 사용할 실행 입력 항목을 확인하세요.")
+            if not modules.selection_required and (len(modules.style_instructions) != 3
+                    or any(not body.strip() for body in modules.style_instructions.values())):
+                issue("prompt_style_missing", path,
+                      "자동 선택은 세 가지 스타일의 지침이 모두 필요합니다.")
     link = draft.after_tasks.image_review
     if link:
         target = catalog.get(link.agent_ref)
@@ -84,7 +118,18 @@ def validate_definition(
             if path.startswith("input_schema") else set()
         )
         if path.startswith("input_schema.properties.") and path.count(".") == 2:
-            form_keys.add("x-required-when")
+            form_keys.update({"x-required-when", "x-visible-when"})
+        if "x-visible-when" in node:
+            from asa.registry.input_requirements import valid_condition
+            field = path.rsplit(".", 1)[-1]
+            rule = node["x-visible-when"]
+            if (not path.startswith("input_schema.properties.") or path.count(".") != 2
+                    or not valid_condition(field, rule, draft.input_schema)
+                    or rule != node.get("x-required-when")
+                    or "x-visible-when" in draft.input_schema.get("properties", {}).get(
+                        rule.get("field") if isinstance(rule, dict) else "", {})):
+                issue("input_visible_when", path + ".x-visible-when",
+                      "표시 조건은 조건부 필수와 같아야 하며 항상 표시되는 항목을 참조해야 합니다.")
         if "x-required-when" in node:
             from asa.registry.input_requirements import valid_condition
             field = path.rsplit(".", 1)[-1]

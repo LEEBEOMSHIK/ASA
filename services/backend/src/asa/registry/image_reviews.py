@@ -200,7 +200,10 @@ def review_image(
 
 
 def process_review(repo: Any, settings: Settings) -> bool:
+    from asa.worker_control import accepting_work
     with repo._connect() as conn:
+        if not accepting_work(conn, repo.workspace_id, "image"):
+            return False
         conn.execute(
             "UPDATE asset_reviews SET status='unknown',error_code='worker_interrupted',"
             "finished_at=now() WHERE workspace_id=%s AND status='running'",

@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('web', 'api', 'worker-check', 'automation-worker', 'script-worker', 'image-worker')]
+    [ValidateSet('web', 'api', 'worker-check', 'automation-worker', 'script-worker', 'image-worker', 'audio-worker')]
     [string]$Service
 )
 $ErrorActionPreference = 'Stop'
@@ -19,6 +19,7 @@ try {
         'worker-check' { & uv run --locked --project services/backend python -m asa.worker check }
         'script-worker' { & uv run --locked --project services/backend python -m asa.script_queue_worker --allow-paid-call }
         'image-worker' { & uv run --locked --project services/backend python -m asa.image_worker }
+        'audio-worker' { & uv run --locked --project services/backend python -m asa.audio_worker }
         'automation-worker' { & uv run --locked --project services/backend python -m asa.runtime_worker }
     }
     if ($LASTEXITCODE -ne 0) { throw "Service command failed: $Service" }

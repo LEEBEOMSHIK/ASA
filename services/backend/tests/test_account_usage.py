@@ -85,8 +85,10 @@ def test_empty_success_is_zero():
 
 def test_official_usage_requires_owner_in_configured_workspace():
     from uuid import uuid4
+
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
+
     from asa.auth.session import OwnerSessions, Principal
     from asa.registry.monitoring import monitoring_router
 

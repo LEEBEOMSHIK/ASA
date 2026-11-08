@@ -16,8 +16,10 @@ const origin = (item:ImageCard) => `/?request=${item.request_id}&answer=${item.s
 function CloseIcon() {return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>;}
 export function Modal({title,onClose,children,footer,className=""}:{title:string;onClose:()=>void;children:ReactNode;footer?:ReactNode;className?:string}) {
   const ref=useRef<HTMLDialogElement>(null);const id=useId();
+  const backdropStart=useRef(false);
+  function outside(dialog:HTMLDialogElement,x:number,y:number){const box=dialog.getBoundingClientRect();return x<box.left||x>box.right||y<box.top||y>box.bottom;}
   useEffect(()=>{const dialog=ref.current;dialog?.showModal();return()=>dialog?.close();},[]);
-  return <dialog className={`image-library-dialog ${className}`} ref={ref} aria-labelledby={id} onCancel={e=>{e.preventDefault();onClose();}}>
+  return <dialog className={`image-library-dialog ${className}`} ref={ref} aria-labelledby={id} onCancel={e=>{e.preventDefault();onClose();}} onPointerDown={e=>{backdropStart.current=e.target===e.currentTarget&&outside(e.currentTarget,e.clientX,e.clientY);}} onPointerCancel={()=>{backdropStart.current=false;}} onClick={e=>{const dismiss=backdropStart.current&&e.target===e.currentTarget&&outside(e.currentTarget,e.clientX,e.clientY);backdropStart.current=false;if(dismiss)onClose();}}>
     <header className="image-library-dialog-heading"><h2 id={id}>{title}</h2><Button variant="secondary" className="image-library-icon" aria-label="닫기" onClick={onClose}><CloseIcon/></Button></header>
     <div className="image-library-dialog-body">{children}</div>{footer&&<footer className="image-library-dialog-footer">{footer}</footer>}
   </dialog>;

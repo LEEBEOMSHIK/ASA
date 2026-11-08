@@ -7,11 +7,16 @@ export type SchemaNode = {
   "x-video-model"?: boolean;
   "x-answer-agent"?: string;
   "x-required-when"?: { field: string; equals: string | number | boolean };
+  "x-visible-when"?: { field: string; equals: string | number | boolean };
   "x-widget"?: "text" | "textarea" | "radio" | "select" | "slider" | "number";
 };
 export type Definition = {
   video_prompt_modules?: {
     enabled: boolean;
+    editor_managed?: boolean;
+    selection_required?: boolean;
+    common_instructions?: string;
+    style_instructions?: Partial<Record<"animation_2d" | "animation_3d" | "live_action", string>>;
     mode: "auto" | "manual";
     profile_id?: "animation_2d" | "animation_3d" | "live_action" | null;
     user_style_field?: string | null;
@@ -39,7 +44,7 @@ export type Tool = {
   usage?: string; example_input?: unknown; example_output?: unknown; launch_path?: string;
 };
 export type Issue = { code: string; field_path: string; message: string };
-export type WorkItem = { work_progress?: import("./work-progress").WorkProgress | null; error_code?: string | null; is_test: boolean; id: string; name: string; version: number; status: string; created_at: string };
+export type WorkItem = { display_title?: string; title_source?: string; context?: string; custom_name?: string | null; name_revision?: number; work_progress?: import("./work-progress").WorkProgress | null; error_code?: string | null; is_test: boolean; id: string; name: string; version: number; status: string; created_at: string };
 export type WorkDetail = WorkItem & { agent: Tool; input: unknown; result: unknown; error: string | null; source_id: string | null; updated_at: string };
 let csrf = "";
 export function setCsrf(value: string) { csrf = value; }
@@ -63,6 +68,9 @@ export async function api<T>(path: string, method = "GET", body?: unknown, revis
 export function message(error: unknown): string {
   if (!(error instanceof ApiError)) return "서버에 연결할 수 없습니다. 잠시 후 다시 시도하세요.";
   const messages: Record<string, string> = {
+    video_style_required: "이번 영상에 적용할 영상 스타일을 선택하세요.",
+    video_style_instructions_missing: "선택한 스타일의 지침이 아직 없습니다. 에이전트 기본 설정에서 해당 스타일의 추가 지침을 작성하고 저장하세요.",
+    common_instructions_admin_required: "공통 지침은 관리자만 수정할 수 있습니다. 최신 설정을 다시 불러와 주세요.",
     work_deleted: "영구 삭제된 작업입니다.",
     deletion_changed: "작업 상태가 변경되었거나 처리 중입니다. 삭제 범위를 다시 확인하세요.",
     video_generation_disabled: "영상 생성 연결이 준비되지 않았습니다. 관리자에게 연결 상태를 확인해 주세요.",
@@ -73,6 +81,9 @@ export function message(error: unknown): string {
     video_prompt_limit: "클립의 시작·종료 모습을 포함한 영상 지시 길이를 확인해 주세요.",
     video_scene_reference_mismatch: "클립의 원본 장면·컷과 선택한 확정 이미지가 일치하지 않습니다.",
     video_review_changed: "확정할 영상 상태가 바뀌었습니다. 새로고침해 주세요.",
+    video_previous_approval_required: "앞 영상을 검토·확정한 뒤 다음 연속 클립을 생성해 주세요.",
+    video_previous_reference_changed: "앞 영상의 확정 버전이 바뀌었습니다. 클립 연결을 다시 검토해 주세요.",
+    video_frame_extraction_failed: "앞 영상의 마지막 프레임을 추출하지 못했습니다. 다음 영상은 생성하지 않았습니다.",
     video_duration_unsupported: "선택한 영상 모델이 지원하는 길이로 클립을 조정해 주세요.",
     video_link_invalid: "YouTube·Shorts 또는 Instagram Reels의 HTTPS 링크를 입력하세요.",
     video_upload_invalid: "MP4·MOV·WebM 영상 파일을 20MB 이하로 올려 주세요.",

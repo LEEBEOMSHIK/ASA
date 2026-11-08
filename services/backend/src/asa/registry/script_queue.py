@@ -15,6 +15,7 @@ from asa.registry.model_catalog import effective_settings
 from asa.registry.schemas import RegistryError
 from asa.registry.script_stage import GenerateScript, ScriptRepository, execute_attempt
 from asa.telemetry import trace_call
+from asa.worker_control import accepting_work
 
 
 class ScriptQueue(ScriptRepository):
@@ -114,6 +115,8 @@ class ScriptQueue(ScriptRepository):
                       if used and used['n'] >= config.script_daily_ai_calls
                       else '선택한 모델을 사용할 수 없습니다. AI를 호출하지 않았습니다.')
             with self._connect() as conn:
+                if not accepting_work(conn, self.workspace_id, "script"):
+                    return False
                 self._request(conn, rid, True)
                 changed = conn.execute(
                     "UPDATE script_attempts SET status='failed',finished_at=now(),error_code=%s "

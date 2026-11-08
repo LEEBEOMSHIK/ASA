@@ -73,6 +73,8 @@ def redact(value: Any, settings: Settings) -> Any:
     secrets = [settings.ai_api_key.get_secret_value(),
                settings.anthropic_api_key.get_secret_value(),
                settings.search_api_key.get_secret_value(),
+               settings.wan_api_key.get_secret_value(),
+               settings.runway_api_key.get_secret_value(),
                settings.owner_access_key.get_secret_value(),
                settings.database_url]
 

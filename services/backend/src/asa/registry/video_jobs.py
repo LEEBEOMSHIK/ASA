@@ -1,5 +1,6 @@
 """Queue clips from a saved agent answer; the browser submits only selected clip IDs."""
 
+import subprocess
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -12,7 +13,9 @@ from asa.config import Settings
 from asa.registry.repository import RegistryRepository
 from asa.registry.schemas import RegistryError
 from asa.registry.video_planning import prepare
+from asa.video_continuity import approved_source, last_frame, reference_valid, source_video
 from asa.video_contracts import VideoPreparation
+from asa.video_providers import connection_state, endpoint, supported_model, validate_input
 
 
 class ClipSelection(BaseModel):
@@ -31,11 +34,19 @@ def video_job_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
         with repo._connect() as conn:
             rows = conn.execute(
                 "SELECT id,clip_id,status,error_code,created_at,updated_at, "
+                "request_id,answer_version,generation_input, "
+                "encode(sha256(video),'hex') AS video_sha256, "
                 "(model_snapshot->>'usd_per_second')::numeric * "
                 "(generation_input->>'duration_seconds')::integer AS estimate FROM video_clip_jobs "
                 "WHERE workspace_id=%s AND request_id=%s AND answer_version=%s ORDER BY created_at",
                 (repo.workspace_id, request_id, version),
             ).fetchall()
+            by_clip = {row["clip_id"]: row for row in rows}
+            for row in rows:
+                row["reference_valid"] = reference_valid(row, by_clip)
+            for row in rows:
+                row.pop("generation_input")
+                row.pop("video_sha256")
             online = (
                 conn.execute(
                     "SELECT 1 FROM pg_stat_activity WHERE datname=current_database() "
@@ -53,7 +64,12 @@ def video_job_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
                 if model.enabled
             },
             "enabled": settings.video_ai_enabled
-            and bool(settings.runway_api_key.get_secret_value()),
+            and any(connection_state(settings, m.provider) == "configured"
+                    for m in settings.video_model_profiles.values() if m.enabled),
+            "available_models": [key for key, m in settings.video_model_profiles.items()
+                                 if m.enabled and supported_model(m.model_dump())
+                                 and settings.video_ai_enabled
+                                 and connection_state(settings, m.provider) == "configured"],
         }
 
     @router.post(path)
@@ -63,7 +79,7 @@ def video_job_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
         body: ClipSelection,
         principal: Principal = Depends(sessions.principal),
     ) -> dict[str, int]:
-        if not settings.video_ai_enabled or not settings.runway_api_key.get_secret_value():
+        if not settings.video_ai_enabled:
             raise RegistryError(409, "video_generation_disabled")
         repo = RegistryRepository(settings.database_url, principal.workspace_id)
         with repo._connect() as conn:
@@ -79,6 +95,11 @@ def video_job_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
                 plan = VideoPreparation.model_validate(row["answer"])
             except ValidationError as exc:
                 raise RegistryError(422, "video_plan_invalid") from exc
+            from asa.registry.audio_service import load as load_audio
+            audio_settings = load_audio(conn, repo.workspace_id, request_id, version,
+                                        lock=True)["settings"]
+            if audio_settings.enabled:
+                plan.audio = False
             inputs = row["input"]
             if plan.model_key != inputs.get("video_model"):
                 raise RegistryError(422, "video_model_mismatch")
@@ -93,14 +114,16 @@ def video_job_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
                 raise RegistryError(422, "video_scene_reference_mismatch")
             prepared = prepare(repo, settings, plan, selection)
             model = prepared["model_snapshot"]
-            if (
-                model["provider"] != "runway"
-                or model["model"] != "gen4.5"
-                or plan.audio
-                or model["resolution"] != "720p"
-                or plan.aspect_ratio not in {"9:16", "16:9"}
-            ):
+            if not supported_model(model):
                 raise RegistryError(422, "video_model_unavailable")
+            if connection_state(settings, model["provider"]) != "configured":
+                raise RegistryError(409, "video_generation_disabled")
+            model["provider_endpoint"] = endpoint(settings, model["provider"])
+            for clip in prepared["clips"]:
+                try:
+                    validate_input(model, clip["generation_input"])
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise RegistryError(422, "video_model_unavailable") from exc
             selected = set(body.clip_ids)
             if selected - {c.clip_id for c in plan.clips}:
                 raise RegistryError(422, "video_plan_invalid")
@@ -108,6 +131,13 @@ def video_job_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
             for clip in prepared["clips"]:
                 if clip["clip_id"] not in selected:
                     continue
+                spec = clip["generation_input"]
+                if spec.get("connection_type") == "continue":
+                    try:
+                        spec.update(approved_source(conn, repo.workspace_id, request_id,
+                                                    version, spec["previous_clip_id"]))
+                    except ValueError as exc:
+                        raise RegistryError(409, str(exc)) from exc
                 count += conn.execute(
                     "INSERT INTO video_clip_jobs(workspace_id,id,request_id,answer_version,"
                     "clip_id,model_snapshot,generation_input,status) VALUES "
@@ -135,6 +165,17 @@ def video_job_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
         selected = set(body.clip_ids)
         repo = RegistryRepository(settings.database_url, principal.workspace_id)
         with repo._connect() as conn:
+            candidates = conn.execute(
+                "SELECT * FROM video_clip_jobs WHERE workspace_id=%s AND request_id=%s "
+                "AND answer_version=%s AND clip_id=ANY(%s)",
+                (repo.workspace_id, request_id, version, list(selected)),
+            ).fetchall()
+            for candidate in candidates:
+                if candidate["generation_input"].get("connection_type") == "continue":
+                    try:
+                        source_video(conn, repo.workspace_id, candidate)
+                    except ValueError as exc:
+                        raise RegistryError(409, str(exc)) from exc
             result = conn.execute(
                 "UPDATE video_clip_jobs SET status='approved',updated_at=now() "
                 "WHERE workspace_id=%s AND request_id=%s AND answer_version=%s "
@@ -162,5 +203,21 @@ def video_job_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
         if not row or not row["video"]:
             raise RegistryError(404, "video_asset_missing")
         return Response(content=bytes(row["video"]), media_type="video/mp4")
+
+    @router.get("/asset/{job_id}/last-frame")
+    def frame(job_id: UUID, principal: Principal = Depends(sessions.principal)) -> Response:
+        repo = RegistryRepository(settings.database_url, principal.workspace_id)
+        with repo._connect() as conn:
+            row = conn.execute(
+                "SELECT video FROM video_clip_jobs WHERE workspace_id=%s AND id=%s "
+                "AND status='approved'", (repo.workspace_id, job_id),
+            ).fetchone()
+        if not row or not row["video"]:
+            raise RegistryError(404, "video_asset_missing")
+        try:
+            png = last_frame(bytes(row["video"]), settings.ffmpeg_path)
+        except (ValueError, OSError, subprocess.TimeoutExpired) as exc:
+            raise RegistryError(409, "video_frame_extraction_failed") from exc
+        return Response(content=png, media_type="image/png")
 
     return router

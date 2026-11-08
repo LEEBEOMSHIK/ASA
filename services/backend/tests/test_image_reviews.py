@@ -1,5 +1,7 @@
 import base64
+
 import pytest
+
 from asa.config import Settings
 from asa.registry.image_reviews import review_image
 from asa.telemetry import redact
@@ -16,9 +18,24 @@ def test_image_review_passes_actual_images_and_user_contract(monkeypatch):
             return self
         def invoke(self,messages,**kwargs):
             seen['messages']=messages
-            return {'value':'review result','report':{'summary':'ok','requirements':[], 'issues':[], 'edit_instruction':'','human_checks':[]}}
+            return {
+                "value": "review result",
+                "report": {
+                    "summary": "ok",
+                    "requirements": [],
+                    "issues": [],
+                    "edit_instruction": "",
+                    "human_checks": [],
+                },
+            }
+
     monkeypatch.setattr('asa.registry.image_reviews.init_chat_model',lambda *a,**k:Model())
-    assert review_image(settings,definition,{'appearance':'green'},'blue hat',b'image',b'base')['answer']=='review result'
+    assert (
+        review_image(settings, definition, {"appearance": "green"}, "blue hat", b"image", b"base")[
+            "answer"
+        ]
+        == "review result"
+    )
     assert seen['schema']['properties']['value']==definition['output_schema']
     assert seen['messages'][0].content=='user instructions'
     content=seen['messages'][2].content
@@ -39,8 +56,10 @@ def test_review_rejects_unsupported_or_unknown_image_model(monkeypatch, supporte
     from asa.registry.model_discovery import ModelMetadata
     from asa.registry.review_connection import validate_review_model
     from asa.registry.schemas import RegistryError
-    monkeypatch.setattr('asa.registry.review_connection.image_metadata',
-                        lambda *a: ModelMetadata(checked_at='test', image_input_supported=supported))
+    monkeypatch.setattr(
+        "asa.registry.review_connection.image_metadata",
+        lambda *a: ModelMetadata(checked_at="test", image_input_supported=supported),
+    )
     settings = Settings(_env_file=None, ai_model='test', ai_models=['test'])
     with pytest.raises(RegistryError, match=code):
         validate_review_model(settings, {})
@@ -78,8 +97,8 @@ def test_image_support_requires_exact_official_model(provider,line,expected):
 
 
 def test_review_report_is_required_and_preserves_user_answer(monkeypatch):
-    from asa.registry.review_report import REPORT_SCHEMA
     from asa.registry.history import valid_input
+    from asa.registry.review_report import REPORT_SCHEMA
     report = {'summary':'검토', 'requirements':[{'label':'모자', 'status':'unknown',
               'evidence':'가려짐'}], 'issues':[], 'edit_instruction':'', 'human_checks':['확인']}
     assert valid_input(report, REPORT_SCHEMA)

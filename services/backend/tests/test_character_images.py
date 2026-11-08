@@ -1,5 +1,5 @@
-from decimal import Decimal
 import json
+from decimal import Decimal
 
 import pytest
 
@@ -40,5 +40,8 @@ def test_image_prompt_separates_edited_reference_from_primary_settings():
     assert payload['primary_settings']['image_prompt'] == character['image_prompt']
     assert payload['requested_change'] == '신발만 초록색으로'
     assert 'primary_settings override reference_context' in prompt
-    assert 'requested_change overrides primary_settings only for explicitly changed attributes' in prompt
+    assert (
+        "requested_change overrides primary_settings only for explicitly changed attributes"
+        in prompt
+    )
     assert character['appearance'] == '파란 신발'

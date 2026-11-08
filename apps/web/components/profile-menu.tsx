@@ -5,6 +5,7 @@ import { prepareAvatar } from "../lib/prepare-avatar";
 import { Button, Field } from "./ui";
 import { ImageDropzone } from "./image-dropzone";
 import { ThemeSelect } from "./theme-provider";
+import { useNavigationPreferences } from "./navigation-preferences";
 
 type Profile = {display_name:string; avatar:string|null; revision:number; workspace_id:string; roles:string[]};
 
@@ -17,6 +18,7 @@ function onBackdrop(event: React.MouseEvent<HTMLDialogElement>) {
 
 export function ProfileMenu({compact=false,onLogout,disabled=false}:{compact?:boolean;onLogout:()=>void|Promise<void>;disabled?:boolean}) {
   const inputId=useId();
+  const navigationPreferences=useNavigationPreferences();
   const [profile,setProfile]=useState<Profile|null>(null);
   const [name,setName]=useState(""),[avatar,setAvatar]=useState<string|null>(null);
   const [editing,setEditing]=useState(false),[error,setError]=useState(""),[busy,setBusy]=useState(false);
@@ -89,7 +91,9 @@ export function ProfileMenu({compact=false,onLogout,disabled=false}:{compact?:bo
         {avatar&&<Button variant="secondary" onClick={()=>setAvatar(null)} disabled={busy}>기본 아이콘 사용</Button>}
         <small>권한 · {role}</small><small>작업 공간 ID · {profile.workspace_id}</small>
         <Button disabled={busy||!name.trim()} onClick={save}>저장</Button></>:<>
-        <ThemeSelect/><Button variant="secondary" onClick={()=>{dialog.current?.close();void onLogout();}}>로그아웃</Button></>}
+        <ThemeSelect/>
+        <Button variant="secondary" disabled={!navigationPreferences.available} onClick={()=>{dialog.current?.close();navigationPreferences.open("home",trigger.current);}}>메뉴 강조색</Button>
+        <Button variant="secondary" onClick={()=>{dialog.current?.close();void onLogout();}}>로그아웃</Button></>}
       </div></dialog>
   </div>;
 }

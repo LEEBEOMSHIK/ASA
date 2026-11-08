@@ -1,5 +1,32 @@
 # AI Shorts Studio — WORKBOARD
 
+### 입력 편집 순서와 선택지 정렬 · DONE
+- 필수 순서와 편집 표시 순서 불일치 수정. 선택지 삭제 버튼의 고정 margin-top 제거하고 실제 입력과 같은 행에 배치한다. 사용자 설정 저장 없음.
+- 원인/수정: 입력 편집만 properties 순서를 쓰던 것을 실행과 공통 inputEntries(required 우선)로 통합, 영상 스타일은 현재 구성에서5번. ChoiceOptionsEditor의 고정 margin-top32px이 공통 label 최소높이44px과 어긋나던 것을 입력/버튼 동일 grid 행으로 수정. 오류는 행 아래 유지, gap12px.
+- 브라우저: 실제 에이전트 편집에서 필수1~5/선택6~7 확인. 영상 모델·영상 스타일의4개 선택지 행 모두 input/button top과 center 차이0px, 간격12px. 1600px 밝음/어둠 화면 및360px DOM 넘침없음/center 차이0px. 새 임시 초안 중복 선택지 오류2건에서도 center 차이0px. 설정 저장 없이 탭 닫고 theme/viewport 복원. 증거 .local/diagnostics/input-align-light.png, input-align-dark.png. 모바일 이미지/모든 오류 상태 조합은 미검증.
+- 검증: pytest386(119.72초), mypy64/typecheck/build/diff-check 통과. 전체 Ruff 기존97건. pytest 종료 뒤 pool-102 timeout 경고1줄. 커밋/푸시 없음.
+
+### 영상 스타일 선택 기본 적용 · DONE
+- 사용자 정정: 체크박스/고정 모드 없이 실행 시 선택한 영상 스타일로 공통+스타일 지침 자동 합성. 기본 설정은 본문만 편집한다. 기존 영상 모델 입력 계약을 가진 에이전트와 화면 관리 에이전트에 표준 영상 스타일 필수 입력을 추가한다. 기존 저장 설정은 임의 저장하지 않고 편집 화면에 저장 필요를 알린다.
+- 구현: selection_required 계약으로 비활성/수동 값을 무시하고 video_style 필수 enum을 정규화한다. UI는 본문 편집만 제공하며 실행 입력에서 한글 스타일을 선택한다. 빈 지침은 편집 저장 가능/해당 스타일 실행 차단, 누락 선택 실행 차단. 기존 공통 본문/queued snapshot 유지. 기존 필드명 충돌은 덮어쓰지 않고 안내하며 복구 저장 가능. 일반 사용자 공통 지침 우회 차단.
+- 검증: 전체 pytest383(125.46초) 통과 후 입력 오류·충돌 복구 보완 회귀 포함 모듈32건 통과, mypy64/typecheck/build 통과, 변경 backend lint 통과·전체 Ruff 기존97건, diff-check 통과. 전체 pytest 종료 뒤 pool-102 접속 timeout 경고1줄 발생. 별도 검토 2건 수정 후 재검토 추가 문제 없음.
+- 실화면: 실제 비디오 프롬프트 에이전트 편집(저장하지 않음)에서 체크박스/고정 스타일/적용 방식 없음, 편집 대상 전환과 미작성 안내, 미리보기의 영상 스타일 필수3개 한글 선택·선택 변경 확인. 데스크톱 밝음/어둠1600px, 좁은360px DOM 넘침없음/내부16px. 증거 .local/diagnostics/video-default-editor-light.png, video-default-editor-dark.png, video-default-run-style.png. 원래 테마/viewport 복원, 임시 탭 닫음.
+- 한계: 모바일 이미지·일반 사용자 실브라우저·유료 실행 품질 미검증. 현재 로컬 에이전트 revision7과 원문/본문/DB는 변경하지 않았다. 스타일 본문은 미작성 상태로 사용자가 작성·저장하면 새 실행에 적용된다. 기존 사용자 작업/설정 보존, 커밋/푸시 없음.
+
+### 기존 에이전트 지침을 공통으로 통합 · DONE
+- 사용자 정정: 기존 에이전트 지침이 공통 본문이며 스타일별 추가 지침은 기본 설정 안에서 관리한다. 별도 공통 입력/독립 카드 제거, 기존 instructions 1회 + 선택 스타일 합성. 기존 작업 snapshot과 원문은 보존한다.
+- 적용: 기본 설정 내 기존 지침 바로 아래 추가 지침 group 배치. 신규 catalog 공통 출처 표시로 original 중복 전달 제거, 기존 catalog/bundle은 원래 합성 유지. 일반 사용자의 instructions 변경/관리 플래그 삭제 차단. 이전 별도 common_instructions는 호환 데이터로만 보존.
+- 검증: 전체 pytest381(147.06초), 관련29건, mypy64/typecheck/build/diff-check 통과. 전체 Ruff 기존97건. 별도 변경 검토에서 새 문제 없음.
+- 실화면: 새 임시 초안(미저장)에서 기본 설정 안 배치/공통 입력1개/별도 공통 입력 없음/구분선 앞뒤16px/내부16px, 밝음·어둠1600px 확인. 360px DOM 가로 넘침 없음 확인. 증거 .local/diagnostics/video-common-basic-light.png 및 video-common-basic-dark.png. 원래 테마/viewport 복원, 임시 초안 탭 닫음. 모바일 이미지·일반 사용자 실브라우저·유료 실행은 미검증. 원문/기존 사용자 설정 저장·삭제 없음. 커밋/푸시 없음.
+
+### 영상 스타일별 에이전트 지침 편집 · DONE
+- 승인 범위: 에이전트 설정 편집에서 스타일별 본문 저장, 관리자만 공통 본문 수정. 실행 snapshot 연결 및 API 권한 검증. 기존 지침/사용자 설정 보존.
+- 계획: docs/superpowers/plans/2026-11-06-video-prompt-editor.md. 로컬 owner 화면과 격리 member 테스트로 검증한다.
+- 구현: AgentDraft에 화면 관리 공통/2D/3D/실사 본문을 저장하고 기존 개별/자동화 catalog/bundle 경로에서 합성한다. 에이전트 설정 화면에서 고정 스타일/입력 매핑 자동 선택·스타일별 확대 편집·단일 저장을 제공한다. 공통 영역은 owner/admin만 표시하며 repository 잠금 안에서 변경/삭제 권한을 검사한다. 기존 본문·활성화 설정은 자동 변경하지 않았다.
+- 검증: 전체 pytest 380 passed(115.12초), 최종 추가 boolean 매핑 회귀 포함 지침 편집 통합 2건 통과, mypy64/typecheck/build 통과. 변경 backend 파일 lint 통과, 전체 Ruff는 기존 97건. 긴 한글 지침4개 저장, member 공통 변경·삭제·신규 등록 차단/스타일 수정 허용, stale revision, 빈 본문/잘못된 schema·boolean 매핑 차단 및 과거 버전 지침 보존 확인. 별도 검토의 3건 보완 후 재검토에서 추가 문제 없음.
+- 실화면: Chrome 새 임시 초안(저장하지 않음), 데스크톱 1600px 밝음/어둠에서 공통 영역·스타일 전환 본문 유지·확대 편집·포커스·상하단 배치 확인. 360px에서는 실제 DOM 가로 넘침 없음/필드 margin0/섹션16px, 데스크톱 실제 요소 경계 차이 약16px·체크박스8px 확인. 증거 .local/diagnostics/video-editor-desktop-light.png, video-editor-desktop-dark.png. 원래 어두운 테마와 viewport 복원, 임시 탭 닫음.
+- 한계: 모바일 이미지 캡처는 도구 시간 초과로 미확보, 일반 사용자 실브라우저 화면은 미검증(권한 API는 격리 테스트). 유료 모델 실행/결과 품질은 미검증. 로컬 API OpenAPI의 새 필드 반영 확인. 실제 지침 본문 입력/활성화는 사용자 설정 화면에서 수행한다. 커밋/푸시 없음.
+
 마지막 갱신: 2026-10-28 Asia/Seoul / 작성자: AI
 목표: 개인 채널용 제작 MVP → SaaS. 현재 단계: 초기 기반 완료, 실제 제작 MVP 구현 전.
 확정: C:/projects/ASA, Next.js/FastAPI, LangGraph/LangChain, 외부 AI API, 로컬 개발, 운영 Docker.
@@ -16,6 +43,46 @@
 8. 회귀는 기존 항목을 다시 열어 사유·재검증 결과를 기록한다.
 
 ## 진행
+
+### 메뉴 강조색 저장 후 닫기 · DONE
+- 요청: 저장 성공 즉시 dialog 닫기와 간격 유지. 성공 응답 후 닫고 원래 trigger에 포커스를 복귀한다. 실패/충돌은 편집기를 유지한다.
+- 구현: 성공 응답 시 즉시 닫기·포커스 복귀, 성공 안내 문단 제거, 미리보기/설명 간격을 space-2(8px)로 고정.
+- 브라우저 검증: 실제 컴포넌트와 메모리 응답을 연결한 임시 화면에서 성공 시 닫기·포커스 복귀(1600px/360px), 실패·409 충돌 시 열림 유지 확인. 두 폭 모두 computed gap 8px, 실제 경계 차이 약 7.995px. 밝은 테마 데스크톱 화면 확인. 임시 route 제거, 실제 사용자 설정 저장 없음.
+- 제한: 이번 수정의 어두운 테마 재검증과 모바일 스크린샷 확인은 미완료(CDP 캡처 시간 초과). 직전 팔레트 작업의 테마별 증거는 아래 기록 참조.
+- 검증: backend pytest 377 passed, mypy 64개 파일 통과. 전체 ruff는 기존 97건 오류. frontend typecheck/build 통과, git diff --check 통과.
+
+### 사용자 메뉴색 팔레트·HEX 확장 · DONE
+- 사용자 승인: 기본6색을 유지하고 자유 팔레트·HEX 입력, 테마별 대비 조정, 계정 동기화와 PC/모바일 간격 검증을 추가한다.
+- 기존 이름색 저장과 충돌/초기화 계약을 보존한다. 사용자 설정 저장 없이 미리보기·취소 및 격리 DB로 검증한다.
+- 구현: native color 팔레트와6자리 HEX, 직접 선택 라디오, 형식 오류/저장 차단, 원색 보존 및 모드별 대비4.5:1 이상 계산. 서버는 대문자HEX를 소문자로 정규화하고 기존6색/초기화와 revision 계약을 유지한다. 이전 DB 색 제약 확장 마이그레이션을 테스트하고 로컬 적용했다.
+- 회귀: 구현 전 HEX4건 실패 후 통과. HEX/거부/마이그레이션/별도 로그인 조회 집중15건, 전체 pytest377건(138.14초) 통과. frontend 대비테스트2건에서 RGB512색×2테마(검정·흰색 포함) 모두4.5:1 이상 확인. mypy64개 소스, 최종 typecheck/build·diff-check 통과. 변경 backend ruff 통과, 전체 기존97건 오류.
+- 실제 Chrome: 데스크톱1600×823 밝음, 실제 CSS360×800 밝음/어두움에서 팔레트 입력값↔HEX 동기화, 자동 직접선택, 정상/오류/미선택·저장 비활성·취소/재열기를 확인했다. 임시 선택 원색 #00c2a8/#ffff00/#ffffff의 미리보기와 대비 조정 확인. 화면·확대/DOM 경계에서 두 입력 높이약44px·시작y 동일·사이12px, 라디오8개 높이44px·내부8px, 오류 안내높이44.79px 및 고정 저장 버튼 위치 유지·가로넘침 없음 확인.
+- 간격 보완: 모바일 ‘직접 선택’ 줄바꿈으로61.89px가 되던 행은 가시 문구를 ‘직접’으로 줄이고 접근 가능한 이름을 유지해44px로 맞췄다. 늘어난 설정으로 제목이 스크롤에 가려지지 않도록 공통 dialog를 제목/본문스크롤/버튼 영역으로 분리했다. 상단/하단 모두 확인. 증거 `.local/diagnostics/custom-palette/desktop-light-final.png`, `mobile-dark-final.png`, `mobile-light-final.png`.
+- 한계: 모바일 실기기의 OS 색 선택기 팝업·실기기 간 저장은 미검증(브라우저 native color 입력 변경과 격리DB 두 세션 저장/조회 검증). 실제 사용자 설정은 저장하지 않았고 원래 밝은 테마·viewport1600×823을 복원, 검증 탭은 닫았다. 기존 다른 작업 변경 보존, 미커밋.
+
+### 메뉴 이름 안내 지연 제거 · DONE
+- 사용자 보고: hover 진입/이탈 때 메뉴명 표시·숨김 지연. 공통 NavigationLink의 숨김 타이머150ms와 메뉴 배경 전환150ms를 확인했다.
+- 타이머를 제거하고 링크와 portal 안내 사이 간격을 투명 포인터 영역으로 연결한다. 키보드 포커스·Escape·현재 폭 및 기존 색 설정 작업을 보존한다.
+- 결과: 숨김 setTimeout150ms와 hover 배경 transition을 제거했다. relatedTarget으로 링크↔안내 이동을 판별하며 외부 이탈은 포커스가 없으면 즉시 닫는다. 안내 왼쪽 padding8px이 아이콘 오른쪽 경계에 연결돼 지연 없이 포인터를 옮길 수 있다.
+- 실제 Chrome 밝은 화면1600×823: hover 메뉴명 DOM, Tab 이름 교체, Escape 후 안내0개 확인. computed transitionDuration=0s, 링크 right=51.719px와 안내 left=51.719px의 연결 및 내부 이름 시작59.714px 확인. 증거 `.local/diagnostics/navigation-delay/name.png`는 확대 경계 캡처이며 표시/숨김의 프레임 단위 지연 측정 자료는 아니다. 이번 어두운/모바일/실터치 재검증은 미실시(색/폭/모바일 표시 규칙은 변경하지 않음). 설정·사용자 자료 저장 없음.
+- 검증: pytest363건(120.04초), mypy64개 소스, frontend typecheck/build, diff-check 통과. 전체 ruff 기존97건 오류. 미커밋.
+
+### 사용자 메뉴 강조색 동기화 · REVIEW
+- 사용자 요청: 기존 폭을 유지하며 메뉴별 색을 지정하고 동일 계정의 다른 기기·모바일에서도 유지한다.
+- 사용자/workspace별 서버 저장, 메뉴 단위 충돌 검증, 데스크톱 우클릭·키보드와 모바일 설정 진입, 저장/초기화 및 모드별 대비를 구현한다. 실제 사용자 색 설정은 검증 목적으로 저장하지 않는다.
+- 구현 완료: `user_navigation_colors`와 인증/CSRF 검증을 사용하는 profile 하위 API, 메뉴별 revision 충돌·초기화 tombstone. 로컬 추가 마이그레이션 적용. 서버 팔레트 제한과 사용자/workspace 격리, 로그인·화면 복귀 조회, 모바일 설정 및 우클릭/Shift+F10 편집, 명시 저장/취소를 연결했다. 레일 60px 유지.
+- 검증: 신규 통합 테스트는 구현 전404 실패 후 통과. 별도 로그인 두 세션 간 조회·갱신, 오래된 수정409, 초기화, 다른 사용자/workspace 격리 및 잘못된 입력/CSRF 차단 검증. 전체 pytest363건 통과(169.45초; 종료 뒤 DB pool timeout 경고1건), mypy64개 소스 통과. 변경 backend ruff 통과, 전체는 기존97건 오류. 팔레트12조합 최소 대비5.70:1. 비동기 편집 재개 응답·save/refresh 순서 경합 리뷰 지적을 수정했다.
+- 최종 frontend typecheck/production build 및 diff-check 통과. 리뷰 수정 후 재검토에서 추가 차단 이슈 없음.
+- 실제 Chrome: 1600px 어두움/밝음에서 우클릭, Shift+F10, 설정 진입, 방향키 색 변경, 선택/미선택, 취소 후 재열기 기본색 유지와 포커스 복귀 확인. 라디오16px·최소조작44px·간격8px 및 버튼 수평 배치의 computed style/경계를 확인했다. 실제 CSS360×800에서 모바일 설정 진입·메뉴명·색 선택·버튼 경계·가로 넘침 없음 확인. 실제 사용자 설정 저장은 하지 않았다.
+- 한계/중단: 모바일 캡처 timeout 후 native 캡처 시도에서 브라우저 URL을 확인하지 못해 Computer Use가 중단됐다. 모바일 시각 캡처·실기기 저장/동기화·저장 성공/충돌/네트워크 오류 UI는 미검증(저장 계약은 격리 DB 검증). 검증용 밝은 테마와 viewport override는 중단으로 원복을 확인하지 못했다. 원래 사용자 자료·입력은 변경하지 않았다. 증거 `.local/diagnostics/navigation-colors/dark-preview.png`, `light-preview.png`. UI 남은 항목 때문에 REVIEW 유지, 미커밋.
+
+### 접힌 메뉴 구분 개선 · DONE
+- 사용자 선택: 현재 폭 유지, 메뉴별 고유 아이콘과 마우스/키보드 포커스 이름 안내. 공통 탐색과 홈 링크에 적용한다.
+- 스크롤 잘림·Escape 닫기·밝음/어두움·접힘/펼침·좁은 화면을 확인하고 기존 설정은 복원한다.
+- 구현: 이미지 보관함(이미지 묶음), 영상 비교(분할 재생), 에이전트 관리(방패), 작업 관리(이력), 모델(칩), 브랜드(팔레트)를 구별한다. 공통 NavigationLink의 portal 안내는 hover/focus·Escape·포인터 유지·키보드 자동 스크롤 위치 갱신을 지원한다. 최종 리뷰에서 hover 중 blur와 포커스 이동 시 이전 안내 잔존을 보완했다.
+- 실제 Chrome: 사용자/관리 탐색의 60px 레일, 약44px 클릭 영역·20px 아이콘, 밝음/어두움 1600×885에서 확인. 확대 캡처·computed style/경계로 안내 잘림 없음과 포커스 테두리를 확인했다. 마우스 진입/안내 위 이동, Tab/Shift+Tab 이름 교체, Escape 닫기, 펼친 메뉴의 기존 이름 표시를 확인했다. 최종 Tab에서 안내가 하나씩 교체되고 Escape 후 0개임을 재확인했다.
+- 좁은 화면: viewport 360×800 설정에서 사용자 확대 배율을 유지한 실제 CSS 폭400px의 모바일 메뉴명 표시·가로 넘침 없음은 DOM 확인. 해당 캡처는 도구 시간 초과로 미확보이며 모바일 시각 검증 완료로 보지 않는다. 긴 임의 메뉴명·터치 기기 실조작은 미검증. 정적 탐색에 오류/로딩/비활성 상태는 해당 없음. 메뉴 접힘·어두운 테마·viewport를 원복했고 사용자 입력/결과 저장이나 AI 호출은 하지 않았다.
+- 검증: pytest 362건(114.75초), mypy 63개 소스, 최종 frontend typecheck/build, diff-check 통과. 전체 ruff는 기존 97건 오류. 증거: `.local/diagnostics/navigation/final-menu.png`, `dark-hover.png`, `light-focus.png`. 이번 변경은 미커밋 상태다.
 
 ### 다른 세션 변경 통합 및 비디오 프롬프트 구조 검토 · DONE
 - 사용자 요청에 따라 남은 소스·테스트·문서 변경을 선별하여 커밋·푸시한다. 임시 로그·테스트 산출물·사용자 자료는 제외한다.
@@ -880,9 +947,158 @@ ASA206 IMPLEMENTED / 검증 일부 보류: 파일·공개 링크 혼합 최대4�
 ### 영상 AI 비교 개선 · IN PROGRESS
 - 공급자 선택과 비교 기준을 분리하고 동일 길이·통화 비용, 차액과 근거별 장점을 비교하는 화면으로 개선한다.
 
+진행 중 · 영상 스타일 선택지를 일반 입력처럼 수정할 수 있어 발생한 저장 오류 수정. 고정 필수 선택 및 해당 항목만 복구, 하단 저장 실패 안내·링크 간격 검증.
+완료 · 영상 스타일을 고정 필수 선택으로 분리하고 변경된 항목만 복구하도록 처리. 현재 사용자 초안에서 복구 후 공통 지침 6508자·선택 스타일 지침 3657자 유지 확인, 실제 저장은 하지 않음. 하단 실패 상태와 오류 링크 grid 간격8px·실제 경계7.995px, Chrome 데스크톱 어두운 화면 확인. 캡처 .local/diagnostics/video-save-spacing.png 및 video-save-recovered.png. 이번 수정의 밝은/좁은 화면은 미검증. pytest386 통과(133.44초, 종료 후 pool-102 timeout 로그), mypy64/typecheck/build 통과, 전체 Ruff 기존97건, diff --check 통과. 초기 sandbox 캐시/빌드 권한 오류 후 재검증 통과. 읽기 전용 리뷰 중대 결함 없음. 커밋/푸시 없음.
+
+진행 중 · 영상 스타일을 영상 모델보다 먼저 표시하고, 활성 Runway Gen-4.5의 공식 자료 기반 안내·스타일별 활용 제안 및 출처 연결. 공통 선택 화면 정렬 검증.
+검증 중 · 순서/정확한 모델·스타일 매칭 테스트2개 통과. 미리보기에서 2D→3D→실사 변경 시 모델 runway-gen45 유지, 스타일/모델 미선택 안내 및 펼침/접힘 확인. Chrome 1600×885 데스크톱 밝은/어두운,390×844 좁은 화면 양 테마 DOM 경계 검증: 모델·연결 버튼 y차0px/높이44px, 안내 간격12px·padding16px·내부gap12px, 가로 넘침 없음. 모바일 캡처는 CDP timeout으로 시각 미검증, 실기기/스크린리더 미검증. .local/diagnostics/model-guide-final.png 화면 증거. 테마·viewport 복원, 임시 미리보기 탭 닫음, 사용자 설정 저장/AI 호출 없음. 프론트 typecheck/build 및 mypy64 통과, 전체 Ruff 기존97건, 읽기 전용 리뷰 중대한 결함 없음.
+완료 · backend pytest386개 통과(133.53초). 새 프론트 테스트2개, mypy64/typecheck/build 통과. 전체 Ruff 기존97건. 커밋/푸시 없음.
+
+진행 중 · 동적 비디오 프롬프트 실제 저장→접수→큐→모델 메시지 조합 검증. 세 스타일 분리 및 접수 후 설정 변경 시 기존 스냅샷 유지, 현재 저장 설정 읽기 전용 점검. 유료 호출 없음.
+완료 · 신규 저장 API→접수 API→큐→모델 어댑터 시스템 메시지 통합 테스트 세 스타일 모두 통과. 공통1회+선택스타일만 정확 일치, 다른 스타일 제외·원본입력 보존·접수 후 설정 변경에도 기존 스냅샷 유지 확인. 현재 실제 에이전트 revision8 읽기 전용 확인: 공통6508자, 2D2427/3D2230/실사3657자, 합성8937/8740/10167자 정확 일치. 보고서 docs/video-prompt-verification-2026-11-06.md. pytest389 통과(153.95초), mypy64/typecheck/build 통과, 전체 Ruff 기존97건·diff-check 통과. 실제 사용자 설정 저장/작업 접수/유료 생성 없음. 생성 품질과 실제 AI 지침 준수는 미검증. 커밋/푸시 없음.
+
+진행 중 · 사용자 명시 승인으로 실제 AI 비디오 프롬프트3회(2D/3D/실사) 호출. 기존 요청 없음으로 동일10초 TEXT_DRAFT 검증 자료 사용, 현재 저장 지침과 모델 어댑터 사용. 호출별 시작 기록·자동 재시도 없음, 사용량 모니터링 기록. 영상 생성/이미지 생성 없음.
+완료 · 명시 승인된 실제 유료 AI 호출3회 모두 성공(OpenAI gpt-6.1-terra, 저장버전8, 재시도0). 기존 실행 자료 없음으로 동일10초 텍스트 검증장면, style만 변경. 2D 선화·색상 유지/3D 접촉과 안착/실사 체중 이동·절제된 연기 확인. 출력 스키마·2개 컷·0~5/5~10초·9:16·프롬프트750자 및 상태 포함1000자 제한 통과. TEXT_DRAFT/이미지 미확인 표시·image_id 빈값 유지. 사용량 모니터링3건, 합계 추정USD0.04257650(설정 요율 기준). 결과·원문은 커밋 제외 .local/diagnostics/paid-video-style-2026-11-06/report.md 및 스타일별JSON. 실제 이미지 미첨부, 영상 생성 없음, UI/큐 전체 실행 아닌 실제 모델 어댑터 호출 검증, 각1회 샘플로 모든 지침/재현성/영상품질 미검증. 제품 코드 변경 없음·사용자 설정 보존. 커밋/푸시 없음.
+
 진행 중 · 영상 AI 비교 가격 기준을 목표 영상1편·클립 단가/개수·계산식으로 명시, 프롬프트/이미지 비용 별도 설명 및 공식 Runway API 연동 절차 추가. 실제 설정 변경/호출 없음.
 완료 · 영상1편 길이·각클립1회·단가×개수 계산식·전체 재생성1회 비용·별도 프롬프트/이미지 제작비 표시. 공식 Runway setup/API/pricing 문서 확인 후 계정/키/크레딧→서버 설정→연결 확인→첫 클립 안내와 기타 모델 추가 절차 추가. 키/설정 변경·유료 호출 없음. Chrome1600×885 밝은/어두운,1분9540원/5분47700원 계산 전환 확인(1325원/USD), API 펼침/접힘·마지막 출처까지 점검. 조건3개 top 동일/높이51.997px, API gap16px·문단8px·단계 왼쪽좌표 동일. 390×844 양테마 DOM 가로넘침없음·명령줄 줄바꿈 확인, 좁은 화면 시각/실기기 미검증. 테마/viewport 복원·임시탭 닫음. 증거 .local/diagnostics/comparison-price-dark.png, comparison-api-dark.png, comparison-api-light.png. pytest389(118.87초)/mypy64/typecheck/build/diffcheck 통과, Ruff 기존97건. 커밋/푸시 없음.
 
 진행 중 · 비교표 9개 모델별 공식 API 경로·모델 ID·인증·생성/조회·출처와 확인 한계 추가. 직접/중개 API 및 ASA 구현 상태 구분, 테마/좁은 화면 간격 검증. 설정 변경·유료 호출 없음.
 완료 · 비교표9개 모델의 모델별 펼침 안내 추가: 계정/인증·모델ID·생성/조회·제한·ASA상태·공식 출처. Runway/BytePlus/BFL/xAI/Alibaba 직접 경로와 Gemini/Kling/MiniMax Runway 중개 경로 구분. Gemini 직접EAP 제한, Kling/MiniMax 직접 호출 명세 미확인, FLUX 힉스필드 상품 대응 미확인 표시. 힉스필드 가격과 API요금 분리. Chrome1600×885 밝은/어두운 실제 화면,9개 펼침/키보드 접힘·포커스 확인. desktop dt/dd 시작top 동일·열gap16px,390×844 양테마 DOM 넘침없음·모바일행gap8px(54개 행 어두운 상태검사). 모바일 캡처 CDP timeout으로 좁은화면 시각/실기기 미검증. 읽기안내만으로 오류/비활성/선택 입력 신규상태 해당없음. 테마·viewport복원·임시탭닫음. 증거 .local/diagnostics/model-api-dark.png,model-api-light.png,model-api-limitations.png. pytest389(117.77초)/mypy64/typecheck/build/diffcheck 통과,전체 Ruff 기존97건. 설정변경·유료호출·커밋/푸시 없음.
 커밋 준비 · 영상 AI 비교 가격 설명·9개 API 안내와 해당 기록만 포함. 이전 메뉴/프롬프트 변경은 로컬 보존. 직전 전체 검증 결과 유지, 사용자 자료·스크린샷·생성물은 제외.
+
+진행 중 · WAN3.0 Alibaba Model Studio 직접 API 연결. 공급자별 설정/카탈로그/큐/워커와 모델 안내 연결, 모의HTTP·격리DB 검증. 기존 사용자 설정과 유료 생성은 변경/실행하지 않음.
+완료 · WAN3.0 Alibaba 직접 API 어댑터·서버 설정·모델별 연결 상태·큐/워커·선택지 추가 버튼·스타일 안내 연결. task ID text 마이그레이션 로컬 적용, endpoint 스냅샷 및 불확실 접수 자동 재전송 차단. pytest400(129.49초), mypy65, typecheck/build, 프론트 안내테스트3개, WAN 대상 Ruff 통과; 전체 Ruff 기존97건 유지. 모의HTTP/격리DB 성공·타임아웃·거절·만료·workspace 격리·중복 접수 검증. Chrome desktop 밝은/어두운 WAN 선택/설정확인/키미설정 안내 확인. 390px 좁은 DOM 선택란/버튼 top400.486px 동일·높이43.993px·gap8px·가로넘침 없음. 모바일 캡처 CDP timeout으로 좁은 시각/실기기 미검증. 증거 .local/diagnostics/wan-desktop-dark.png,wan-desktop-light.png. 임시 미리보기 미저장·테마/viewport 복원·탭닫음. WAN 키/작업공간ID 미설정 및 영상 생성 꺼짐: 실제 인증/유료 생성/품질 미검증, 워커 시작하지 않음. 초기 720p 첫프레임 기반, API 단가 미설정은 알수없음 표시. 기존 다른 작업 보존, 이번 작업 커밋/푸시 없음.
+진행 중 · 사용자 요청으로 로컬 PostgreSQL/API/Web 기동 및 HTTP 준비 상태 확인.
+완료 · 로컬 PostgreSQL/API(8127)/Web(3001) 백그라운드 기동. API /health/ready와 웹 /login HTTP200 확인. sandbox 소켓 제한으로 외부 실행 권한에서 기동·검증. AI 생성 워커 추가 시작/유료 호출/설정 변경 없음. 코드 변경 없음으로 전체 테스트 재실행하지 않음.
+진행 중 · 접힌 사이드바에서 사용자/관리자 제목을 숨기던 CSS 제거, 양 공통 탐색 표면에 12px 제목과 관리자 구분선 유지. 기존 폭/메뉴 강조색/권한 필터 유지. 브라우저 및 필수 검사 예정.
+진행 중 · 사용자 수정 요청: 접힌 메뉴의 사용자/관리자 텍스트 제외, 관리자 경계 구분선과 상하8px 여백만 유지. 불필요해진 caption 토큰 제거.
+수정 완료 · 접힌 메뉴 제목은 숨기고 관리자 구분선·상하8px 여백 유지. frontend typecheck/build 통과. 브라우저 연결 제한으로 이번 시각/DOM 검증 미완료. 앞선 backend pytest 실행 결과 미확인으로 통과 주장하지 않음. 코드 범위 CSS와 불필요 토큰 정리, 사용자 설정 변경 없음.
+진행 중 · 이하나와 웃음 도둑의 발자국 저장 대본/장면 구성 읽기 전용 분석, 예상 영상 길이·클립 규모·무료 테스트 범위 확인. 영상 보관함 요구 기록, 생성 호출 없음.
+분석 완료 · 지정 작품 씬 이미지 요청28147cb3-eca5-4179-ae4a-55ef230c70ef의 입력 대본/장면 및 현재 프로젝트 읽기 확인. 3D동화·9:16·14장면·시간표 합계300초(낭독 실측 아님), 대표 이미지14개 생성/14개 확정 DB 확인. 현재 대표이미지는 컷별 영상 계획이 아니므로 14개 영상으로 확정하지 않음. 해당 씬 요청ID를 입력에 참조한 후속 요청 조회0건. 원문/결과 임시분석 파일은 .local에만 보관, 생성·저장설정 변경 없음. 영상 보관함 메뉴 요구는 후속 구현 항목, 이번에는 사용자 요청대로 분량 분석 우선.
+`n진행 중 · 클립 cut/continue 연결 계약과 앞 영상 확정 게이트를 UI/API/워커에 추가. 부모 영상 ID/해시 고정 및 마지막 프레임 추출, 공통/스타일 지침 반영. 기존 작업 보존, 유료 호출 없음.
+완료 · 클립 cut/continue 및 바로 앞 클립 참조 계약, UI 생성 적격성/확정 대기/시작 이미지 안내, API 승인 게이트, 워커 마지막 PNG 전달 구현. 같은 workspace·요청·답변 버전에서 부모 작업 ID/SHA256 고정, 참조 사슬 변경 시 확정/후속 생성 차단. 상태 조회는 DB 해시로 검사해 전체 영상 반복 전송 제거. 리뷰에서 패딩 종료점 불일치 발견 후 선행 클립에 trim 필요 시 continue 거부 및 지침/회귀 테스트 추가, 재리뷰 중대 결함 없음.
+실제 비디오 에이전트4184e76d-bd71-4ccd-97ef-3c56b4aea1dd revision8→9→10 저장: 원래 공통/2D/3D/실사 내용 보존 후 연결 지침 추가, 연결 필수 출력 필드 확인. 이전 초안은 .local/diagnostics/video-continuity-backups에 보관, 기존 요청 스냅샷/대본/이미지/영상 변경 없음. 기본 템플릿과 재실행 가능한 revision 검사 업그레이드 스크립트 추가.
+검증 · 최종 backend pytest411 통과(122.86초, 종료코드0; 종료 후 pool-115 connection timeout 로그 별도), mypy67/typecheck/build/diff-check 통과. 변경 대상 Ruff 통과, 전체 Ruff 기존97건. 테스트: 미확정 부모+자식 일괄 차단, 확정 후 접수, 변경 해시 호출0회, 실제 FFmpeg 마지막 프레임, 저장 지침 보존/멱등성. 실제 유료 AI 호출/생성 품질/영상 워커 운영 실행 미검증 및 미실행. API health/ready200.
+UI · 실제 Chrome에서 운영 컴포넌트와 동일 agent-response/agent-answer 부모를 적용한 임시 모의응답 화면으로 확인(사용자 작업/설정 저장·영상 확정 없음). desktop CSS1600×823 밝은/어두운 캡처, 미확정 비활성/확정 후 활성/모두선택 제외/참조변경/모의 오류/키보드 포커스/연결 정보 펼침 확인. 버튼 top/높이 동일, 카드 높이125.88px·gap12px·padding12/16px, stack24px. viewport390×844 설정에서 기존 확대율 유지한 실제 CSS433×938 양테마 DOM 넘침없음, 밝은 좁은 화면 캡처 확인; 어두운 좁은 캡처 CDP timeout으로 해당 시각 미검증. 화면 증거는 이번 대화의 CUA 캡처. 전체 생성 영상 재생 및 실제 마지막 프레임의 브라우저 표시, 실기기 미검증. 원래 어두운 테마/viewport 복원, 임시 탭과 검증 페이지 제거. 자동 조립/오디오믹싱/자막합성/공급자 연장API는 미구현 표시. 커밋/푸시 없음.
+진행 중 · 무서운 쇼츠 대본 작가에 15초/30초/1분 길이 추가, 소재 직접 입력 선택과 조건부 필수 입력란 연결. 기존 기본값/지침/작업 보존, 실제 AI 호출 없음.
+완료 · 무서운 쇼츠 대본 작가0ccdd20c-b6a3-4127-9178-fd7516f8b0d3 revision4→5 저장. 이야기 길이15초/30초/1분 추가(기존3/5/10/15분·기본5분 유지), 소재 직접 입력 선택 및 custom_subject 조건부 필수/표시 연결. 기존 원문 지침 뒤에 짧은 분량 우선·직접 소재 해석 규칙 추가, 이전 설정 .local/diagnostics/horror-input-backups에 보관. 재실행 unchanged5 확인, 기존 작업 스냅샷/대본 변경·유료 호출 없음.
+공통 폼 · x-visible-when은 조건부 필수와 동일한 조건 및 항상 보이는 선택 항목만 허용. 소재 다음 위치에 입력란 배치, 숨긴 입력은 검증/확인 목록/payload 제외, 다시 선택하면 임시 작성 내용 복원. 설정 편집 시 조건 변경 동기화/선택·항상필수 변경 시 표시조건 제거/입력방식 변경 시 보존. 프론트 회귀1개·조건 backend24개 통과.
+검증 · 전체 pytest412 통과132.24초(종료코드0, 종료 후 pool-115 timeout 로그), mypy67/typecheck/build/diffcheck 통과, 전체 Ruff 기존97건. Chrome 실제 에이전트 설정의 실행 미리보기에서 세 길이 선택, 직접 입력 표시/숨김/다시표시, 공백 오류, 입력 확인 및 다른 소재 선택 시 이전 텍스트 제외 확인. Desktop1600×823 밝은/어두운 캡처 및 좁은viewport390×844(확대율 보존 CSS433×938) 양테마 DOM 넘침없음, 어두운 좁은 직접입력 캡처 확인. 선택란/텍스트입력 x40.55px·너비335.57px 동일, radio gap12px/align center/행높이46.70px, 섹션 경계padding24px·간격23.99px 유지. 밝은 좁은 캡처는 후속 도구 오류로 보존되지 않아 시각 미검증. 실제 고객 접수/AI 출력 품질·실기기 미검증. 증거 이번 대화 CUA 캡처. 원래 어두운 테마/viewport 복원·임시 미리보기 탭 닫음, UI검증용 설정 저장/실행 없음. 커밋/푸시 없음.
+
+진행 중 · 에이전트/이미지 워커 개별 시작·현재 작업 완료 후 중지 제어를 관리자 UI/API/로컬 프로세스에 구현. 중복 시작·권한·작업 보존 테스트, 간격/정렬 브라우저 검증 예정. 실제 대기 요청/유료 AI는 실행하지 않음.
+완료 구현 · 작업 공간 상태→워커 관리(기본 접힘)에 에이전트/이미지 개별 시작·작업 완료 후 중지 버튼. 로컬 development의 소유자/관리자만 API 제어, CSRF/workspace 확인. 고정 모듈/숨김 프로세스, 시작 세대 토큰·DB 수명 잠금으로 중복 시작/오래된 종료 상태 덮어쓰기 차단. CLI도 같은 제어 루프 사용. 실제 작업 선점과 중지를 같은 행 잠금으로 직렬화하여 중지 후 새 대기 작업 선점 차단, 선점한 작업/검수는 완료 후 종료. API 재시작/브라우저 종료는 워커 강제 종료하지 않음. 구버전 프로세스는 재시작 필요 안내. 제어 테이블 로컬 적용, 실제 사용자 워커 시작/유료 생성 없음.
+검증 진행 · 워커 전용9개 테스트 통과(빈 격리DB에서 실제 두 프로세스 시작/종료, 처리 중 중지, 다음 작업 미소비, 중복 시작, 시작 직후 취소, 시작 실패, 이전 token, 권한/CSRF/workspace/production 차단, 실제 선점 전 중지, 첫 시작/중지 경합). 코드 리뷰 경합2건 수정 후 재리뷰 추가 중요 문제 없음. 변경 파일 Ruff 통과, 전체 Ruff 기존97건 유지. mypy69·최종 frontend typecheck/build 통과. 전체 pytest 최종 결과 대기.
+UI 확인 · Chrome 실제 작업 공간 desktop CSS1600×885 어두운/밝은 테마 접힘/펼침 캡처. 두 카드 top198.33px/높이155.78px 동일, 버튼 top290.06px/높이47.50px 동일, 카드 간16px/내부12px/padding16px. viewport390×844·확대율 보존 CSS433×938 밝은 좁은 전체 제어 캡처, 카드/버튼 동일 x와 너비·넘침없음. 실제 데이터 미변경 임시 mockfetch 화면에서 온라인/중지 예약/비활성/실패 안내/키보드 포커스 검증, 오류 간격15.998px. 좁은 어두운 오류 화면 DOM 넘침없음/동일 버튼너비/간격16px 확인; 해당 캡처 timeout으로 좁은 어두운 전체 제어 시각 미검증. 증거 이번 대화 CUA 캡처. 임시검증 페이지 삭제·탭닫음·viewport와 원래 어두운 테마 복원. 실기기/실제 유료 생성 중 중지는 미검증, 모의 장시간 작업 완료 후 중지는 검증. 기존 다른 작업 변경 보존, 커밋/푸시 없음.
+최종 검증 완료 · 전체 pytest421 통과146.34초, 종료코드0(종료 후 기존 pool-124 connection timeout 로그 별도). mypy69/typecheck/build·변경 파일 Ruff 통과, 전체 Ruff 기존97건. 실제 사용자 워커 두 개 중지 상태 유지, 유료 호출/사용자 요청 처리 없음.
+
+진행 중 · 워커 상태 배지 클릭으로 native 관리 모달 열기. 기존 본문 펼침 제거, 두 워커 개별 제어 유지, Escape/닫기/포커스 복원 및 간격·테마·좁은 화면 검증. 실제 워커 시작 없음.
+구현·UI 확인 · 상태 배지 두 개에서 동일 native 관리 모달 열기, 본문 details 제거. 관리자만 배지 버튼, 모달 초기 닫기 포커스, Enter 열기·Escape 닫기·실행 배지로 포커스 복원 확인. Chrome 실제 작업 공간 desktop 양테마 캡처·모달 width767.99px·두 제어 버튼 top490.84px/height47.50px 동일·카드 gap16px. 좁은 viewport390×844(CSS433×938 확대율 유지) 양테마 DOM: 모달 폭378.66px, 1열·버튼너비312.45px 동일·가로넘침없음, 닫기 화면 내 유지. 좁은 캡처 양쪽 timeout으로 해당 시각 검증 미완료. 오류·중지 대기 상태는 기존 제어 코드를 유지하며 이번 모달 내 재현 미검증. 원래 어두운 테마·viewport 복원/임시탭닫음. 실제 워커 시작/사용자 데이터변경 없음. frontend typecheck/build·mypy69 통과, 전체 Ruff 기존97건 유지. 전체 pytest 결과 대기.
+최종 완료 · 전체 pytest421 통과156.41초(종료코드0). 상태 배지→모달 관리 적용, 커밋/푸시 없음.
+
+진행 중 · 무서운 쇼츠 대본 작가 지침에 길이별 서사 밀도·행동/반응·구간별 시간표와 본문 시간코드 일치 규칙 추가. 기존 지침·설정·생성 대본 보존, revision 검사 후 저장. 실제 AI 호출 없음.
+설정 반영 · 무서운 쇼츠 대본 작가0ccdd20c-b6a3-4127-9178-fd7516f8b0d3 revision5→6, 실행 저장version5/source_revision6 확인. 기존 지침 전체 뒤에 docs/agent-templates/horror-story-timing.md 추가, 지침 외 설정 동일 검증. 15초/30초/1분/장편별 서사 밀도, 구체 행동·반응·인과관계, 구간별 시작/종료/소요시간·합계, 본문 시간코드 일치, 동시 연출 중복 합산 금지, 실제 음성 미측정 표기 추가. 이전설정 .local/diagnostics/story-timing/revision-5.json 백업. 기존 이루리 대본1버전 유지. UI/앱 코드 변경 없음으로 시각 검사 해당없음. 실제 AI 출력 품질/음성길이 미검증, 유료 생성 없음.
+검증 완료 · 전체 pytest421 통과(종료코드0), mypy69·frontend typecheck/build 통과. 전체 Ruff 기존97건 유지. 설정 재조회 및 실행 저장버전 반영·지침 외 설정 동일 검증. 신규 생성/낭독 실측 미실행으로 실제 생성 품질·재생시간 미검증. 기존 요청에는 당시 지침 스냅샷이 유지되며 새 작업에 추가 지침 적용. 커밋/푸시 없음.
+
+진행 중 · 사용자 요청으로 최신 지침의 새 작업에서 이루리와 딸꾹 유령 30초 실제 AI 생성. 기존 작품을 직접 소재로 제공, 화면/최근 작업에 결과 보존 및 시간표/전개 검토. 유료 대본 호출 요청 승인됨, 영상/이미지 생성은 범위 밖.
+완료 · 실제 Chrome 작업 공간에서 최신 에이전트 선택→30초/직접 소재/기존 작품 설정 입력→답변 생성 실행. 신규 요청dc81585f-d783-44ba-92c3-4a52f819c86c 2026-11-07 23:39:00 접수/23:39:13 답변완료, 저장version5(source_revision6) DB 확인. 답변v1 저장 및 ?request= URL로 다시 열어 화면 지속 확인, 사용자 확인용 결과 탭 유지. 기존 요청5f698f1e-e5f8-49fa-91b4-aed05756ae1d 보존.
+검토 · 시간표0–5/5–10/10–17/17–25/25–30초, 5+5+7+8+5=30초·구간연속·합계 자동검증. 본문구간 일치, 유령 몸이 튀는 행동→이루리가 따라뜀→함께웃음→딸꾹질멈춤 인과 추가. 시간 산정은 연출 추정/음성미측정 표시. 17–25초는 대사보다 행동·웃음 중심으로 실제 영상 연출 필요, TTS/낭독 실측 없음으로 실제30초 보장 아님. 운영 작업 요청 수행만으로 앱 코드변경 없음, 단위/빌드 재실행 해당없음. 실제 AI 대본1회 생성(사용자 명시 요청), 추가 수정호출/이미지·영상생성·확정 없음. 결과 .local/diagnostics/story-timing/generated-30s.json 로컬 확인용 저장, 커밋/푸시 없음.
+
+진행 중 · 최근 작업 공통 표시명·입력/결과 기반 제목 및 사용자별 이름 수정 구현. 제목 없음 fallback과 요청 번호, 기존 폭 유지, 모달 편집·권한/충돌/원문 보존·시각 검증 예정. 실제 AI 생성 없음.
+완료 구현 · 모든 에이전트의 최근 작업에 공통 표시 제목/에이전트명/조건/요청 번호 적용. 지정 이름→결과 제목→연결 제목→입력 대표 문구/파일명→에이전트명 fallback. 제목 없는 결과는 제목 없음 표기, 입력 유래는 입력 기준 표기. 사용자/workspace별 이름 수정·자동 이름 복원·revision 충돌409·CSRF/권한 경계·원문 보존 검증. migration 로컬 적용, 실제 사용자 이름 저장/AI 호출 없음. 리뷰에서 지정 이름의 Untitled/없음/별표를 임의 정리하던 문제 발견·수정·회귀 통과.
+UI 검증 · Chrome desktop CSS1600×823 양테마 목록/모달 캡처. sidebar340px 유지, 카드x75.99/width242.80 동일, 보조문구 margin8px·meta gap8px. 모달512px/padding24, 버튼top521.24/height47.50 동일·gap12. 공백 저장 비활성, 긴 입력, Escape/모바일 메뉴 복귀·옵션 포커스 복원 확인. 폭 전환 시 숨겨진 sidebar 안 열린 모달이 메뉴를 막는 문제를 body portal로 수정·재확인. viewport390×844(기존 확대율 유지 CSS433×938) 양테마 모달width378.66/padding16/넘침없음·버튼높이 동일 DOM 확인. 좁은 화면 캡처는 양테마 도구timeout으로 시각 미검증, 실제 모바일 기기 미검증. 오류/저장 중 모달 시각 상태는 미검증(백엔드 저장/복원/충돌 통합검증). 원래 어두운 테마/viewport 복원·임시탭닫음. 증거는 대화 CUA 캡처.
+검증 · 전체 pytest426 통과150.32초(종료후 pool125 timeout 로그), 신규 회귀5 통과, mypy70·frontend typecheck 통과. 신규 backend파일 Ruff 통과, 전체 Ruff 기존97건 유지, diffcheck 통과. portal 수정 후 frontend build 재검증 중(첫 재시도 .next mkdir EPERM). 커밋/푸시 없음.
+최종 검증 · portal 수정 후 frontend build 재실행 통과(종료코드0). .next 일시 EPERM은 재실행으로 해소. 구현 완료, 좁은 화면 캡처·오류/저장 중 UI 시각 검증 한계는 위 기록 유지.
+진행 중 · 최근 작업 옵션을 카드 아래 펼침에서 ⋯ 기준 top-layer 컨텍스트 메뉴로 변경. 사이드바 폭/카드 간격 유지, 바깥 클릭·Escape·키보드 확인 예정. 목소리/음원 생성 방식은 사용자 선택 대기, 현 영상 공급자 계약은 audio boolean만 전달함을 확인.
+완료 · 최근 작업 ⋯를 카드 하단 펼침에서 native popover 컨텍스트 메뉴로 교체. 작업 이름 수정/숨기기·복원, 바깥클릭·Escape·Tab·방향키/Home/End, 스크롤/resize 닫기. 사용자 작업 숨김/이름 저장은 검증 중 실행하지 않음.
+UI · Chrome desktop CSS1600×885 양테마 캡처, 열기 전후 첫 카드 y241.05/height136.66·다음 카드y385.70 동일, 메뉴width220/항목gap4/메뉴padding8, 기존sidebar340 유지. 키보드 방향 이동·Escape 옵션 포커스 복원·수정 dialog 연결·바깥클릭 닫힘 확인. 좁은viewport390×844(CSS433×938 기존확대율유지) 밝은테마 캡처·메뉴x42.79/right262.79/width220·버튼height43.99 동일·넘침없음 확인. 어두운좁은 메뉴 열기는 브라우저 입력timeout으로 미검증. 원래어두운테마/viewport복원·임시탭닫음. 증거 대화 CUA 캡처.
+검증 · frontend typecheck/build 통과, mypy70 통과, 전체 Ruff 기존97건. 첫 pytest는 sandbox 로컬 DB접근 Permission denied로 실패, 승인된 실행으로 전체426 통과149.64초(종료코드0, 종료후pool125 timeout로그). 커밋/푸시 없음.
+오디오 · 사용자는 목소리고정·음원선택·별도합성 방향 선택. docs/superpowers/specs/2026-11-08-audio-production-design.md 작성. 상세 설계 질문에 사용자가 담당 에이전트를 문의하여 대본=원문/캐릭터설정=기본목소리/비디오프롬프트=전체오디오계획/오디오워커=실제생성·합성으로 설명. 상세설계 승인 아직 없음, 오디오 기능 구현·유료호출 없음.
+진행 중 · 사용자 승인된 오디오 제작 설계 구현 시작. 대본 원문/캐릭터 목소리/비디오프롬프트 오디오계획/별도워커 생성·합성 연결. 실행계획 docs/superpowers/plans/2026-11-08-audio-production.md. 실제 유료호출 없이 검증.
+
+완료 · 승인된 별도 음성·음악 제작 구현. 캐릭터 결과의 안정 ID 목소리 설정, 비디오 작업의 명시적 캐릭터 작업/답변 버전 가져오기·내레이터/발화 시간표·업로드 음원 선택·길이 검토와 확정·확정 영상/음성 합성·최종본 확정/다운로드 연결. 기본 영상 음성 off는 별도 제작이 켜진 신규 영상 요청에만 적용. 기존 대본·생성물/확정 상태는 보존. 로컬 DB migration 적용, 비디오 에이전트 revision10→11→12(각 이전설정 .local/diagnostics/audio-production-backups 백업), 공통+2D/3D/실사 지침과 출력 audio_plan 추가. 새 요청부터 적용.
+워커/안전 · 오디오 워커를 기존 관리 모달에 추가, 현재 작업 완료 후 중지. speech 호출 전 claim/불확실 unknown/자동 재시도 없음, operation 멱등성 및 새 합성 재시도 보존. 실제 길이·전사문·workspace·설정 revision·확정 원본 SHA 재검증. 짧은 영상 합성 차단, 비반복 음악 fade 실제 끝 적용. 업로드 playlist 차단·디코딩 검증. AI 사용량 이벤트 비용은 usage_unknown. 실제 유료 호출·사용자 최종본 생성·워커 시작 없음.
+검토 · 독립 audio_review가 합성 실패 재시도 불가/짧은 원본 영상 시간표 오차 지적. 수정 및 회귀 검증 후 재검토에서 남은 차단 문제 없음. 캐릭터/비디오 전환 시 컴포넌트 key로 이전 편집 상태 섞임 방지.
+UI 검증 · 실제 캐릭터 결과 dark, 저장되지 않는 fixture의 light/dark 전체 오디오 편집·시간 초과·저장 충돌·음원 선택/미선택·스위치·긴 내레이터명·포커스/비활성 확인. sidebar340 유지, 입력43.99px, 같은 행 y 일치, gap16px. 워커 3개 모달 배치 확인. 좁은viewport390×844(CSS433px) 양테마 1열·넘침 없음 DOM검증. 좁은 screenshot 도구timeout으로 시각 미검증; 실제 모바일 기기/실제 AI 발음품질·사용자 영상 최종본 재생 미검증. 임시route 제거, fixture와 캡처 .local/diagnostics/audio-production 보관. 사용자 설정 임의저장/확정 없음, viewport/테마 복원·임시탭닫음.
+최종 검증 · 전체 pytest437 통과229.36초(종료코드0), 최종 업로드 형식/타workspace음원 포함 오디오 9테스트 통과11.82초. mypy77파일·frontend typecheck/build 통과, 신규 오디오 파일 Ruff 통과, 전체 Ruff 기존97건 유지, diffcheck 통과. uv.lock 갱신 완료. docs/audio-production.md 및 architecture/local-development/design-system/.env.example/run.ps1 갱신. 커밋/푸시 없음.
+
+검토 · 사용자가 이미지 보관함을 대본·씬·이미지·음성·영상 통합 보관함으로 확장 제안. 기존 /characters는 캐릭터/씬 이미지 조회·버전 상세·원래 작업 이동을 제공하며 대본/장면 답변과 audio/video 결과는 개별 작업에 저장됨을 확인. 작품 단위 통합 식별자는 별도 설계가 필요하며 제목만으로 자동 병합하지 않음. 유형별 통합 조회와 작품별 연결 관리 범위를 논의 중, 제품 코드/사용자 자료 변경 없음.
+진행 중 · 통합 보관함 구현: 기존 답변/이미지/음성/영상 원본 조회, 유형·작품별 탐색, 명시적 작품 연결 및 미분류 보존. 사이드바 폭 유지, 실제 UI/권한/버전 검증 예정. 사용자 자료 생성·확정 없음.
+
+완료 · 통합 보관함(/characters): 탐색 표시명 보관함으로 변경, 유형별/작품별/기존 이미지 모아보기. 대본·씬·캐릭터·이미지·음성/BGM·영상 클립/최종 합성/참고 영상·비디오 프롬프트·기타 자료 및 자동화 성공 결과 조회. 원문/버전/승인/미디어 복제·수정 없이 조회하며 로컬 실제70개 자료 확인. 작품 만들기/이름 수정/연결·해제는 workspace DB에 저장, 요청 source_id 계열의 모든 버전·파생 미디어 분류, standalone 업로드/자동화는 별도 단위. 제목 자동 병합 없음, 기존 미연결 자료는 작품 미지정으로 유지. 서버 CSRF/workspace/revision 및 해제 tombstone 검증. 로컬 분류 테이블 migration 적용, 사용자 작품/연결을 임의 저장하지 않음.
+리뷰 · 삭제 작업 보관 영상 누락, 제외 이미지의 확정 표시, 직접 AI 자동화 결과 누락 3건 발견·수정, 회귀 테스트 추가. 재리뷰 추가 차단 문제 없음. 조회는 workspace 메타데이터 인메모리 필터/페이지 분할이므로 대규모 SaaS 부하 미검증, 문서 명시. 기존 ImageBrowser/ImageTaskManager/이미지 선택·확정 계약 유지.
+검증 · 전체 pytest444 통과176.87초/exit0(종료 후 pool-134 connection timeout 메시지 별도). 신규 보관함7개 통과: 기존 버전, 분류, source 계열/순환, 작품 연결/충돌/해제, 타workspace 자료 차단, 원본 보존, 보관 영상·제외 이미지, 직접AI 자동화 출력·페이지 분할. mypy79/최종frontend typecheck/build 통과. 첫 build는 sandbox standalone 디렉터리 EPERM 후 권한 허용 재실행 성공16route. src 전체 및 신규 테스트 Ruff 통과, 전체backend Ruff는 기존 테스트97건 유지. diff-check 통과. 커밋/푸시 없음.
+UI · Chrome 실제 /characters desktop CSS1600×885 양테마 목록/검색빈상태/대본미리보기 확인, 실제 저장 이미지1024×1024 로딩·버전선택 표시/페이지2의24개 조회. 검색 Field 라벨44px와 SelectCombobox 라벨24px 불일치 발견→공통 aligned-control-grid 라벨높이44px 적용, 4개 입력 top동일/높이43.993px 확인. sidebar60px 기존접힘폭 유지(사이드바 CSS 변경없음), 카드gap16px/섹션24px, 모달하단 버튼높이47.50px/top동일. 별도 임시 mock-fetch 화면에서 긴 작품명/빈 입력 저장비활성/작품 생성·연결 성공후 모달닫힘/409충돌 입력유지·오류간격16px 확인. 사용자 DB에 UI검증자료 저장 없음. viewport390×844(확대율 유지 실제CSS433×938) 양테마 1열/가로넘침없음, 컨트롤 동일x15.998/width384.67/height43.993, 좁은 연결모달400.66px·하단버튼top동일 확인. 좁은 캡처는 CDP시간초과로 시각 미검증, 실제 모바일기기/실제 오디오·영상 재생·다운로드 완료는 미검증. 원래 어두운테마·viewport 복원, 검증탭닫음/임시route제거. 화면증거 .local/diagnostics/production-library/library-dark.png, mockfixture 원본 같은폴더/fixture-page.tsx(커밋제외). 사용법·자료연결한계 docs/production-library.md 기록.
+진행 중 · 사용자 피드백 반영: 보관함 전용 archive 아이콘, 유형 카드→종류 자료/작품 카드→작품 자료로 탐색 단계 분리. 첫화면 최근자료 나열 제거, 이미지 썸네일 제공, 사이드바 크기 유지.
+완료 · 보관함 탐색 재구성: archive 전용 아이콘 적용(기존 navigation ID/폭 유지). 유형별 첫 화면은 8종류 카드와 개수만, 작품별 첫 화면은 작품 폴더와 별도 작품 미지정 진입만 표시. 선택 전 자료 나열 제거, 선택 후 현재 유형/작품 제목과 목록 돌아가기 제공, 보기 전환 시 필터 초기화. 이미지 상세 목록에 저장 이미지 썸네일, 중복 메타데이터 축소. 실제 기존70개 자료 유지, 등록된 작품 없음은 빈 상태로 안내. 사용자 작품 생성/연결 저장 없음.
+검증 · 전체 backend pytest444 통과177.54초 exit0(종료 후 pool-134 timeout 메시지 별도), mypy79파일 통과. 전체 Ruff 기존 테스트97건 유지. 최종 frontend build 통과16route, typecheck 통과, diff-check 통과. 임시 library-check route 제거, 커밋/푸시 없음.
+UI · 실제 Chrome desktop CSS1600×885 밝은/어두운 유형 카드 확인, 8개 카드/선택 전 자료0개. 카드 gap16px·동일높이244px, 필터 top497.760px/높이43.993px 일치, 접힌 sidebar60px 유지. 이미지 선택 시24개 실제 썸네일 및25개 전체 개수 확인. 작품별 실제 빈 상태/미지정70개 진입·돌아가기 확인. 저장 없는 mock fixture에서 긴 작품명 폴더/작품 상세/목록 복귀 확인. 좁은 CSS433×938 밝은 mock 작품/어두운 실제 유형은 DOM 1열·가로넘침 없음 검증, 좁은 캡처 CDP timeout으로 시각 미검증; 실제 모바일 미검증. 원래 테마/viewport 복원, 임시탭 닫음. 증거 .local/diagnostics/production-library/types-redesign-dark.png. 문서 production-library/design-system 갱신.
+진행 중 · 기존 제작 연결 기반 자동 작품 분류. 명시적 source 계열 및 원문 일치 출처를 확인하고 자동 작품 표시, 수동 분류 보존, 모호한 연결은 합치지 않음. 원본/확정/생성 데이터 변경 없이 검증.
+완료 · 자동 작품 분류: library_lineage.py에서 저장된 script/scenes 및 x-previous-answer 입력과 기존 답변 전체/필드의 80자 이상 원문 일치(JSON 키 순서 정규화)를 따라 출처를 복원. 제목만으로 합치지 않음. 현재 입력의 대본 출처가 source_id 재작업 관계보다 우선하므로 다른 작품 대본으로 재작업한 자료가 잘못 합쳐지지 않음. 다중 출처/순환은 보수적으로 미지정. 자동화 실행 결과도 출처로 포함하며 이미지/음성/영상은 요청의 작품을 상속. 명시적 참고 영상 source_id는 단일 작품 사용일 때만 연결, 공유 참고로 작품을 병합하지 않음. 자동 작품은 workspace+원본 ID 기반 UUID5로 조회 시 투영. 기존 수동 분류/해제 우선, 자동 작품을 수동 연결 대상으로 선택할 때만 메타데이터 저장. 자동 작품 카드에 자동 분류 표시/원본 작업 이동, 예외 수동 연결 안내 갱신.
+실제 결과 · 총70개(저장 버전 포함), 69개 자동 분류/16개 작품·실행 묶음, 미지정 참고영상1개. 이하나와 웃음 도둑의 발자국29개 연결 확인. 동일 제목 이루리와 딸꾹 유령2건은 별개 원본으로 유지. library_works/library_assignments 실제행0/0 유지, 원문/미디어/확정 상태 변경 없음. 집계 .local/diagnostics/production-library/automatic-summary.json. 출처ID를 저장하지 않은 이전 답변 가져오기의 수정된 원문/짧은 발췌는 자동 복원 불가하며 docs/production-library.md에 한계 기록.
+검증 · 전체 pytest448개 통과167.32초/exit0(종료 후 pool-135 timeout 별도), 마지막 참고영상 단일/공유 출처 변경 포함 보관함11개 회귀 통과6.92초. mypy80파일/변경 파일 Ruff/frontend typecheck/build16route 통과. 전체 Ruff 기존97건 유지. 유료 AI 호출/사용자 데이터 저장/커밋·푸시 없음.
+UI · 실제 Chrome dark 작품 목록→이하나 상세29개/이미지 썸네일 확인, light 작품 목록 긴 제목·원본 링크 배치 확인. sidebar60px 유지, 필터3개 top497.760/height43.993 일치, grid gap16px, 작품 카드 원본 링크 top388.889/height47.5 일치. CSS433px 좁은 화면 1열384.67px/가로넘침없음 DOM 검증, 좁은 시각·실제 모바일은 미검증. 테마/viewport 복원 및 검증탭 닫음. 증거 .local/diagnostics/production-library/automatic-work-dark.png. 참고영상 집계 추가 후 화면 캡처는 재촬영하지 않았으나 이하나29개는 동일.
+진행 중 · 유형별 보관함 단순화: 기본 대본 최신 카드 목록, 상단 작은 유형 선택, 카드 반복 관리 버튼은 상세로 이동. 자동 작품 분류/원본 유지.
+완료 · 유형별 보관함을 기본 대본 최신순 카드 목록으로 변경. 큰 유형 선택 카드 중간 화면 제거, 상단8개 작은 유형 버튼/개수 제공. 자료 카드에서 큰 문서 아이콘·중복 작품명·자동 연결 변경/원래 작업 반복 버튼 제거. 제목2줄/에이전트 또는 출처명1줄/날짜·버전·상태로 단순화. 카드 클릭 상세보기에서 작품 연결 관리/원래 작업 이동/다운로드 유지, 연결 관리로 이동할 때 상세 모달 닫아 중첩 방지. 자동 작품 분류 및 기존 원문/미디어 유지. 사이드바 CSS 변경 없음.
+UI · 실제 Chrome dark/light desktop CSS1600×885 대본14개 최신순 표시, 카드관리버튼0개, 첫행4개 카드높이172.274px 동일/gap16px/sidebar60px 확인. 대본 상세→작품 연결 관리→취소 확인(저장 없음), 오디오0개 빈 상태/대본 복귀 확인. 긴 제목2줄 생략 및 상세 원문 전체표시. 좁은 CSS433px light DOM 1열384.67px/유형버튼43.993px/가로넘침없음 확인; 좁은 시각 및 실제 모바일/모든 오류상태는 미검증. 원래dark/viewport복원·검증탭닫음. 증거 .local/diagnostics/production-library/simple-types-dark.png. 문서production-library/design-system 갱신.
+검증 · 최종 frontend typecheck/build16route, mypy80파일, diff-check 통과. 전체 Ruff 기존97건 유지. backend 전체 pytest 진행 중. 커밋/푸시 없음.
+최종 검증 · backend 전체 pytest448개 통과175.60초/exit0. 종료 후 pool-135 connection timeout 메시지는 별도 기록. 필수 검사 완료(기존 Ruff97건 제외).
+진행 중 · 작품 연결 모달 선택목록 잘림 원인: absolute popup + 모달 스크롤 clip. dialog 공통 흐름 배치 수정/작품 ID 숨김/자료 전체 페이지 수 표시 및 실제 UI 검증.
+완료 · 작품 연결 UI 잘림: 공통 dialog 내부 SelectCombobox popup을 normal flow(static)로 변경, footer와 겹침 제거. 모달 내부 blur 시 목록을 먼저 접어 취소/저장 위치가 움직이며 첫 클릭을 놓치는 추가 문제도 수정(선택/Escape로 닫힘). 작품 연결 선택에 showId=false, 동일 출처명/제목 중복 제거. 자료 하단에 현재/전체 페이지 표기. 24개씩 서버 페이지네이션 유지, 작품 폴더 전체 표시는 그대로.
+검증 · Chrome dark 작품 연결 17개 옵션 펼침: popup bottom646.64/footer top709.03, body client/scroll536 동일, 옵션영역280px, 내부ID0. 열린 상태 취소 한 번으로 닫힘 확인. light 이미지 상세 같은 작업 자료·버전 목록도 static/body scroll1041/client639로 하단 footer760.67과 분리 확인, Escape/닫기 확인. CSS433×938 좁은 모달 가로넘침없음/본문565px/footer bottom829.59로 화면내 유지 DOM 확인; 좁은 시각/실제 모바일은 미검증. 작품 연결 저장 없이 취소, 테마dark/viewport복원·검증탭닫음. 이미지25개 실제1페이지24개/1of2→2페이지1개/2of2/다음비활성→이전 확인. 증거 .local/diagnostics/production-library/assignment-popup-fixed.png.
+검증 · 전체 pytest448개 통과176.75초/exit0(종료후pool135 timeout 별도), mypy80/typecheck/최종build16route/diff-check 통과. 전체 Ruff 기존97건 유지. 사용자자료 변경·유료호출·커밋/푸시 없음. design-system/production-library 문서 갱신.
+진행 중 · 동명 작품 구분: 원본 역할/생성일시/context 메타데이터, 카드·필터·작품 연결 선택 description, 현재 연결 표시. 실제 저장값만 사용/중복 보조 구분 번호.
+완료 · 동명 작품 구분: 자동 작품에 원본 역할명/요청 생성일시/저장된 context 반환. 작품 카드·필터·연결 선택에 설명 표시, 현재 연결 배지, 동일 제목 선택값 설명 및 설명까지 같은 경우 짧은 구분 번호 제공. 제목 기반 병합/원본 데이터 변경 없음.
+검증 · backend pytest448 통과175.25초 exit0(종료 후 pool-135 연결 timeout 메시지 별도), mypy80파일 통과. 전체 Ruff 기존97건, 변경 backend 파일 Ruff 통과. frontend typecheck 통과, build16routes exit0이나 standalone traced files 복사 EPERM 경고로 배포 산출물 완전성 미검증. diff-check 통과.
+UI · 실제 Chrome 어두운 연결 목록에서 이루리 동명2개 원본 시각10:58/11:39 및30초·현재 연결 구분 확인. 옵션 높이70.911px 동일, 목록bottom577.552/footer top639.939로 겹침 없음. 작품 카드 밝은/어두운 테마 확인, 좁은CSS433px 1열384.67px 및 가로넘침 없음 DOM 확인(좁은 화면 캡처/실기기 시각 미검증). 오류 상태는 미검증. 사용자 저장 없음, 테마/viewport 복원 및 탭닫음. 증거 .local/diagnostics/production-library/same-title-options.png. 문서 갱신, 커밋/푸시 없음.
+진행 중 · 보관함 페이지당12/24/48개 필터(기본24), 개수 변경 첫페이지 복귀, 이전/다음 접근성 이름을 가진 아이콘으로 변경. API limit 검증 및 화면 정렬 확인.
+완료 · 페이지당 표시12/24/48 필터 추가(기본24), 변경 시offset0·다른 필터 유지. API limit1..48 검증/기본24 호환. 이전/다음은20px chevron, aria-label/title·44px 정사각형 및 처음/마지막 비활성 유지. 필터4열/1000px2열/600px1열, 기존 sidebar폭 유지.
+검증 · 보관함 회귀5개 통과(12개씩26개 자료12/12/2, 중복없음,48개조회,0/49 거절). 전체pytest426통과+임시폴더WinError5로22개 실행오류 → 프로젝트 새basetemp로 해당22개 재실행 모두통과(합계448). 초기sandbox DB접근 실패 실행 중지. mypy80파일/typecheck/최종build16route 통과. 초기build EPERM은 권한 환경에서 재실행해 해결. 전체Ruff 기존97개, 변경backend2파일 Ruff 및diff-check 통과.
+UI · 실제Chrome 어두운/밝은 desktop 화면 확인. 실제대본14개가12개/2개,1/2→2/2 및다음비활성,48개변경 시첫페이지14개 전체/이동숨김 확인. 필터4개 y486.563/height43.993 동일, 버튼43.993px 정사각형. 좁은viewport390×844(CSS433px) 필터1열384.67px·가로넘침 없음 DOM검증; 좁은시각/실기기/오류상태 미검증. 테마/viewport 복원·검증탭닫음·사용자자료저장 없음. 증거 .local/diagnostics/production-library/pagination.png. 문서 갱신, 커밋/푸시 없음.
+진행 중 · 공통 콤보박스 옵션 겹침: aligned label44px에 popup top76px 고정이 입력하단을20px 침범함을 실측. 입력 control 내부에 popup 배치하여 입력하단+space2 기준, dialog는 본문흐름 유지.
+완료 · 옵션 겹침 공통 원인 수정: SelectCombobox popup을 control 내부로 옮겨 top100%+space2(8px) 기준 사용. label 높이/힌트 유무에 독립. dialog inline popup은static+8px margin 유지, 화살표top control-height/2로 목록 높이에 영향받지 않음.
+UI · 실제Chrome 보관함 페이지당표시 입력bottom433.889/popuptop413.906으로 기존20px 겹침 재현→수정후top441.884(7.995px간격). 작품/상태 목록도7.995px, 모달 연결목록static/7.995px 및 화살표·입력중앙261.476 일치. desktop 밝은/어두운 screenshot 확인, viewport390×844(CSS433) gap7.995/가로넘침 없음 DOM확인. 좁은 캡처/실기기/다른 모든화면 및 오류상태는 미검증. 원본자료 저장없음·테마/viewport복원·탭닫음. 증거 .local/diagnostics/production-library/combobox-gap-fixed.png.
+검증 · 전체pytest448통과174.72초 exit0(종료후pool135timeout 별도), mypy80파일/typecheck/최종build16route/diff-check 통과. 전체Ruff 기존97건 유지. 문서갱신, 커밋/푸시 없음.
+진행 중 · 필터 흔들림: 상태옵션 열기 전후 scrollY0→96.667 실측. 활성옵션 scrollIntoView가 외부 페이지까지 이동함. 옵션목록 scrollTop만 조정하도록 공통 수정.
+추가 원인 · 오디오0개 화면 작품옵션 열기: document폭1600→1583, 높이823→863 실측. 절대위치 목록이 세로 overflow를 만들어 scrollbar출현. html scrollbar-gutter:stable로 내용폭 유지. 자동화 click 자체 스크롤 영향 가능성이 있어 scrollIntoView 원인과 구분하여 최종 열기/닫기 경계 검증.
+완료 · 필터 열기 좌우 흔들림: html scrollbar-gutter:stable로 overflow 전후 본문폭 고정. 공통 SelectCombobox 활성옵션은 목록컨테이너 scrollTop만 조정하도록 변경. 임시 overflow-anchor 실험은 효과없어 제거.
+UI · 실제Chrome 오디오0개에서 작품목록 열기/닫기 본문x60/width1523.333/scrollY0 유지. 밝은 테마 DOM 동일, 좁은CSS433px x0/width416.667 열기전후 동일. 어두운 screenshot 저장 .local/diagnostics/production-library/filter-stable.png. 키보드12회 이동 목록scrollTop1150.556 및활성옵션노출 확인하나 화면밖 옵션으로 이동 시 외부scrollY39.444 관측(브라우저/자동화 포커스 이동 영향 미분리; 페이지 스크롤 전면 고정으로 주장하지 않음). 밝은 screenshot은 전환 직후 stale 이미지로 시각 미검증, 좁은 시각/실기기/전체 타화면 미검증. 사용자자료 저장없음, 테마/viewport복원·탭닫음.
+검증 · 전체pytest448통과180.72초 exit0, mypy80파일/typecheck/최종build16route/diff-check 통과. 전체Ruff 기존97건 유지. 디자인문서 갱신, 커밋/푸시 없음.
+진행 중 · 보관함 실제자료 유형 분리: category로캐릭터이미지/씬이미지/참고이미지/음성/배경음악 구분, 기존kind 미디어렌더링·작품연결·자료ID 보존. 문서 캐릭터는 캐릭터설정 표시. 카드 자료유형 표시 및 필터/개수 연동.
+완료 · 결과물 단위 분류: category로 캐릭터이미지/씬이미지/참고이미지/음성/배경음악 분리, 기존media kind·자료ID·작품상속·수동연결 보존. 캐릭터문서는 캐릭터설정 표시. 유형별탭/작품별필터/개수/카드유형표시 연동, 상세 같은유형 목록 category제한. 구image/audio API호환. 대표이미지모아보기는선택된캐릭터/씬으로진입. 원본파일/확정상태/사용자DB 변경없음.
+검증 · 동일요청의 캐릭터이미지·씬이미지·음성을 별도category로 조회하고 동일작품에연결, 상세자료타유형배제/음악분리/API호환 신규통합테스트. 전체pytest449통과174.39초 exit0(종료후pool136timeout 별도), mypy80파일/typecheck/build16routes/diff-check통과. 변경backend3파일Ruff통과/전체기존97건 유지. 초기테스트 fixture의프로젝트버전중복제약은 별도source_version으로수정.
+UI · 실제Chrome 기존25개이미지→캐릭터11/씬14(합계보존), 각목록 카드11/14 및유형문구·실제썸네일로딩확인. 씬선택→대표이미지모아보기 씬안내확인. 이하나작품29개 유지/그안캐릭터이미지9개조회. 실제음성/배경음악0개(실제재생미검증,분류는테스트DB검증). desktop어두운유형목록/밝은작품이미지 화면확인, 필터4개top497.760/height43.993일치·카드gap16px. 좁은CSS433px 1열384.67/가로넘침없음 DOM검증, 좁은시각/실기기/오류상태미검증. 원래테마/viewport복원·탭닫음. 증거 .local/diagnostics/production-library/character-image-category.png. 문서갱신, 커밋/푸시없음.
+진행 중 · 보관함 탭 단순화: 캐릭터설정/참고이미지/비디오프롬프트/기타자료를 탭 및유형선택에서제외. 원본자료·작품연결 보존. 남은7개유형에각기다른SVG아이콘,기존간격·사이드바폭 유지.
+완료 · 탭/유형선택에서 캐릭터설정·참고이미지·비디오프롬프트·기타자료 제외. 대본/씬/캐릭터이미지/씬이미지/음성/배경음악/영상7개에 문서/연결/인물액자/풍경/마이크/음표/재생 아이콘 추가. label·개수·aria-pressed 유지. 원본자료/작품연결 삭제 없음(작품 전체 목록에서 기존자료 확인가능).
+UI · 실제Chrome 7개탭/20px아이콘/44px높이/8px간격 실측. 어두운대본·밝은캐릭터이미지 선택상태 화면 확인, 좁은CSS433px 아이콘20px·높이43.993px 유지 및가로넘침없음 DOM검증. 좁은캡처/실기기/오류상태 미검증. 원래테마/viewport복원·탭닫음. 화면증거 .local/diagnostics/production-library/library-tab-icons.png. 기존사이드바폭 유지, 사용자자료저장없음.
+검증 · 전체pytest449통과180.04초 exit0(종료후pool136timeout 별도), mypy80/typecheck/최종build16route/diff-check통과. 전체Ruff 기존97건 유지. 문서갱신, 커밋/푸시 없음.
+진행 중 · 공통Modal 바깥클릭 닫기 누락수정. 실제dialog경계 밖에서 pointer시작/끝 모두일치할때만 닫기(내부여백/텍스트드래그보호), 기존onClose guard/Escape유지. 긴제목에서 닫기버튼이아래줄로밀리지않도록 header 공통flex 수정. 고양이대본 테스트출처 확인.
+완료 · 공통Modal에 경계밖 pointerdown+click 확인후onClose 추가. 내부여백클릭/내부→외부드래그 닫힘방지, Escape/닫기버튼기존guard유지. 긴제목header nowrap+제목flex1/minwidth0으로 닫기버튼동일행유지.
+UI · 실제Chrome 첨부와동일한 고양이대본모달에서 좌측바깥좌표180,400 클릭후dialog0 확인. 내부250,350 클릭/본문320,420→바깥180,420 드래그후dialog1 유지, Escape후0. 제목/닫기top155.660동일, 버튼43.993px. screenshot .local/diagnostics/production-library/modal-dismiss-header.png. 좁은DOM은전환직후dialog폭0으로관측되어 검증불충분(제목/닫기Y44.688일치만관측); 밝은테마/실기기/저장중/중첩모달상태미검증. viewport복원·검증탭닫음·사용자자료변경없음.
+출처 확인 · 첨부대본 answer생성2026-10-30 18:00:47.95194+09, request75122b2a-07cc-4948-ac3b-3c9edffbc1eb/is_test=true/샘플·쉬운대본작가. docs/worklogs/2026-10-30-agent-sse.md의SSE실제호출검증기록과일치. 이번보관함작업생성아님. DB읽기만수행.
+검증 · 전체pytest449통과178.89초 exit0(종료후pool136timeout 별도), mypy80/typecheck/build16route/diff-check통과. 전체Ruff기존97건 유지. 문서갱신·커밋/푸시없음.
+
+진행 중 · 사용자 승인: 이하나와 웃음 도둑의 발자국 연결 자료 전부 보존, 독립 고양이 샘플 테스트 요청10건/대본9버전 정리. 기존 관리자 삭제 로직·영향 검증 사용, 제품 코드 변경 없음.
+완료 · 독립 고양이 샘플 테스트 요청10건 및 대본9버전을 기존 work-history 삭제 로직(영향 토큰/실행·참조 차단/감사기록)으로 삭제. 삭제 대상 이미지·영상0개. DB 재조회로 요청0건 잔존, 보관함70→61개, 이하나 연결29개 및 나머지 모든 보관함 항목 전후 동일 검증. 삭제 감사/비용 집계 유지. 증거 .local/diagnostics/production-library/test-data-cleanup.json. 제품 코드 변경 없어 pytest/ruff/mypy/typecheck/build 재실행 안 함, 브라우저 표시는 미검증. 로컬 DB 시작, 유료호출·커밋·푸시 없음.
+
+진행 중 · 사용자 요청으로 로컬 웹3001/API8127 시작 및 HTTP·DB 준비 상태 확인.
+완료 · 로컬 웹 http://127.0.0.1:3001 및 API8127 숨김 프로세스 시작. /login, /health/live, /health/ready 모두 HTTP200 확인, DB 정상. 워커 추가 시작/유료 AI 호출 없음. 코드 변경 없어 개발 테스트 재실행 제외.
+
+진행 중 · 작품 카드 내부 사각 hover 원인: 바깥 padding16/radius16, 내부 버튼 padding8/radius0에만 배경 적용 확인. 바깥 카드에 hover/focus-visible 강조 이동, 내부·외부 크기 및 원본 작업 링크 독립 조작 유지.
+완료 · 작품 카드 강조를 외곽 radius16 전체 배경/테두리로 통일. 내부 버튼 투명, 키보드 포커스 외곽 outline, 원본 링크 독립 유지. Chrome 실제 CSS1600px 밝음/어두움 포커스 및 밝음 hover 확인: 카드356.83×338.95px, grid gap16px, 내부padding8/외부16 유지. 좁은 CSS433px 1열384.67px/가로넘침 없음 DOM 확인, 좁은 시각/실제 모바일 미검증. 원래 dark/viewport 복원, 사용자 자료 저장 없음. 증거 .local/diagnostics/production-library/work-card-focus.png. frontend typecheck/build 및 mypy80 통과, Ruff 기존97건. pytest 첫427통과/임시폴더 권한22오류 후 프로젝트 임시폴더 --lf 재실행22통과(합계449). 커밋·푸시 없음.
+
+진행 중 · 승인된 작품 상세 개편: 작품 범위 유형탭/개수, 대본 우선 및 유형·페이지 기억, 매체별 미리보기. 원본/자동연결/사이드바 유지. 계획 docs/superpowers/plans/2026-11-08-work-library-detail.md.
+완료 · 작품 상세 반복 보관함 헤더 제거→작품명/목록복귀, 7유형 아이콘·작품별개수+전체자료, 최초대본/첫보유유형 선택. 컴포넌트 내 작품별 유형/필터/페이지/표시개수 복원, 초과페이지 보정. 대본·씬 320자 원문발췌(원본보존), 이미지4:3 썸네일, 음성/영상 별도 controls(preload none)로 버튼중첩 방지. 신규발췌 및 작품집계 회귀 테스트 실패→통과 확인, 기존자료/lineage/사이드바 변경없음.
+검증 · 전체pytest451통과175.75초 exit0(종료후pool136timeout별도), 마지막 Markdown정리 포함 발췌2테스트 재통과. mypy81/변경backend Ruff/typecheck/build16routes 통과. 전체Ruff 기존97건 유지. 실제Chrome 이하나 전체29/대본1·씬3·캐릭터이미지9·씬이미지14, 자동연결 유지. 씬이미지12개씩2페이지→작품목록왕복 후탭/2페이지복원, 이미지1024로드/대본없는 장면작품 씬1자동선택/음성0빈상태/원문모달 확인. 미지정 기존1초영상 controls재생 ready4/error없음/모달0 확인. 실제음성파일 없어 음성재생 미검증.
+UI · desktop CSS1600px 양테마/본문하단·페이지버튼, 카드동일356.83×467.05/gap16px, 입력3개top299.705/height43.993일치, sidebar60px 유지. 좁은viewport390×844(CSS433) 탭줄바꿈/1열384.67px/입력x15.998/height43.993/가로넘침없음 DOM확인. 좁은스크린샷CDP timeout으로 시각 및 실제모바일 미검증, 오류상태/실제음성재생 미검증. dark/viewport복원·검증탭닫음·사용자자료저장/확정없음. 증거 .local/diagnostics/production-library/work-detail-scenes.png 및 work-detail-images.png. 커밋·푸시없음.
+
+진행 중 · 같은 자동화 동일 결과 표시 통합, 이미지 제작계획을 원문일치 씬 연결 자료로 구분. 원본·기존 ID 상세 접근 유지, 불명확한 연결은 독립 유지. 계획 docs/superpowers/plans/2026-11-08-library-related-scenes.md.
+완료 · 동일 자동화 실행+작품+동일 본문은 대표1건으로 표시. raw index/기존 상세 ID/DB 원본 유지. 실제 scene 프로젝트 또는 shots+scenes 계약의 제작계획은 같은 작품의 씬 원문이 유일하게 일치할 때 연결자료로 표시하며 불명확한 경우 독립 유지. 상세에서 계획↔원래씬 이동 및 중복 저장 위치별 원문 접근 제공. 모든 작품 공통 적용.
+검증 · raw61 보존/표시56, 이하나 표시29→27(씬3→대표1+연결계획1, 중복원본2). 캐릭터이미지9/씬이미지14 유지. 전체pytest455통과187.93초(exit0, 종료후pool137 timeout별도), 마지막 버전목록 필터 포함 회귀10통과9.07초. mypy82/typecheck/build/변경파일Ruff 통과. 전체Ruff 기존97건 남음.
+UI · 실제Chrome 양테마 desktopCSS1600에서 대표씬·연결계획·원래씬복귀·각중복원본·버전중복제외 확인. 섹션padding16/gap12, 원본버튼 같은top478.24/height47.5/width494.57, sidebar60 유지. 좁은CSS433에서 가로넘침없음/버튼같은높이69.90 DOM확인; 좁은시각·실제모바일·오류상태 미검증. dark/viewport복원 및 검증탭닫음. 증거 .local/diagnostics/production-library/related-scenes.png, related-scenes-light.png. 사용자자료 저장/삭제/확정·AI호출·커밋·푸시없음.
+진행 중 · Ruff 기존97건 전체 정리. 테스트 코드의 import/줄길이/미사용 바인딩만 수정하고 전체 회귀 및 필수 검사를 수행.
+완료 · Ruff97건(줄길이64/import정렬31/미사용import1/미사용변수1) 모두 해소. 테스트9파일만 범위 포맷·문자열 연결·import정리. 미사용 rows 바인딩만 제거하여 기존 SELECT실행 유지, threading미사용import1개 제거. 규칙완화/noqa/테스트삭제 없음. 작업시작 스냅샷 대비 AST비교로 import와 미사용바인딩 제외 실행구조·SQL·문자열·assert 동일 확인; import 집합은 threading1개 제거 외 동일.
+검증 · 전체 Ruff0(exit0), mypy82파일통과, frontend typecheck통과. build 첫실행 .next mkdir EPERM 후 동일빌드 권한재시도통과(exit0). 전체pytest455통과210.77초(exit0); 종료후 기존pool137 connection timeout 메시지는 남음. 테스트 코드 정리로 UI/사용자자료/제품소스 수정없어 브라우저 검증 제외. 실제 유료호출/커밋/푸시 없음. 로그 .local/ruff-cleanup-pytest.log 및 .local/ruff-cleanup-build-retry.log.
+진행 중 · DB pool 종료 후 timeout 원인 조사 및 수정, 종료 로그까지 전체검증 후 앞서 완료된 미커밋 작업 전체를 포함하여 커밋·푸시(사용자 범위 확인).
+완료 · DB 종료 timeout 원인: test_api readiness 실패 테스트가 TestClient 컨텍스트 없이 실행돼 lifespan 종료가 생략되고 실패주소의 pool 재시도가 프로세스 종료까지 지속됨. 단독2테스트에서도 종료후pool1 timeout재현. pool.closed/DSN제거 회귀assert 실패 확인 후 두API테스트를 with TestClient로 변경. 앱의 기존 close_database 정상호출, 로그숨김/timeout연장/제품DB변경 없음. finally는 회귀실패시 테스트자원정리용.
+검증 · 단독2테스트8.90초 정상종료·종료후로그없음. 전체pytest455통과204.01초 exit0 및 프로세스종료까지 timeout/error/warning 출력없음(.local/pool-final-pytest.log). Ruff0/mypy82/frontend typecheck/build통과, frontend회귀6통과. 앞선 완료 작업 전체 커밋·push 사용자승인 확인. 141개 소스·테스트·설정예시·문서만 포함; .env/로컬DB/생성자료/진단로그/백업 제외. 기존 UI 검증범위와 미검증한계는 앞선 기록 유지.

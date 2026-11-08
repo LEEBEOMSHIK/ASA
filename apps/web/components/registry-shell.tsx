@@ -6,15 +6,18 @@ import { usePathname } from "next/navigation";
 import { api, ApiError, message, setCsrf } from "../lib/registry";
 import { Button, StudioNavigation } from "./ui";
 import { ProfileMenu } from "./profile-menu";
+import { NavigationPreferences } from "./navigation-preferences";
 
 const DirtyContext = createContext<(value: boolean) => void>(() => {});
+const AdminContext = createContext(false);
+export function useRegistryAdmin() { return useContext(AdminContext); }
 export function useDirtyGuard() { return useContext(DirtyContext); }
 
 export function RegistryShell({ children, adminOnly=false }: { children: ReactNode; adminOnly?:boolean }) {
   const sidebar = useSidebarCollapse();
   const pathname = usePathname();
   const active = pathname.startsWith("/video-comparison") ? "/video-comparison" : pathname === "/admin/work-history" ? pathname : pathname.startsWith("/admin/branding") ? "/admin/branding" : pathname.startsWith("/admin/agents") ? "/admin/agents" : pathname.startsWith("/characters") ? "/characters" : pathname.startsWith("/models") ? "/models" : pathname.startsWith("/monitoring") ? "/monitoring" : pathname.startsWith("/automations") ? "/automations" : pathname.startsWith("/agents") ? "/agents" : "/tools";
-  const title = active === "/video-comparison" ? "영상 AI 비교" : active === "/admin/work-history" ? "작업 관리" : active === "/admin/branding" ? "브랜드 설정" : active === "/admin/agents" ? "에이전트 관리" : active === "/characters" ? "이미지 보관함" : active === "/models" ? "AI 모델 관리" : active === "/monitoring" ? "AI 사용량·비용" : active === "/automations" ? "자동화 빌더" : active === "/agents" ? "에이전트" : "도구 라이브러리";
+  const title = active === "/video-comparison" ? "영상 AI 비교" : active === "/admin/work-history" ? "작업 관리" : active === "/admin/branding" ? "브랜드 설정" : active === "/admin/agents" ? "에이전트 관리" : active === "/characters" ? "보관함" : active === "/models" ? "AI 모델 관리" : active === "/monitoring" ? "AI 사용량·비용" : active === "/automations" ? "자동화 빌더" : active === "/agents" ? "에이전트" : "도구 라이브러리";
   const [roleLabel, setRoleLabel] = useState("");
   const [admin, setAdmin] = useState(false);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
@@ -44,7 +47,7 @@ export function RegistryShell({ children, adminOnly=false }: { children: ReactNo
     }
     catch (e) { setError(message(e)); } finally { setBusy(false); }
   }
-  return <DirtyContext.Provider value={setUnsaved}>
+  return <AdminContext.Provider value={admin}><NavigationPreferences ready={status === "ready"} admin={admin}><DirtyContext.Provider value={setUnsaved}>
     <a className="skip-link" href="#main">본문으로 건너뛰기</a>
     <div className={`studio-app ${sidebar.collapsed ? "is-sidebar-collapsed" : ""}`}>
       <aside id="studio-navigation" className="studio-sidebar" aria-label="작업 탐색"><SidebarToggle collapsed={sidebar.collapsed} toggle={sidebar.toggle} controls="studio-navigation"/>
@@ -64,5 +67,5 @@ export function RegistryShell({ children, adminOnly=false }: { children: ReactNo
         <>{error && <p role="alert">{error}</p>}{adminOnly && !admin ? <p role="alert">관리자만 접근할 수 있는 화면입니다.</p> : children}</>}
     </main>
     </div></div>
-  </DirtyContext.Provider>;
+  </DirtyContext.Provider></NavigationPreferences></AdminContext.Provider>;
 }

@@ -32,6 +32,17 @@ def test_condition_schema_can_be_saved_and_normalized():
         "field": "mode", "equals": "image"}
 
 
+def test_conditional_visibility_preserves_required_validation():
+    value = schema()
+    node = value["properties"]["reference"]
+    node["x-visible-when"] = node["x-required-when"].copy()
+    assert validate_definition(definition(value), {}) == []
+    assert not valid_input({"mode": "image", "reference": "  "}, normalize_schema(value))
+    assert valid_input({"mode": "image", "reference": "custom subject"}, normalize_schema(value))
+    node["x-visible-when"] = {"field": "mode", "equals": "draft"}
+    assert any(i.code == "input_visible_when" for i in validate_definition(definition(value), {}))
+
+
 @pytest.mark.parametrize("check", [valid_input, accepts])
 @pytest.mark.parametrize(("value", "expected"), [
     ({"mode": "draft"}, True),

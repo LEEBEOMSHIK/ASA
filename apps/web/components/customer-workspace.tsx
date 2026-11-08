@@ -1,5 +1,6 @@
 "use client";
 import { ProfileMenu } from "./profile-menu";
+import { NavigationPreferences } from "./navigation-preferences";
 import { AgentGroups } from "./agent-groups";
 import { AgentWorkerStatus } from "./agent-worker-status";
 import { SidebarHome, SidebarToggle, useSidebarCollapse } from "./sidebar-toggle";
@@ -117,7 +118,7 @@ export function CustomerWorkspace() {
     catch(e){window.alert(message(e));}
   }
   const sidebarProps = { onLogout:logout, roles, ready: status === "ready", saving, view, activeId: historyId, refreshKey: sidebarRefresh, onNew: navigateNew, onHistory: navigateHistory };
-  return <div className={`customer-app workspace-layout ${menu.collapsed ? "" : "menu-expanded"}`} style={{"--workspace-sidebar-width":sidebarWidth+"px"} as CSSProperties}>
+  return <NavigationPreferences ready={status === "ready"} admin={roles.some(role=>role==="owner"||role==="admin")}><div className={`customer-app workspace-layout ${menu.collapsed ? "" : "menu-expanded"}`} style={{"--workspace-sidebar-width":sidebarWidth+"px"} as CSSProperties}>
     <a className="skip-link" href="#main">본문으로 건너뛰기</a>
     <aside id="customer-navigation" className="customer-sidebar" aria-label="작업 탐색">
       <div className="workspace-icon-rail" id="workspace-menu"><SidebarToggle collapsed={menu.collapsed} toggle={menu.toggle} controls="workspace-menu"/>
@@ -153,5 +154,5 @@ export function CustomerWorkspace() {
           <p className="customer-footnote">저장한 요청은 왼쪽 최근 작업에서 다시 확인할 수 있습니다. 답변 생성은 대기 순서에 따라 실행되며, 결과는 최근 작업에서 확인할 수 있습니다.</p></>}
       </>}
     </main></div>
-  </div>;
+  </div></NavigationPreferences>;
 }

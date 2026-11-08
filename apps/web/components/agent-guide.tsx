@@ -81,11 +81,11 @@ export function starterDefinition(index: number): Definition {
     limits: { model_calls: 10, tool_calls: 20, depth: 2, seconds: 300 } };
 }
 
-export function FriendlyFields({ value, onChange, kind }: {
-  value: SchemaNode; onChange: (node: SchemaNode) => void; kind: "input" | "output";
+export function FriendlyFields({ value, onChange, kind, videoStyleManaged=false }: {
+  value: SchemaNode; onChange: (node: SchemaNode) => void; kind: "input" | "output"; videoStyleManaged?:boolean;
 }) {
   const incoming = kind === "input";
-  if (incoming && value.type === "object") return <><InputFormEditor value={value} onChange={onChange} /><details className="advanced"><summary>중첩 항목 및 세부 형식</summary><SchemaEditor value={value} onChange={onChange} /></details></>;
+  if (incoming && value.type === "object") return <><InputFormEditor value={value} onChange={onChange} videoStyleManaged={videoStyleManaged}/><details className="advanced"><summary>중첩 항목 및 세부 형식</summary><SchemaEditor value={value} onChange={onChange} /></details></>;
   return <>
     {Object.entries(value.properties || {}).map(([key, node], i) => <Field key={key} id={`${kind}-description-${key}`}
       label={`${incoming ? "사용자가 입력할 항목" : "AI가 채울 답변 항목"} ${i + 1}`}

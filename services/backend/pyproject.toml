@@ -15,6 +15,7 @@ dependencies = [
   "langgraph-checkpoint-postgres>=3,<4",
   "psycopg[binary,pool]>=3.2,<4",
   "openai>=3.37,<4",
+  "websockets>=15,<18",
   "pillow>=11,<13",
   "imageio-ffmpeg>=0.6,<1",
   "yt-dlp>=2025.10.22",

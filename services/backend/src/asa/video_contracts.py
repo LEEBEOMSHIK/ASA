@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from asa.audio_contracts import AudioSettings
+
 
 class VideoModelProfile(BaseModel):
     """One verified provider/model/mode/resolution combination, not a model family."""
@@ -50,6 +52,8 @@ class VideoClip(BaseModel):
     split_reason: str = Field(max_length=1000)
     style_application: str = Field(default="", max_length=700)
     edit_notes: str = Field(default="", max_length=700)
+    connection_type: Literal["cut", "continue"] = "cut"
+    previous_clip_id: str = Field(default="", max_length=100)
 
     @model_validator(mode="after")
     def validate_span(self) -> "VideoClip":
@@ -65,6 +69,7 @@ class VideoPreparation(BaseModel):
     model_revision: str = Field(min_length=1, max_length=80)
     aspect_ratio: str = Field(min_length=1, max_length=20)
     audio: bool = False
+    audio_plan: AudioSettings | None = None
     mode: Literal["image_to_video"] = "image_to_video"
     clips: list[VideoClip] = Field(min_length=1, max_length=100)
 
@@ -73,10 +78,23 @@ class VideoPreparation(BaseModel):
         if len({c.clip_id for c in self.clips}) != len(self.clips):
             raise ValueError("video_duplicate_clip")
         previous_end = 0
+        previous_id = None
+        previous_trim = 0
         for clip in self.clips:
+            if clip.connection_type == "continue":
+                if previous_id is None or clip.previous_clip_id != previous_id:
+                    raise ValueError("video_previous_clip_invalid")
+                if previous_trim:
+                    raise ValueError("video_previous_clip_requires_trim")
+            elif clip.previous_clip_id:
+                raise ValueError("video_cut_has_dependency")
             if clip.source_start_seconds != previous_end:
                 raise ValueError("video_timeline_gap_or_overlap")
             previous_end = clip.source_end_seconds
+            previous_id = clip.clip_id
+            previous_trim = clip.duration_seconds - (
+                clip.source_end_seconds - clip.source_start_seconds
+            )
         return self
 
 

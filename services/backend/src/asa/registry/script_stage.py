@@ -362,7 +362,10 @@ class ScriptRepository(RegistryRepository):
     def claim(
         self, request_id: str, attempt_id: str, provider: str, model: str
     ) -> dict[str, Any] | None:
+        from asa.worker_control import accepting_work
         with self._connect() as conn:
+            if not accepting_work(conn, self.workspace_id, "script"):
+                return None
             self._request(conn, request_id, True)
             attempt = conn.execute(
                 "UPDATE script_attempts SET status='running',started_at=now(),provider=%s,model=%s "

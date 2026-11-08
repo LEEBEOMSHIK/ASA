@@ -86,7 +86,7 @@ export function VideoComparison() {
             <div><dt>2. 생성 요청</dt><dd>{guide.request}</dd></div>
             <div><dt>3. 완료·결과 조회</dt><dd>{guide.result}</dd></div>
             <div><dt>제한·확인할 사항</dt><dd>{guide.note}</dd></div>
-            <div><dt>ASA 적용 상태</dt><dd>{guide.id === "runway" ? "생성 경로 구현됨 · 아래 서버 설정 절차 참고" : "추가 구현 필요 · 키를 등록하거나 모델 ID만 바꿔서는 사용할 수 없습니다. 모델 설정·입력 검증·생성/조회·결과 저장 경로를 연결해야 합니다."}</dd></div>
+            <div><dt>ASA 적용 상태</dt><dd>{guide.id === "wan" ? "WAN 3.0 직접 생성 경로 구현됨 · 서버에 ASA_WAN_API_KEY, ASA_WAN_WORKSPACE_ID, ASA_WAN_REGION을 설정하고 영상 생성을 활성화합니다. 에이전트 설정의 영상 모델 선택지에 wan3를 추가하고 저장한 뒤 새 실행에서 선택하세요. 초기 연결은 720p·2~30초입니다. 실제 인증·생성은 별도 검증이 필요합니다." : guide.id === "runway" ? "생성 경로 구현됨 · 아래 서버 설정 절차 참고" : "추가 구현 필요 · 키를 등록하거나 모델 ID만 바꿔서는 사용할 수 없습니다. 모델 설정·입력 검증·생성/조회·결과 저장 경로를 연결해야 합니다."}</dd></div>
           </dl>
           <div className={styles.linkRow}>{guide.sources.map(source => <ExternalLink key={source.href} href={source.href}>{source.label}</ExternalLink>)}</div>
         </div>

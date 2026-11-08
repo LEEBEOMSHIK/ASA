@@ -19,6 +19,109 @@ ORIGIN = {"Origin": "http://testserver"}
 KEY = "test-only-owner-key-" + "x" * 32
 
 
+def test_custom_navigation_color_migrates_and_syncs(client, db):
+    headers = login(client)
+    path = "/api/v1/profile/navigation-colors"
+    named = client.put(path + "/agents", json={"color": "blue", "revision": 0}, headers=headers)
+    assert named.status_code == 200
+    # Reproduce the pre-HEX database constraint, then migrate without losing old colors.
+    with psycopg.connect(db[0]) as conn:
+        conn.execute(
+            "ALTER TABLE user_navigation_colors DROP CONSTRAINT user_navigation_colors_color_check"
+        )
+        conn.execute(
+            "ALTER TABLE user_navigation_colors ADD CONSTRAINT "
+            "user_navigation_colors_color_check CHECK "
+            "(color IN ('red','orange','green','blue','purple','pink'))"
+        )
+    migrate(*db)
+    assert client.get(path).json()["items"]["agents"] == {"color": "blue", "revision": 1}
+    saved = client.put(path + "/agents", json={"color": "#3B82F6", "revision": 1}, headers=headers)
+    assert saved.status_code == 200
+    assert saved.json() == {"color": "#3b82f6", "revision": 2}
+    with TestClient(client.app) as mobile:
+        login(mobile)
+        assert mobile.get(path).json()["items"]["agents"] == saved.json()
+    assert (
+        client.put(
+            path + "/agents", json={"color": None, "revision": 2}, headers=headers
+        ).status_code
+        == 200
+    )
+
+
+def test_navigation_colors_sync_validation_conflict_and_isolation(client, db, monkeypatch):
+    from asa.auth.session import OwnerSessions, Principal
+
+    path = "/api/v1/profile/navigation-colors"
+    assert client.get(path).status_code == 401
+    headers = login(client)
+    assert client.get(path).json() == {"items": {}}
+    assert client.put(path + "/agents", json={"color": "blue", "revision": 0}).status_code == 403
+    for menu, body in [
+        ("unknown", {"color": "blue", "revision": 0}),
+        ("agents", {"color": "url(evil)", "revision": 0}),
+        ("agents", {"color": "blue", "revision": -1}),
+        ("agents", {"color": "blue", "revision": 0, "user_id": "other"}),
+    ]:
+        assert client.put(path + "/" + menu, json=body, headers=headers).status_code == 422
+    saved = client.put(path + "/agents", json={"color": "blue", "revision": 0}, headers=headers)
+    assert saved.status_code == 200
+    assert saved.json() == {"color": "blue", "revision": 1}
+    # A second independently authenticated browser reads the same server-backed value.
+    with TestClient(client.app) as mobile:
+        mobile_headers = login(mobile)
+        assert mobile.get(path).json()["items"]["agents"] == saved.json()
+        assert mobile.get(path).headers["cache-control"] == "no-store"
+        changed = mobile.put(
+            path + "/agents", json={"color": "green", "revision": 1}, headers=mobile_headers
+        )
+        assert changed.status_code == 200
+    assert (
+        client.put(
+            path + "/agents", json={"color": "red", "revision": 1}, headers=headers
+        ).status_code
+        == 409
+    )
+    assert (
+        client.put(
+            path + "/models", json={"color": "purple", "revision": 0}, headers=headers
+        ).status_code
+        == 200
+    )
+    reset = client.put(path + "/agents", json={"color": None, "revision": 2}, headers=headers)
+    assert reset.json() == {"color": None, "revision": 3}
+    # Reset keeps a revision tombstone: stale first writes cannot revive an old color.
+    assert (
+        client.put(
+            path + "/agents", json={"color": "blue", "revision": 0}, headers=headers
+        ).status_code
+        == 409
+    )
+    dsn, workspace = db
+    other_workspace = uuid4()
+    migrate(dsn, other_workspace)
+    for identity in (
+        Principal("another-user", workspace),
+        Principal("local-owner", other_workspace),
+    ):
+        with monkeypatch.context() as patch:
+            patch.setattr(OwnerSessions, "principal", lambda self: identity)
+            settings = Settings(
+                _env_file=None, database_url=dsn, workspace_id=identity.workspace_id
+            )
+            with TestClient(create_app(settings)) as isolated:
+                assert isolated.get(path).json() == {"items": {}}
+                assert (
+                    isolated.put(path + "/agents", json={"color": "red", "revision": 0}).status_code
+                    == 200
+                )
+    assert client.get(path).json()["items"] == {
+        "agents": {"color": None, "revision": 3},
+        "models": {"color": "purple", "revision": 1},
+    }
+
+
 def test_character_images_queue_edit_approval_and_isolation(db, monkeypatch):
     from psycopg.types.json import Jsonb
 
@@ -395,7 +498,7 @@ def test_previous_answer_sources_versions_search_and_isolation(client, db):
     detail = client.get(url + '/' + work['id']).json()
     assert [v['version'] for v in detail['versions']] == [2, 1]
     assert detail['versions'][0]['answer']['script'] == '수정 원문\n끝'
-    from asa.registry.answer_sources import answer_versions, answer_sources
+    from asa.registry.answer_sources import answer_sources, answer_versions
     from asa.registry.schemas import RegistryError
     other = RegistryRepository(db[0], uuid4())
     assert answer_sources(other)['items'] == []
@@ -406,6 +509,7 @@ def test_previous_answer_sources_versions_search_and_isolation(client, db):
 
 def test_automation_answer_sources_filter_and_exact_step(client, db):
     from psycopg.types.json import Jsonb
+
     from asa.registry.answer_sources import answer_sources, automation_answer
     from asa.registry.schemas import RegistryError
     headers, saved = runtime_flow(client)
@@ -765,7 +869,9 @@ def test_script_versions_approval_and_scoped_regeneration(client, db):
     assert result["head_version"] == 2 and result["approved_version"] is None
     assert [v["narration"] for v in result["versions"]] == ["짧은 대본", "첫 대본"]
     assert result["attempts"][0]["status"] == "succeeded"
-    assert client.get(f"/api/v1/work-requests/{work['id']}").json()["result"]["title"] == "짧은 제목"
+    assert (
+        client.get(f"/api/v1/work-requests/{work['id']}").json()["result"]["title"] == "짧은 제목"
+    )
     assert client.post(url + "/versions", json={**body, "id": str(uuid4())},
                        headers=headers).status_code == 409
 
@@ -975,7 +1081,10 @@ def test_uploaded_reference_persists_and_reaches_model(client, db, monkeypatch, 
     image_id = char['image_id']
     assert char['name'] == payload['name'] and char['appearance'] == payload['appearance']
     assert client.get(f'/api/v1/characters/images/{image_id}/asset').content.startswith(b'\x89PNG')
-    assert client.get('/api/v1/characters/library?q=새 캐릭터').json()['items'][0]['model'] == '사용자 업로드'
+    assert (
+        client.get("/api/v1/characters/library?q=새 캐릭터").json()["items"][0]["model"]
+        == "사용자 업로드"
+    )
     assert len(client.get(f'/api/v1/characters/library/{image_id}/versions').json()) == 1
     repo = CharacterRepository(*db)
     assert selected_handoff(repo, [UUID(image_id)]) == selected
@@ -1593,7 +1702,10 @@ def test_model_catalog_admin_permission_and_validation(db, monkeypatch):
         assert member.get('/api/v1/admin/models/metadata/openai?model=test').status_code == 403
         assert member.get('/api/v1/admin/models').status_code == 403
         assert member.put('/api/v1/admin/models', json={'models': []}).status_code == 403
-        assert member.post('/api/v1/admin/models', json={'revision': 0, 'model': entry}).status_code == 403
+        assert (
+            member.post("/api/v1/admin/models", json={"revision": 0, "model": entry}).status_code
+            == 403
+        )
         assert member.get('/api/v1/ai-models').status_code == 200
 
 
@@ -1629,13 +1741,17 @@ def test_register_model_is_immediate_and_preserves_saved_catalog(client):
     saved['default'] = 'openai:first'
     assert client.put(url, headers=headers, json=saved).status_code == 200
     second = {'provider': 'anthropic', 'id': 'second', 'label': 'Second'}
-    assert client.post(url, headers=headers, json={'revision': 1, 'model': second}).status_code == 409
+    assert (
+        client.post(url, headers=headers, json={"revision": 1, "model": second}).status_code == 409
+    )
     result = client.post(url, headers=headers, json={'revision': 2, 'model': second})
     assert result.status_code == 201
     reread = client.get(url).json()
     assert reread['default'] == 'openai:first'
     assert [m['label'] for m in reread['models']] == ['First', 'Second']
-    assert client.post(url, headers=headers, json={'revision': 3, 'model': second}).status_code == 409
+    assert (
+        client.post(url, headers=headers, json={"revision": 3, "model": second}).status_code == 409
+    )
     # Adding a model cannot submit unrelated unsaved edits or change the default.
     assert client.post(url, headers=headers, json={'revision': 3, 'model': entry,
                        'default': ''}).status_code == 422
@@ -1644,9 +1760,10 @@ def test_register_model_is_immediate_and_preserves_saved_catalog(client):
 def test_script_queue_duplicate_concurrent_and_recovery(client, db):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Event
+
+    from asa.models import Script
     from asa.registry.history import HistoryRepository, WorkRequest
     from asa.registry.script_queue import ScriptQueue
-    from asa.models import Script
     headers = login(client)
     agent = client.post('/api/v1/agents', json=definition(), headers=headers).json()
     client.post(f"/api/v1/agents/{agent['id']}/publish",
@@ -1704,9 +1821,10 @@ def test_script_queue_duplicate_concurrent_and_recovery(client, db):
 def test_script_queue_api_usage_failure_and_model_snapshot(client, db):
     from langchain_core.messages import AIMessage, HumanMessage
     from langchain_core.outputs import ChatGeneration, LLMResult
+
+    from asa.models import Script
     from asa.registry.history import HistoryRepository, WorkRequest
     from asa.registry.script_queue import ScriptQueue
-    from asa.models import Script
     from asa.telemetry import call_config
     headers, work, url = script_work(client)
     assert client.post(url + '/start', headers=headers, json={}).status_code == 409
@@ -1787,11 +1905,11 @@ def test_script_queue_api_usage_failure_and_model_snapshot(client, db):
 
 
 def test_script_queue_limits_disabled_and_legacy_not_consumed(client, db):
+    from asa.models import Script
+    from asa.registry.history import HistoryRepository, WorkRequest
+    from asa.registry.schemas import RegistryError
     from asa.registry.script_queue import ScriptQueue
     from asa.registry.script_stage import GenerateScript, ScriptRepository
-    from asa.registry.schemas import RegistryError
-    from asa.registry.history import HistoryRepository, WorkRequest
-    from asa.models import Script
     _, work, _ = script_work(client)
     settings = Settings(_env_file=None, database_url=db[0], workspace_id=db[1],
                         ai_model='test', ai_api_key='fake', script_ai_enabled=True,
@@ -1819,8 +1937,16 @@ def test_script_queue_limits_disabled_and_legacy_not_consumed(client, db):
 
 def test_manual_script_result_updates_customer_history(client):
     headers, work, url = script_work(client)
-    result = client.post(url + '/versions', headers=headers, json={
-        'id': str(uuid4()), 'expected_revision': 0, 'title': 'Edited', 'narration': 'Edited script'})
+    result = client.post(
+        url + "/versions",
+        headers=headers,
+        json={
+            "id": str(uuid4()),
+            "expected_revision": 0,
+            "title": "Edited",
+            "narration": "Edited script",
+        },
+    )
     assert result.status_code == 201
     detail = client.get(f"/api/v1/work-requests/{work['id']}").json()
     assert detail['result'] == {'title': 'Edited', 'narration': 'Edited script'}
@@ -1884,28 +2010,69 @@ def test_work_test_label_is_explicit_metadata(client):
     assert repeated.status_code == 201
     assert repeated.json()['is_test'] is False
 
-@pytest.mark.parametrize('schema,answer', [({'type': 'string', 'maxLength': 200}, 'Detailed answer'), ({'type': 'object', 'properties': {'summary': {'type': 'string', 'maxLength': 200}, 'tags': {'type': 'array', 'items': {'type': 'string', 'maxLength': 50}, 'maxItems': 5}}, 'required': ['summary', 'tags']}, {'summary': 'Detailed', 'tags': ['one', 'two']})])
+@pytest.mark.parametrize(
+    "schema,answer",
+    [
+        ({"type": "string", "maxLength": 200}, "Detailed answer"),
+        (
+            {
+                "type": "object",
+                "properties": {
+                    "summary": {"type": "string", "maxLength": 200},
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string", "maxLength": 50},
+                        "maxItems": 5,
+                    },
+                },
+                "required": ["summary", "tags"],
+            },
+            {"summary": "Detailed", "tags": ["one", "two"]},
+        ),
+    ],
+)
 def test_agent_answer_contract_persistence_revision_and_validation(client, db, schema, answer):
     import json
+
     from asa.models import AgentAnswer
-    from asa.registry.script_stage import ScriptRepository, GenerateScript, execute_attempt
+    from asa.registry.script_stage import GenerateScript, ScriptRepository, execute_attempt
     headers = login(client)
     draft = definition()
     draft['output_schema'] = schema
     draft['instructions'] = 'Act as an analyst, use the configured response format.'
     agent = client.post('/api/v1/agents', headers=headers, json=draft).json()
-    assert client.post(f"/api/v1/agents/{agent['id']}/publish", headers={**headers, 'If-Match': '"1"'}).status_code == 201
+    assert (
+        client.post(
+            f"/api/v1/agents/{agent['id']}/publish", headers={**headers, "If-Match": '"1"'}
+        ).status_code
+        == 201
+    )
     rid = str(uuid4())
-    assert client.post('/api/v1/work-requests', headers=headers, json=dict(id=rid, agent_id=agent['id'], version=1, input={'topic': 'Analysis'})).status_code == 201
+    assert (
+        client.post(
+            "/api/v1/work-requests",
+            headers=headers,
+            json=dict(id=rid, agent_id=agent["id"], version=1, input={"topic": "Analysis"}),
+        ).status_code
+        == 201
+    )
     repo = ScriptRepository(db[0], db[1])
     aid = str(uuid4())
-    repo.queue(rid, GenerateScript(id=aid, expected_revision=0, base_version=0, instruction='Answer'))
+    repo.queue(
+        rid, GenerateScript(id=aid, expected_revision=0, base_version=0, instruction="Answer")
+    )
     assert execute_attempt(repo, rid, aid, lambda _: AgentAnswer(value=answer))
     stage = repo.get(rid)
     assert stage['versions'][0]['answer'] == answer
     assert client.get(f'/api/v1/work-requests/{rid}').json()['result'] == answer
     aid2 = str(uuid4())
-    repo.queue(rid, GenerateScript(id=aid2, expected_revision=stage['revision'], base_version=1, instruction='Improve'))
+    repo.queue(
+        rid,
+        GenerateScript(
+            id=aid2, expected_revision=stage["revision"], base_version=1, instruction="Improve"
+        ),
+    )
+
     def improve(prompt):
         contract = json.loads(prompt)
         assert contract['previous_answer'] == answer
@@ -1916,12 +2083,23 @@ def test_agent_answer_contract_persistence_revision_and_validation(client, db, s
     assert execute_attempt(repo, rid, aid2, improve)
     stage = repo.get(rid)
     assert stage['head_version'] == 2
-    saved = client.post(f'/api/v1/work-requests/{rid}/script/versions', headers=headers, json=dict(id=str(uuid4()), expected_revision=stage['revision'], base_version=2, answer=answer))
+    saved = client.post(
+        f"/api/v1/work-requests/{rid}/script/versions",
+        headers=headers,
+        json=dict(
+            id=str(uuid4()), expected_revision=stage["revision"], base_version=2, answer=answer
+        ),
+    )
     assert saved.status_code == 201
     assert saved.json()['versions'][0]['answer'] == answer
     stage = repo.get(rid)
     aid3 = str(uuid4())
-    repo.queue(rid, GenerateScript(id=aid3, expected_revision=stage['revision'], base_version=3, instruction='Invalid'))
+    repo.queue(
+        rid,
+        GenerateScript(
+            id=aid3, expected_revision=stage["revision"], base_version=3, instruction="Invalid"
+        ),
+    )
     assert execute_attempt(repo, rid, aid3, lambda _: AgentAnswer(value=123))
     assert repo.get(rid)['head_version'] == 3
     assert repo.get(rid)['attempts'][0]['status'] == 'unknown'
@@ -1929,9 +2107,9 @@ def test_agent_answer_contract_persistence_revision_and_validation(client, db, s
 
 @pytest.mark.parametrize("timeout", [False, True])
 def test_agent_sse_reconnect_isolation_and_persisted_partial(client, db, monkeypatch, timeout):
-    from asa.registry.script_queue import ScriptQueue
-    from asa.models import Script
     import asa.registry.sse as sse
+    from asa.models import Script
+    from asa.registry.script_queue import ScriptQueue
     monkeypatch.setattr(sse, 'STREAM_LIFETIME', 0)
     headers, work, url = script_work(client)
     settings = Settings(_env_file=None, database_url=db[0], workspace_id=db[1],
@@ -1980,6 +2158,7 @@ def test_agent_sse_reconnect_isolation_and_persisted_partial(client, db, monkeyp
 
 def test_character_projects_follow_immutable_answer_versions(client, db):
     from psycopg.types.json import Jsonb
+
     from asa.registry.characters import CharacterRepository, ImportPlan
     from asa.registry.schemas import RegistryError
 
@@ -1992,11 +2171,18 @@ def test_character_projects_follow_immutable_answer_versions(client, db):
         conn.execute('INSERT INTO script_stages(workspace_id,request_id) VALUES (%s,%s)',
                      (workspace, work['id']))
         for number, name in [(1, 'Hana'), (2, 'Updated Hana')]:
-            conn.execute('INSERT INTO script_versions'
-                         '(workspace_id,request_id,version,operation_id,title,narration,source,answer) '
-                         "VALUES (%s,%s,%s,%s,'','','ai',%s)",
-                         (workspace, work['id'], number, uuid4(),
-                          Jsonb({'characters': [{**char, 'name': name}]})))
+            conn.execute(
+                "INSERT INTO script_versions"
+                "(workspace_id,request_id,version,operation_id,title,narration,source,answer) "
+                "VALUES (%s,%s,%s,%s,'','','ai',%s)",
+                (
+                    workspace,
+                    work["id"],
+                    number,
+                    uuid4(),
+                    Jsonb({"characters": [{**char, "name": name}]}),
+                ),
+            )
     first = ImportPlan(id=uuid4(), request_id=work['id'], name='Characters')
     p1 = repo.import_plan(first)
     assert repo.import_plan(first.model_copy(update={'id': uuid4()}))['id'] == p1['id']
@@ -2019,7 +2205,14 @@ def test_character_projects_follow_immutable_answer_versions(client, db):
 
 def test_followup_history_scope_completion_and_version_isolation(client, db):
     from psycopg.types.json import Jsonb
-    from asa.registry.characters import Character, CharacterRepository, ImageRequest, ImportPlan, ItemScope
+
+    from asa.registry.characters import (
+        Character,
+        CharacterRepository,
+        ImageRequest,
+        ImportPlan,
+        ItemScope,
+    )
     from asa.registry.history import HistoryRepository
     from asa.registry.schemas import RegistryError
 
@@ -2027,13 +2220,35 @@ def test_followup_history_scope_completion_and_version_isolation(client, db):
     dsn, workspace = db
     repo = CharacterRepository(dsn, workspace)
     history = HistoryRepository(dsn, workspace)
-    char = dict(id='hana', name='Hana', facts='', appearance='coat', proposed='', scene_ids='1', image_prompt='front')
+    char = dict(
+        id="hana",
+        name="Hana",
+        facts="",
+        appearance="coat",
+        proposed="",
+        scene_ids="1",
+        image_prompt="front",
+    )
     with repo._connect() as conn:
-        conn.execute('INSERT INTO script_stages(workspace_id,request_id) VALUES (%s,%s)', (workspace, work['id']))
-        conn.execute('INSERT INTO script_versions(workspace_id,request_id,version,operation_id,title,narration,source,answer) '
-                     "VALUES (%s,%s,1,%s,'','','ai',%s)",
-                     (workspace, work['id'], uuid4(), Jsonb({'characters': [char, {**char, 'id': 'other'}]})))
-        conn.execute("UPDATE customer_requests SET status='succeeded' WHERE workspace_id=%s AND id=%s", (workspace, work['id']))
+        conn.execute(
+            "INSERT INTO script_stages(workspace_id,request_id) VALUES (%s,%s)",
+            (workspace, work["id"]),
+        )
+        conn.execute(
+            "INSERT INTO script_versions(workspace_id,request_id,version,operation_id,"
+            "title,narration,source,answer) "
+            "VALUES (%s,%s,1,%s,'','','ai',%s)",
+            (
+                workspace,
+                work["id"],
+                uuid4(),
+                Jsonb({"characters": [char, {**char, "id": "other"}]}),
+            ),
+        )
+        conn.execute(
+            "UPDATE customer_requests SET status='succeeded' WHERE workspace_id=%s AND id=%s",
+            (workspace, work["id"]),
+        )
     # Even an answer never opened/imported has outstanding work.
     assert history.history(0)['items'][0]['work_progress']['counts']['pending'] == 2
     project = repo.import_plan(ImportPlan(id=uuid4(), request_id=work['id'], name='test'))
@@ -2046,13 +2261,16 @@ def test_followup_history_scope_completion_and_version_isolation(client, db):
         repo.set_scope(pid, 'hana', ItemScope(excluded=True, expected=False))
     assert history.detail(UUID(work['id']))['work_progress']['counts']['queued'] == 1
     with repo._connect() as conn:
-        conn.execute("UPDATE character_image_jobs SET status='succeeded',image=%s WHERE workspace_id=%s AND id=%s",
-                     (b'fake', workspace, body.id))
+        conn.execute(
+            "UPDATE character_image_jobs SET status='succeeded',image=%s "
+            "WHERE workspace_id=%s AND id=%s",
+            (b"fake", workspace, body.id),
+        )
     assert history.history(0)['items'][0]['work_progress']['status'] == 'review'
     repo.approve(body.id, None, 1)
     assert history.history(0)['items'][0]['work_progress']['status'] == 'pending'
 
-    from asa.tools.character_handoff import read_handoff, image_content
+    from asa.tools.character_handoff import image_content, read_handoff
     with pytest.raises(RegistryError, match='character_handoff_not_ready'):
         read_handoff(repo, str(pid))
     repo.set_scope(pid, 'other', ItemScope(excluded=True, expected=False))
@@ -2066,13 +2284,26 @@ def test_followup_history_scope_completion_and_version_isolation(client, db):
         read_handoff(CharacterRepository(dsn, uuid4()), str(pid))
 
     assert history.history(0)['items'][0]['work_progress']['status'] == 'complete'
-    assert client.get(f"/api/v1/work-requests/{work['id']}").json()['work_progress']['counts']['excluded'] == 1
+    assert (
+        client.get(f"/api/v1/work-requests/{work['id']}").json()["work_progress"]["counts"][
+            "excluded"
+        ]
+        == 1
+    )
     with pytest.raises(RegistryError, match='work_scope_changed'):
         repo.set_scope(pid, 'other', ItemScope(excluded=False, expected=False))
     with pytest.raises(RegistryError, match='work_item_excluded'):
-        repo.enqueue(pid, body.model_copy(update={'id': uuid4(), 'character': Character(**{**char, 'id': 'other'})}), settings)
+        repo.enqueue(
+            pid,
+            body.model_copy(
+                update={"id": uuid4(), "character": Character(**{**char, "id": "other"})}
+            ),
+            settings,
+        )
     with pytest.raises(RegistryError):
-        CharacterRepository(dsn, uuid4()).set_scope(pid, 'other', ItemScope(excluded=False, expected=True))
+        CharacterRepository(dsn, uuid4()).set_scope(
+            pid, "other", ItemScope(excluded=False, expected=True)
+        )
     repo.set_scope(pid, 'other', ItemScope(excluded=False, expected=True))
     with pytest.raises(RegistryError):
         image_content(repo, payload)
@@ -2083,8 +2314,11 @@ def test_followup_history_scope_completion_and_version_isolation(client, db):
     repo.enqueue(pid, edit, settings)
     assert history.history(0)['items'][0]['work_progress']['status'] == 'running'
     with repo._connect() as conn:
-        conn.execute("UPDATE character_image_jobs SET status='succeeded',image=%s WHERE workspace_id=%s AND id=%s",
-                     (b'fake', workspace, edit.id))
+        conn.execute(
+            "UPDATE character_image_jobs SET status='succeeded',image=%s "
+            "WHERE workspace_id=%s AND id=%s",
+            (b"fake", workspace, edit.id),
+        )
     assert repo.project(pid)['work_progress']['counts']['review'] == 1
     with pytest.raises(RegistryError, match="image_review_changed"):
         repo.approve(body.id, body.id, 1)
@@ -2092,15 +2326,19 @@ def test_followup_history_scope_completion_and_version_isolation(client, db):
     assert repo.project(pid)['work_progress']['counts']['approved'] == 1
     # A new answer must not inherit previous approval/exclusions.
     with repo._connect() as conn:
-        conn.execute('INSERT INTO script_versions(workspace_id,request_id,version,operation_id,title,narration,source,answer) '
-                     "VALUES (%s,%s,2,%s,'','','ai',%s)", (workspace, work['id'], uuid4(), Jsonb({'characters': [char]})))
+        conn.execute(
+            "INSERT INTO script_versions(workspace_id,request_id,version,operation_id,"
+            "title,narration,source,answer) "
+            "VALUES (%s,%s,2,%s,'','','ai',%s)",
+            (workspace, work["id"], uuid4(), Jsonb({"characters": [char]})),
+        )
     latest = history.history(0)['items'][0]['work_progress']
     assert latest['source_version'] == 2 and latest['counts']['pending'] == 1
     assert repo.project(pid)['work_progress']['counts']['approved'] == 1
 
 
 def test_pool_reuses_connection_and_rolls_back(db):
-    from asa.database import connection, close_database
+    from asa.database import close_database, connection
     dsn, _ = db
     with connection(dsn) as conn:
         first = conn.info.backend_pid
@@ -2135,7 +2373,6 @@ def test_notifications_commit_only_and_workspace_isolation(db):
 
 
 def test_queue_notification_wakes_idle_consumer_once(client, db):
-    import threading
     from asa.database import changes
     from asa.models import Script
     from asa.registry.script_queue import ScriptQueue
@@ -2164,13 +2401,14 @@ def test_queue_notification_wakes_idle_consumer_once(client, db):
 
 def test_listener_reconnect_forces_snapshot_reconciliation(db):
     import time
+
     from asa.database import changes, connection
     hub = changes(db[0])
     assert hub.ready.wait(5)
     epoch = hub.epoch
     # Only the listener for this isolated test DSN/schema is terminated.
     with connection(db[0]) as conn:
-        rows = conn.execute("SELECT pid FROM pg_stat_activity WHERE application_name='asa-listener' "
+        conn.execute("SELECT pid FROM pg_stat_activity WHERE application_name='asa-listener' "
                             "AND query='LISTEN asa_changes'").fetchall()
     # Use a dedicated tagged listener PID instead of affecting other applications.
     assert hub.backend_pid
@@ -2198,6 +2436,7 @@ def test_image_and_automation_sse_require_auth_and_scope(client, db, monkeypatch
 def test_pooled_concurrent_enqueue_does_not_exhaust_pool(client, db, monkeypatch):
     import threading
     import time
+
     from asa.registry.runtime import RunInput, RunRepository
     _, saved = runtime_flow(client)
     settings = Settings(_env_file=None, database_url=db[0], workspace_id=db[1])
@@ -2219,8 +2458,9 @@ def test_pooled_concurrent_enqueue_does_not_exhaust_pool(client, db, monkeypatch
 
 def test_idle_schedule_deadline_and_sse_snapshot(client, db, monkeypatch):
     from datetime import UTC, datetime, timedelta
-    from asa.registry.runtime import RunRepository, RunInput, ScheduleInput
+
     import asa.registry.sse as sse
+    from asa.registry.runtime import RunInput, RunRepository, ScheduleInput
     _, saved = runtime_flow(client)
     repo = RunRepository(Settings(_env_file=None, database_url=db[0], workspace_id=db[1]))
     assert repo.idle_seconds() == 30
@@ -2255,13 +2495,22 @@ def test_standby_automation_worker_does_not_spin_on_overdue_schedule(client, db)
 @pytest.mark.parametrize("scene", [True, False])
 def test_image_review_queue_snapshot_auto_and_isolation(db, monkeypatch, legacy, scene):
     from psycopg.types.json import Jsonb
+
     from asa.registry.characters import Character, CharacterRepository, ImageRequest
-    from asa.registry.image_reviews import enqueue_review, enqueue_automatic, process_review
+    from asa.registry.image_reviews import enqueue_automatic, enqueue_review, process_review
     from asa.registry.schemas import RegistryError
     dsn, workspace = db
     repo = CharacterRepository(dsn, workspace)
-    reviewer = repo.create(AgentDraft.model_validate({**definition(), 'name': 'Image reviewer',
-                         **({'purpose': 'image_review'} if legacy else {}), 'output_schema': {'type': 'string'}}))
+    reviewer = repo.create(
+        AgentDraft.model_validate(
+            {
+                **definition(),
+                "name": "Image reviewer",
+                **({"purpose": "image_review"} if legacy else {}),
+                "output_schema": {"type": "string"},
+            }
+        )
+    )
     repo.publish(reviewer['id'], 1)
     ref = f"agent:{reviewer['id']}:1"
     maker = repo.create(AgentDraft.model_validate({**definition(),
@@ -2276,9 +2525,16 @@ def test_image_review_queue_snapshot_auto_and_isolation(db, monkeypatch, legacy,
         conn.execute('INSERT INTO character_projects(workspace_id,id,request_id,name,characters) '
                      'VALUES (%s,%s,%s,%s,%s)',
                      (workspace,project,request,'review test',Jsonb([char.model_dump()])))
-    settings = Settings(_env_file=None,database_url=dsn,workspace_id=workspace,
-                        image_ai_enabled=True,ai_api_key='test-only',ai_model='test-model',
-                        ai_models=['test-model'], ai_prices={'openai:test-model':{'input':1,'output':2,'label':'test rate'}})
+    settings = Settings(
+        _env_file=None,
+        database_url=dsn,
+        workspace_id=workspace,
+        image_ai_enabled=True,
+        ai_api_key="test-only",
+        ai_model="test-model",
+        ai_models=["test-model"],
+        ai_prices={"openai:test-model": {"input": 1, "output": 2, "label": "test rate"}},
+    )
     from asa.registry.model_discovery import ModelMetadata
     from asa.registry.review_connection import connection_status
     monkeypatch.setattr('asa.registry.review_connection.image_metadata',
@@ -2291,12 +2547,15 @@ def test_image_review_queue_snapshot_auto_and_isolation(db, monkeypatch, legacy,
     # Effective model resolution is isolated from global admin catalog in this test.
     monkeypatch.setattr('asa.registry.image_reviews.effective_settings',lambda s,*a:s)
     if scene:
-        from asa.registry.scene_images import ScenePlan, items
         from asa.registry.character_library import selected_handoff
+        from asa.registry.scene_images import ScenePlan, items
         upload = uuid4()
         with repo._connect() as conn:
-            conn.execute("INSERT INTO character_reference_uploads(id,workspace_id,character,image,filename) "
-                         "VALUES (%s,%s,%s,%s,'test.png')", (upload,workspace,Jsonb(char.model_dump()),b'identity'))
+            conn.execute(
+                "INSERT INTO character_reference_uploads(id,workspace_id,character,image,filename) "
+                "VALUES (%s,%s,%s,%s,'test.png')",
+                (upload, workspace, Jsonb(char.model_dump()), b"identity"),
+            )
         refs = selected_handoff(repo,[upload])
         plan = ScenePlan(summary='씬',checks=[],shots=[dict(scene_id='1',shot_id='1',title='씬',
             source_excerpt='원문',character_ids=[refs['characters'][0]['id']],
@@ -2304,8 +2563,14 @@ def test_image_review_queue_snapshot_auto_and_isolation(db, monkeypatch, legacy,
             continuity='의상 유지',video_notes='',review_notes='',ready=True)])
         char = Character(**items(plan)[0])
         with repo._connect() as conn:
-            conn.execute("UPDATE character_projects SET kind='scene',characters=%s,context=%s WHERE id=%s",
-                         (Jsonb(items(plan)),Jsonb(dict(plan=plan.model_dump(),input=dict(characters=refs,script='원문'))),project))
+            conn.execute(
+                "UPDATE character_projects SET kind='scene',characters=%s,context=%s WHERE id=%s",
+                (
+                    Jsonb(items(plan)),
+                    Jsonb(dict(plan=plan.model_dump(), input=dict(characters=refs, script="원문"))),
+                    project,
+                ),
+            )
     image = ImageRequest(id=uuid4(),character=char,model='gpt-image-2.5-sunburst')
     repo.enqueue(project,image,settings)
     from asa.image_worker import tick
@@ -2315,7 +2580,11 @@ def test_image_review_queue_snapshot_auto_and_isolation(db, monkeypatch, legacy,
     enqueue_automatic(repo,image.id,settings)
     snapshot = repo.project(project)
     assert len(snapshot['reviews']) == 1 and snapshot['review_config']['agent_ref'] == ref
-    repo.save_settings(AgentDraft.model_validate({**reviewer['draft'], 'instructions': 'updated review'}), reviewer['id'], 1)
+    repo.save_settings(
+        AgentDraft.model_validate({**reviewer["draft"], "instructions": "updated review"}),
+        reviewer["id"],
+        1,
+    )
     calls=[]
     def fake(config,definition,character,change,png,reference,**kwargs):
         if scene:
@@ -2323,6 +2592,7 @@ def test_image_review_queue_snapshot_auto_and_isolation(db, monkeypatch, legacy,
             assert kwargs["scene_context"]["source_input"]["script"] == "원문"
         from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
         from langchain_core.messages import AIMessage
+
         from asa.telemetry import call_config
         FakeMessagesListChatModel(responses=[AIMessage(content='검수 의견',usage_metadata={
             'input_tokens':100,'output_tokens':10,'total_tokens':110})]).invoke('test',**call_config())
@@ -2346,9 +2616,13 @@ def test_image_review_queue_snapshot_auto_and_isolation(db, monkeypatch, legacy,
     assert process_review(repo,settings)
     assert calls[-1][1]['appearance']=='green coat'
     # Frozen image settings are not overwritten by review criteria.
-    assert repo.project(project)['jobs'][0]['character']['appearance']==('도서관' if scene else 'coat')
+    assert repo.project(project)["jobs"][0]["character"]["appearance"] == (
+        "도서관" if scene else "coat"
+    )
     with repo._connect() as conn:
-        events=conn.execute("SELECT * FROM ai_usage_events WHERE step_name='이미지 검수'").fetchall()
+        events = conn.execute(
+            "SELECT * FROM ai_usage_events WHERE step_name='이미지 검수'"
+        ).fetchall()
         assert len(events)==2 and all(str(e['request_id'])==str(request) for e in events)
         assert all(e['usage']['input_tokens']==100 and e['estimated_usd']>0 for e in events)
     assert calls[1][0]['instructions'] == 'updated review'
@@ -2374,8 +2648,8 @@ def test_agent_icon_saved_published_and_version_preserved(db):
     assert icons=={1:'pen',2:'film'}
 
 def test_single_save_atomic_and_latest_requests(db):
-    from asa.registry.schemas import RegistryError
     from asa.registry.history import HistoryRepository, WorkRequest
+    from asa.registry.schemas import RegistryError
     repo = RegistryRepository(*db)
     first = repo.save_settings(AgentDraft.model_validate(definition()))
     assert first['versions'][0]['version'] == 1
@@ -2383,7 +2657,11 @@ def test_single_save_atomic_and_latest_requests(db):
     body = WorkRequest(id=uuid4(), agent_id=first['id'], version=1, input={'topic': 'cat'})
     original = history.save(body)
     assert original['version'] == 1
-    second = repo.save_settings(AgentDraft.model_validate({**definition(), 'instructions': 'new instructions'}), first['id'], first['revision'])
+    second = repo.save_settings(
+        AgentDraft.model_validate({**definition(), "instructions": "new instructions"}),
+        first["id"],
+        first["revision"],
+    )
     assert second['versions'][0]['version'] == 2
     assert second['versions'][1]['definition']['instructions'] == definition()['instructions']
     with pytest.raises(RegistryError):
@@ -2401,8 +2679,9 @@ def test_single_save_atomic_and_latest_requests(db):
     assert repo.get(first['id'])['revision'] == second['revision']
 
 def test_latest_agent_in_automation_and_schedule_preserves_queued(client, db):
-    from asa.registry.runtime import RunInput, RunRepository, ScheduleInput
     from datetime import UTC, datetime, timedelta
+
+    from asa.registry.runtime import RunInput, RunRepository, ScheduleInput
     repo = RegistryRepository(*db)
     agent = repo.save_settings(AgentDraft.model_validate(definition()))
     headers = login(client)
@@ -2429,7 +2708,9 @@ def test_latest_agent_in_automation_and_schedule_preserves_queued(client, db):
         by_id = {r['id']: r['manifest'][0]['definition']['instructions'] for r in rows}
         assert by_id[old.id] == definition()['instructions']
         assert by_id[fresh.id] == 'new settings'
-        conn.execute("UPDATE automation_runs SET status='succeeded' WHERE workspace_id=%s", (db[1],))
+        conn.execute(
+            "UPDATE automation_runs SET status='succeeded' WHERE workspace_id=%s", (db[1],)
+        )
     assert runtime.dispatch_due(datetime.now(UTC) + timedelta(days=2)) == 1
     with repo._connect() as conn:
         scheduled = conn.execute('SELECT manifest FROM automation_runs WHERE schedule_id=%s',
@@ -2641,9 +2922,13 @@ def test_automation_categories_member_can_manage(db, monkeypatch):
 
 
 @pytest.mark.parametrize('selected', [False, True])
-def test_scene_agent_queue_delivers_full_text_and_confirmed_image(client, db, monkeypatch, selected):
+def test_scene_agent_queue_delivers_full_text_and_confirmed_image(
+    client, db, monkeypatch, selected
+):
     import json
+
     from psycopg.types.json import Jsonb
+
     from asa.registry.characters import CharacterRepository, ImportPlan
     from asa.registry.history import HistoryRepository, WorkRequest
     from asa.registry.script_queue import ScriptQueue
@@ -2781,12 +3066,16 @@ def test_scene_agent_queue_delivers_full_text_and_confirmed_image(client, db, mo
         assert json.loads(captured[1][1])['input']['topic'] == original['script']
         final_content = captured[-1].content
         assert json.loads(final_content[0]['text'])['input'] == original
-        assert base64.b64decode(final_content[-1]['image_url']['url'].split(',')[1]) == b'actual-test-image'
+        assert (
+            base64.b64decode(final_content[-1]["image_url"]["url"].split(",")[1])
+            == b"actual-test-image"
+        )
         assert len(result['steps']) >= 3
 
 
 def test_image_library_and_selected_handoff(client, db, monkeypatch):
     from psycopg.types.json import Jsonb
+
     from asa.registry.characters import Character, CharacterRepository, ImageRequest, ItemScope
     from asa.registry.schemas import RegistryError
     from asa.tools.character_handoff import image_content
@@ -2798,13 +3087,18 @@ def test_image_library_and_selected_handoff(client, db, monkeypatch):
     char = Character(id='hana', name='하나', facts='원문 사실', appearance='노란 우비',
                      proposed='제안', scene_ids='1', image_prompt='정면')
     with repo._connect() as conn:
-        conn.execute('INSERT INTO character_projects(workspace_id,id,request_id,source_version,name,characters) '
-                     'VALUES (%s,%s,%s,1,%s,%s)',
-                     (workspace, pid, source['id'], '이야기 작업', Jsonb([char.model_dump()])))
+        conn.execute(
+            "INSERT INTO character_projects(workspace_id,id,request_id,"
+            "source_version,name,characters) "
+            "VALUES (%s,%s,%s,1,%s,%s)",
+            (workspace, pid, source["id"], "이야기 작업", Jsonb([char.model_dump()])),
+        )
     config = Settings(_env_file=None, database_url=dsn, workspace_id=workspace,
                       image_ai_enabled=True, ai_api_key='fake')
     first = uuid4()
-    repo.enqueue(pid, ImageRequest(id=first, character=char, model='gpt-image-2.5-sunburst'), config)
+    repo.enqueue(
+        pid, ImageRequest(id=first, character=char, model="gpt-image-2.5-sunburst"), config
+    )
     with repo._connect() as conn:
         conn.execute("UPDATE character_image_jobs SET status='succeeded',image=%s "
                      'WHERE workspace_id=%s AND id=%s', (b'first', workspace, first))
@@ -2827,8 +3121,17 @@ def test_image_library_and_selected_handoff(client, db, monkeypatch):
     with pytest.raises(RegistryError):
         image_content(CharacterRepository(dsn, uuid4()), selection)
     second = uuid4()
-    repo.enqueue(pid, ImageRequest(id=second, character=char.model_copy(update={'appearance': '파란 우비'}), model='gpt-image-2.5-sunburst',
-                                  base_id=first, change='변경'), config)
+    repo.enqueue(
+        pid,
+        ImageRequest(
+            id=second,
+            character=char.model_copy(update={"appearance": "파란 우비"}),
+            model="gpt-image-2.5-sunburst",
+            base_id=first,
+            change="변경",
+        ),
+        config,
+    )
     assert image_content(repo, selection)[1]['image_url']['url'].endswith('Zmlyc3Q=')
     with repo._connect() as conn:
         conn.execute("UPDATE character_image_jobs SET status='succeeded',image=%s "
@@ -2853,7 +3156,9 @@ def test_image_library_and_selected_handoff(client, db, monkeypatch):
     assert client.post('/api/v1/characters/library/selection', headers=headers,
                        json={'image_ids': [str(first)]}).status_code == 200
     repo.set_scope(pid, 'hana', ItemScope(excluded=True, expected=False))
-    assert client.get('/api/v1/characters/library?state=excluded').json()['items'][0]['id'] == str(second)
+    assert client.get("/api/v1/characters/library?state=excluded").json()["items"][0]["id"] == str(
+        second
+    )
     assert client.post('/api/v1/characters/library/selection', headers=headers,
                        json={'image_ids': [str(second)]}).status_code == 409
     assert client.post('/api/v1/characters/library/selection', headers=ORIGIN,
@@ -2862,19 +3167,24 @@ def test_image_library_and_selected_handoff(client, db, monkeypatch):
 
 def test_scene_images_queue_references_batch_edit_approval_and_usage(db, monkeypatch):
     from copy import deepcopy
+
     from psycopg.types.json import Jsonb
+
+    from asa.image_worker import tick
+    from asa.registry.character_library import library, selected_handoff, versions
     from asa.registry.characters import Character, CharacterRepository, ImageRequest
     from asa.registry.scene_images import ScenePlan, items, readiness
-    from asa.registry.character_library import selected_handoff, library, versions
     from asa.registry.schemas import RegistryError
-    from asa.image_worker import tick
     repo = CharacterRepository(*db)
     request, project, upload = uuid4(), uuid4(), uuid4()
     char = dict(id="hana", name="하나", facts="7살", proposed="", appearance="노란 우비",
                 scene_ids="1", image_prompt="기존 외형 유지")
     with repo._connect() as conn:
-        conn.execute("INSERT INTO character_reference_uploads(id,workspace_id,character,image,filename) "
-                     "VALUES (%s,%s,%s,%s,'test.png')", (upload, db[1], Jsonb(char), b'reference'))
+        conn.execute(
+            "INSERT INTO character_reference_uploads(id,workspace_id,character,image,filename) "
+            "VALUES (%s,%s,%s,%s,'test.png')",
+            (upload, db[1], Jsonb(char), b"reference"),
+        )
     handoff = selected_handoff(repo, [upload])
     cid = handoff['characters'][0]['id']
     shot = dict(scene_id='1', shot_id='1', title='도서관', source_excerpt='원문 그대로',
@@ -2886,8 +3196,12 @@ def test_scene_images_queue_references_batch_edit_approval_and_usage(db, monkeyp
                                                    characters=handoff, aspect_ratio='9:16'))
     before = deepcopy(context)
     with repo._connect() as conn:
-        conn.execute("INSERT INTO character_projects(workspace_id,id,request_id,name,characters,kind,context) "
-                     "VALUES (%s,%s,%s,'씬','[]','scene',%s)", (db[1],project,request,Jsonb(context)))
+        conn.execute(
+            "INSERT INTO character_projects(workspace_id,id,request_id,"
+            "name,characters,kind,context) "
+            "VALUES (%s,%s,%s,'씬','[]','scene',%s)",
+            (db[1], project, request, Jsonb(context)),
+        )
         conn.execute("UPDATE character_projects SET characters=%s WHERE id=%s",
                      (Jsonb(items(plan)),project))
     settings = Settings(_env_file=None,database_url=db[0],workspace_id=db[1],
@@ -2939,11 +3253,154 @@ def test_scene_images_queue_references_batch_edit_approval_and_usage(db, monkeyp
     missing=deepcopy(context)
     missing['plan']['shots'][0]['character_ids']=['missing']
     with repo._connect() as conn:
-        conn.execute('UPDATE character_projects SET context=%s WHERE id=%s',(Jsonb(missing),project))
+        conn.execute(
+            "UPDATE character_projects SET context=%s WHERE id=%s", (Jsonb(missing), project)
+        )
     with pytest.raises(RegistryError,match='scene_references_not_ready'):
         repo.enqueue(project,bodies[0].model_copy(update={'id':uuid4()}),settings)
     with pytest.raises(RegistryError):
         CharacterRepository(db[0],uuid4()).project(project)
+
+@pytest.mark.parametrize("style", ["animation_2d", "animation_3d", "live_action"])
+def test_dynamic_video_prompt_saved_queued_and_sent_to_model(client, db, monkeypatch, style):
+    import json
+
+    from asa.providers import make_agent_generator
+    from asa.registry.script_queue import ScriptQueue
+
+    headers = login(client)
+    body = definition()
+    body["instructions"] = "공통 지침 원문 [COMMON]"
+    bodies = {key: f"{key} 전용 지침 [{key}]" for key in
+              ("animation_2d", "animation_3d", "live_action")}
+    body["video_prompt_modules"] = {
+        "selection_required": True, "style_instructions": bodies,
+        "enabled": False, "mode": "manual", "profile_id": "live_action",
+    }
+    saved = client.post("/api/v1/agents/save", json=body, headers=headers)
+    assert saved.status_code == 201, saved.text
+    agent = saved.json()
+    inputs = {"topic": "원본 장면과 대사 유지", "video_style": style}
+    request = client.post("/api/v1/work-requests", headers=headers, json={
+        "id": str(uuid4()), "agent_id": agent["id"], "version": 1, "input": inputs,
+    })
+    assert request.status_code == 201, request.text
+    settings = Settings(
+        _env_file=None, database_url=db[0], workspace_id=db[1],
+        ai_model="test", ai_api_key="fake", script_ai_enabled=True,
+    )
+    queue = ScriptQueue(settings)
+    queue.submit(request.json()["id"])
+    # Later edits must not change an already queued execution.
+    changed = {**body, "instructions": "나중에 수정한 공통 지침"}
+    changed["video_prompt_modules"] = {
+        "selection_required": True, "style_instructions": {key: "나중에 수정" for key in bodies},
+    }
+    updated = client.put(f"/api/v1/agents/{agent['id']}/save", json=changed,
+                         headers={**headers, "If-Match": '"1"'})
+    assert updated.status_code == 200, updated.text
+    captured = []
+
+    class Model:
+        def with_structured_output(self, schema):
+            return self
+
+        def invoke(self, messages, **kwargs):
+            captured.append(messages)
+            return {"value": {"script": "테스트 답변"}}
+
+    monkeypatch.setattr("asa.providers.init_chat_model", lambda *a, **k: Model())
+    generator = make_agent_generator(Settings(_env_file=None, ai_model="test", ai_api_key="fake"))
+    assert queue.tick(generator)
+    assert len(captured) == 1
+    assert captured[0][0] == ("system", body["instructions"] + "\n\n" + bodies[style])
+    assert json.loads(captured[0][1][1])["original_request"] == inputs
+    for other in bodies:
+        if other != style:
+            assert bodies[other] not in captured[0][0][1]
+    assert "나중에 수정" not in captured[0][0][1]
+
+
+def test_video_prompt_editor_permissions_and_versions(client, db, monkeypatch):
+    from copy import deepcopy
+
+    from asa.auth.session import OwnerSessions, Principal
+    from asa.video_prompt_modules import build_prompt_bundle
+
+    headers = login(client)
+    body = definition()
+    body["instructions"] = "admin common"
+    body["video_prompt_modules"] = {
+        "enabled": True, "editor_managed": True, "mode": "manual",
+        "profile_id": "animation_2d", "common_instructions": "",
+        "style_instructions": {"animation_2d": "original 2D"},
+    }
+    response = client.post("/api/v1/agents/save", json=body, headers=headers)
+    assert response.status_code == 201, response.text
+    saved = response.json()
+    original = deepcopy(saved["versions"][-1]["definition"])
+    endpoint = f'/api/v1/agents/{saved["id"]}'
+    with monkeypatch.context() as patch:
+        patch.setattr(OwnerSessions, "principal",
+                      lambda self: Principal("member", db[1], ("member",)))
+        with TestClient(create_app(Settings(_env_file=None, database_url=db[0]))) as member:
+            for suffix, method in [("/save", member.put), ("/draft", member.patch)]:
+                changed = deepcopy(body)
+                changed["video_prompt_modules"]["common_instructions"] = "tampered"
+                denied = method(endpoint+suffix, json=changed, headers={"If-Match": '"1"'})
+                assert denied.status_code == 403
+                changed = deepcopy(body)
+                changed["instructions"] = "tampered common agent instructions"
+                denied = method(endpoint+suffix, json=changed, headers={"If-Match": '"1"'})
+                assert denied.status_code == 403
+                changed = deepcopy(body)
+                changed.pop("video_prompt_modules")
+                denied = method(endpoint+suffix, json=changed, headers={"If-Match": '"1"'})
+                assert denied.status_code == 403
+            for route in ("/api/v1/agents", "/api/v1/agents/save"):
+                assert member.post(route, json=body).status_code == 403
+            body["video_prompt_modules"]["style_instructions"]["animation_2d"] = "member 2D"
+            updated = member.put(endpoint+"/save", json=body, headers={"If-Match": '"1"'})
+            assert updated.status_code == 200, updated.text
+            stale = member.put(endpoint+"/save", json=body, headers={"If-Match": '"1"'})
+            assert stale.status_code == 409
+            current = updated.json()["draft"]
+            current_prompt = build_prompt_bundle(current, {"video_style": "animation_2d"})
+            original_prompt = build_prompt_bundle(original, {"video_style": "animation_2d"})
+            assert current_prompt["instructions"].startswith("admin common\n\nmember 2D")
+            assert original_prompt["instructions"].startswith("admin common\n\noriginal 2D")
+            body["video_prompt_modules"]["style_instructions"]["animation_2d"] = "   "
+            empty = member.put(endpoint+"/save", json=body, headers={"If-Match": '"2"'})
+            assert empty.status_code == 200
+            from asa.registry.schemas import RegistryError
+            with pytest.raises(RegistryError, match="video_style_instructions_missing"):
+                build_prompt_bundle(empty.json()["draft"], {"video_style": "animation_2d"})
+
+
+def test_video_prompt_editor_large_korean_and_invalid_mapping(client):
+    headers = login(client)
+    body = definition()
+    body["video_prompt_modules"] = {
+        "enabled": True, "editor_managed": True, "mode": "manual",
+        "profile_id": "animation_2d", "common_instructions": "가" * 65536,
+        "style_instructions": {style: "나" * 65536 for style in
+                               ("animation_2d", "animation_3d", "live_action")},
+    }
+    result = client.post("/api/v1/agents/save", json=body, headers=headers)
+    assert result.status_code == 201, result.text
+    assert result.json()["draft"]["video_prompt_modules"] == body["video_prompt_modules"] | {
+        "mode": "auto", "profile_id": None, "selection_required": True,
+        "user_style_field": "video_style", "confirmed_style_field": None,
+        "reference_style_field": None, "metadata_style_field": None,
+    }
+    body["video_prompt_modules"].update(mode="auto", user_style_field="style")
+    body["input_schema"] = {"type": "object", "properties": None}
+    assert client.post("/api/v1/agents/save", json=body, headers=headers).status_code == 422
+    body["input_schema"] = {"type": "object", "properties": {"video_style": {"type": "boolean"}}}
+    invalid = client.post("/api/v1/agents/save", json=body, headers=headers)
+    assert invalid.status_code == 422
+    assert invalid.json()["detail"] == "invalid_request"
+
 
 @pytest.mark.parametrize("delete_assets", [False, True])
 def test_admin_work_deletion_and_personal_visibility(client, db, delete_assets, monkeypatch):
@@ -3083,3 +3540,280 @@ def test_conditional_input_settings_and_requests_round_trip(client):
     assert rejected.status_code == 422, rejected.text
     stored = client.get(f"/api/v1/agents/{agent['id']}").json()
     assert stored["revision"] == agent["revision"]
+
+@pytest.mark.parametrize("outcome", ["success", "timeout", "rejected", "expired"])
+def test_wan_queue_worker_lifecycle(client, db, monkeypatch, outcome, continuation=False):
+    from io import BytesIO
+
+    import httpx
+    from PIL import Image
+    from psycopg.rows import dict_row
+    from psycopg.types.json import Jsonb
+
+    from asa import video_worker
+    from asa.registry import video_jobs
+    from asa.video_providers import endpoint
+
+    headers = login(client)
+    agent = client.post("/api/v1/agents", json=definition(), headers=headers).json()
+    client.post(
+        f"/api/v1/agents/{agent['id']}/publish", headers={**headers, "If-Match": '"1"'}
+    )
+    rid, project, image_id = (uuid4() for _ in range(3))
+    assert (
+        client.post(
+            "/api/v1/work-requests",
+            json={
+                "id": str(rid),
+                "agent_id": agent["id"],
+                "version": 1,
+                "input": {"topic": "test"},
+            },
+            headers=headers,
+        ).status_code
+        == 201
+    )
+    settings = Settings(
+        _env_file=None,
+        database_url=db[0],
+        workspace_id=db[1],
+        owner_access_key=KEY,
+        allowed_origins=["http://testserver"],
+        video_ai_enabled=True,
+        wan_api_key="test-wan",
+        wan_workspace_id="ws-test",
+    )
+    model = settings.video_model_profiles["wan3"].model_dump()
+    spec = {
+        "prompt": "A fox walks",
+        "duration_seconds": 5,
+        "aspect_ratio": "9:16",
+        "resolution": "720p",
+        "audio": False,
+        "start_image_id": str(image_id),
+    }
+    plan = {
+        "model_key": "wan3",
+        "model_revision": "1",
+        "aspect_ratio": "9:16",
+        "clips": [
+            {
+                "clip_id": "clip1",
+                "scene_id": "scene1",
+                "shot_id": "shot1",
+                "image_id": str(image_id),
+                "source_start_seconds": 0,
+                "source_end_seconds": 5,
+                "duration_seconds": 5,
+                "prompt": "A fox walks",
+                "source_excerpt": "source",
+                "continuity_in": "",
+                "continuity_out": "",
+                "split_reason": "",
+            }
+        ],
+    }
+    if continuation:
+        second = {**plan["clips"][0], "clip_id": "clip2", "source_start_seconds": 5,
+                  "source_end_seconds": 10, "connection_type": "continue",
+                  "previous_clip_id": "clip1"}
+        plan["clips"].append(second)
+    buf = BytesIO()
+    Image.new("RGB", (240, 400), "white").save(buf, "PNG")
+    with psycopg.connect(db[0]) as conn:
+        conn.execute(
+            "UPDATE customer_requests SET input=%s WHERE workspace_id=%s AND id=%s",
+            (
+                Jsonb(
+                    {
+                        "video_model": "wan3",
+                        "scene_images": {
+                            "format": "asa_scene_selection_v1",
+                            "scenes": [{"image_id": str(image_id)}],
+                        },
+                    }
+                ),
+                db[1],
+                rid,
+            ),
+        )
+        conn.execute(
+            "INSERT INTO script_stages(workspace_id,request_id) VALUES(%s,%s)",
+            (db[1], rid),
+        )
+        conn.execute(
+            "INSERT INTO script_versions(workspace_id,request_id,version,operation_id,"
+            "title,narration,source,answer) "
+            "VALUES(%s,%s,1,%s,'title','text','manual',%s)",
+            (db[1], rid, uuid4(), Jsonb(plan)),
+        )
+        conn.execute(
+            "INSERT INTO character_projects(workspace_id,id,request_id,name,characters) "
+            "VALUES(%s,%s,%s,'p','[]')",
+            (db[1], project, rid),
+        )
+        conn.execute(
+            "INSERT INTO character_image_jobs(workspace_id,id,project_id,character_id,"
+            "version,model,character,change,status,image) "
+            "VALUES(%s,%s,%s,'a',1,'m','{}','','succeeded',%s)",
+            (db[1], image_id, project, buf.getvalue()),
+        )
+    # Reference ownership is tested by prepare/scene selection tests; keep this contract
+    # test focused on provider availability, enqueue idempotency, persistence and polling.
+    monkeypatch.setattr(
+        video_jobs,
+        "prepare",
+        lambda *args: {
+            "model_snapshot": dict(model),
+            "clips": [{"clip_id": "clip1", "generation_input": spec}],
+        },
+    )
+    with TestClient(create_app(settings)) as api_client:
+        h = login(api_client)
+        catalog = api_client.get("/api/v1/video-planning/models").json()
+        wan = next(m for m in catalog["models"] if m["key"] == "wan3")
+        assert wan["connection_state"] == "configured"
+        assert not catalog["key_configured"]  # Runway key must not gate WAN.
+        path = f"/api/v1/video-clips/{rid}/1"
+        assert api_client.get(path).json()["available_models"] == ["wan3"]
+        assert api_client.post(
+            path, json={"clip_ids": ["clip1"]}, headers=h
+        ).json() == {"queued": 1}
+        assert api_client.post(
+            path, json={"clip_ids": ["clip1"]}, headers=h
+        ).json() == {"queued": 0}
+    calls = []
+
+    def respond(request):
+        calls.append(request.method)
+        assert request.headers["authorization"] == "Bearer test-wan"
+        assert request.url.host == "ws-test.ap-southeast-1.maas.aliyuncs.com"
+        assert "x-runway-version" not in request.headers
+        if request.method == "POST":
+            if outcome == "timeout":
+                raise httpx.ReadTimeout("uncertain", request=request)
+            if outcome == "rejected":
+                return httpx.Response(403)
+            return httpx.Response(
+                200,
+                json={"output": {"task_id": "wan-task-1", "task_status": "PENDING"}},
+            )
+        return httpx.Response(
+            200,
+            json={
+                "output": {
+                    "task_status": "UNKNOWN" if outcome == "expired" else "SUCCEEDED",
+                    "video_url": "https://example.com/wan.mp4",
+                }
+            },
+        )
+
+    monkeypatch.setattr(video_worker, "fetch_video", lambda url: b"0000ftyp-video")
+    with psycopg.connect(db[0], autocommit=True, row_factory=dict_row) as conn:
+        with httpx.Client(transport=httpx.MockTransport(respond)) as http:
+            assert not video_worker.process(conn, http, uuid4(), settings)
+            assert video_worker.process(conn, http, db[1], settings)
+            row = conn.execute(
+                "SELECT * FROM video_clip_jobs WHERE workspace_id=%s", (db[1],)
+            ).fetchone()
+            assert row["model_snapshot"]["provider_endpoint"] == endpoint(
+                settings, "alibaba"
+            )
+            if outcome in {"success", "expired"}:
+                assert row["provider_task"] == "wan-task-1"
+                conn.execute(
+                    "UPDATE video_clip_jobs SET next_poll=now() WHERE workspace_id=%s",
+                    (db[1],),
+                )
+                assert video_worker.process(conn, http, db[1], settings)
+            assert not video_worker.process(conn, http, db[1], settings)
+            row = conn.execute(
+                "SELECT * FROM video_clip_jobs WHERE workspace_id=%s", (db[1],)
+            ).fetchone()
+            assert (
+                row["status"]
+                == {
+                    "success": "review",
+                    "expired": "unknown",
+                    "timeout": "unknown",
+                    "rejected": "failed",
+                }[outcome]
+            )
+            assert calls.count("POST") == 1
+            usage = conn.execute(
+                "SELECT provider,cost_state FROM ai_usage_events WHERE workspace_id=%s AND id=%s",
+                (db[1], row["id"]),
+            ).fetchone()
+            assert usage["provider"] == "alibaba"
+            assert usage["cost_state"] == (
+                "rate_missing" if outcome == "success" else "usage_unknown"
+            )
+    migrate(
+        *db
+    )  # Repeat migration preserves the opaque provider task ID and saved result.
+
+
+@pytest.mark.parametrize("changed", [False, True])
+def test_continuation_approval_gate_and_worker_reference(client, db, monkeypatch, changed):
+    import json
+    from io import BytesIO
+
+    import httpx
+    from PIL import Image
+    from psycopg.rows import dict_row
+
+    from asa import video_worker
+    from asa.registry import video_jobs
+
+    test_wan_queue_worker_lifecycle(client, db, monkeypatch, "success", continuation=True)
+    cfg = Settings(_env_file=None, database_url=db[0], workspace_id=db[1],
+                   owner_access_key=KEY, allowed_origins=["http://testserver"],
+                   video_ai_enabled=True, wan_api_key="test-wan", wan_workspace_id="ws-test")
+    with psycopg.connect(db[0], autocommit=True, row_factory=dict_row) as conn:
+        parent = conn.execute("SELECT * FROM video_clip_jobs WHERE workspace_id=%s",
+                              (db[1],)).fetchone()
+        rid = parent["request_id"]
+        spec = {**parent["generation_input"], "connection_type": "continue",
+                "previous_clip_id": "clip1"}
+        monkeypatch.setattr(video_jobs, "prepare", lambda *args: {
+            "model_snapshot": dict(parent["model_snapshot"]),
+            "clips": [{"clip_id": "clip2", "generation_input": dict(spec)}]})
+        with TestClient(create_app(cfg)) as api_client:
+            headers = login(api_client)
+            path = f"/api/v1/video-clips/{rid}/1"
+            assert api_client.post(path, headers=headers,
+                json={"clip_ids": ["clip1", "clip2"]}).status_code == 409
+            assert conn.execute("SELECT count(*) AS n FROM video_clip_jobs").fetchone()["n"] == 1
+            assert api_client.post(path + "/approve", headers=headers,
+                json={"clip_ids": ["clip1"]}).status_code == 200
+            assert api_client.post(path, headers=headers,
+                json={"clip_ids": ["clip2"]}).json() == {"queued": 1}
+        buf = BytesIO()
+        Image.new("RGB", (240, 400), "blue").save(buf, "PNG")
+        monkeypatch.setattr(video_worker, "last_frame", lambda *args: buf.getvalue())
+        if changed:
+            conn.execute("UPDATE video_clip_jobs SET video=%s WHERE id=%s",
+                         (b"changed", parent["id"]))
+        calls = []
+
+        def respond(request):
+            import base64
+            calls.append(request)
+            payload = json.loads(request.content)
+            assert payload["input"]["media"][0]["url"] == (
+                "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode())
+            return httpx.Response(200, json={"output": {"task_id": "child-task"}})
+
+        with httpx.Client(transport=httpx.MockTransport(respond)) as http:
+            assert video_worker.process(conn, http, db[1], cfg)
+        child = conn.execute("SELECT * FROM video_clip_jobs WHERE clip_id='clip2'").fetchone()
+        assert len(calls) == (0 if changed else 1)
+        assert child["status"] == ("failed" if changed else "running")
+        if changed:
+            assert child["error_code"] == "video_previous_reference_changed"
+        with TestClient(create_app(cfg)) as api_client:
+            login(api_client)
+            jobs = api_client.get(f"/api/v1/video-clips/{rid}/1").json()["jobs"]
+            current = next(j for j in jobs if j["clip_id"] == "clip2")
+            assert current["reference_valid"] is not changed
+            assert "generation_input" not in current and "video_sha256" not in current

@@ -1,8 +1,8 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from asa.video_prompt_modules import VideoPromptModules
+from asa.video_prompt_modules import VideoPromptModules, normalize_video_definition
 
 
 class Limits(BaseModel):
@@ -25,6 +25,11 @@ class AfterTasks(BaseModel):
 
 
 class AgentDraft(BaseModel):
+    @model_validator(mode="before")
+    @classmethod
+    def video_defaults(cls, value: Any) -> Any:
+        return normalize_video_definition(value) if isinstance(value, dict) else value
+
     model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
     name: str = Field(min_length=1, max_length=80)
     description: str = Field(default="", max_length=400)

@@ -22,9 +22,26 @@ def test_script_generator_caps_output_tokens(monkeypatch):
     make_script_generator(Settings(_env_file=None, ai_model='test', ai_api_key='fake'))
     assert captured['max_tokens'] == 2048
 
-@pytest.mark.parametrize('schema,value', [({'type': 'string', 'maxLength': 500}, 'A useful answer'), ({'type': 'object', 'properties': {'summary': {'type': 'string'}, 'tags': {'type': 'array', 'items': {'type': 'string'}}}, 'required': ['summary', 'tags']}, {'summary': 'Summary', 'tags': ['one']})])
+@pytest.mark.parametrize(
+    "schema,value",
+    [
+        ({"type": "string", "maxLength": 500}, "A useful answer"),
+        (
+            {
+                "type": "object",
+                "properties": {
+                    "summary": {"type": "string"},
+                    "tags": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["summary", "tags"],
+            },
+            {"summary": "Summary", "tags": ["one"]},
+        ),
+    ],
+)
 def test_agent_contract_uses_registered_instructions(monkeypatch, schema, value):
     import json
+
     from asa.providers import make_agent_generator
     captured = {}
     class Model:
@@ -35,10 +52,22 @@ def test_agent_contract_uses_registered_instructions(monkeypatch, schema, value)
             captured['messages'] = messages
             return {'value': value}
     monkeypatch.setattr('asa.providers.init_chat_model', lambda *a, **k: Model())
-    prompt = json.dumps({'agent_instructions': 'You are a helpful analyst.', 'output_schema': schema,
-                         'input_schema': {'type': 'string', 'description': '질문'},
-                         'original_request': 'Explain', 'previous_answer': 'Old', 'revision_request': 'Improve'})
-    assert make_agent_generator(Settings(_env_file=None, ai_model='test', ai_api_key='fake'))(prompt).value == value
+    prompt = json.dumps(
+        {
+            "agent_instructions": "You are a helpful analyst.",
+            "output_schema": schema,
+            "input_schema": {"type": "string", "description": "질문"},
+            "original_request": "Explain",
+            "previous_answer": "Old",
+            "revision_request": "Improve",
+        }
+    )
+    assert (
+        make_agent_generator(Settings(_env_file=None, ai_model="test", ai_api_key="fake"))(
+            prompt
+        ).value
+        == value
+    )
     assert captured['messages'][0] == ('system', 'You are a helpful analyst.')
     assert captured['schema']['properties']['value'] == schema
     assert 'previous_answer' in captured['messages'][1][1]
@@ -49,6 +78,7 @@ def test_agent_contract_uses_registered_instructions(monkeypatch, schema, value)
 def test_automation_model_receives_input_labels(monkeypatch):
     import json
     from types import SimpleNamespace
+
     from asa.runtime_worker import generate
     captured = {}
     class Model:
@@ -72,6 +102,7 @@ def test_automation_model_receives_input_labels(monkeypatch):
 @pytest.mark.parametrize("invalid", [False, True])
 def test_agent_stream_public_brief_and_partial_answer(monkeypatch, invalid):
     import json
+
     from asa.providers import make_agent_generator
     received = []
     called = []

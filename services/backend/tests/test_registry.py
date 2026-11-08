@@ -52,7 +52,9 @@ def test_input_form_contract():
     {"type": "string", "enum": ["a"], "default": "b"},
 ])
 def test_invalid_input_form_rejected(node):
-    assert validate_definition(draft(input_schema={"type": "object", "properties": {"x": node}}), {})
+    assert validate_definition(
+        draft(input_schema={"type": "object", "properties": {"x": node}}), {}
+    )
 
 
 def test_restricted_schema_and_unknown_tool_are_rejected():
@@ -144,7 +146,9 @@ def test_previous_answer_input_setting(enabled):
     {"type": "string", "enum": ["a"], "x-previous-answer": True},
 ])
 def test_previous_answer_setting_rejects_incompatible_fields(node):
-    assert validate_definition(draft(input_schema={"type": "object", "properties": {"x": node}}), {})
+    assert validate_definition(
+        draft(input_schema={"type": "object", "properties": {"x": node}}), {}
+    )
 
 
 def test_previous_answer_source_agent_contract():

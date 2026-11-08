@@ -312,3 +312,40 @@ ASA-140: API·자동화 워커 재시작 후 캐릭터 결과의 다음 단계 �
 - 파일은 MP4/MOV/WebM, 최대 20MiB·5분입니다. 공개 YouTube/Shorts/Reels 링크는 실행 시 다운로드하며 사이트 제한으로 실패하면 파일 업로드를 사용합니다.
 - 시간순 최대 24개 프레임을 비전 지원 API 모델에 전달합니다. 음성·음악 분석은 없으며 프레임 사이 동작·전환은 추정입니다. 실제 분석에는 모델 API 비용이 발생합니다.
 - 영상 분석가의 답변은 비디오 프롬프트의 선택 입력 ‘참고 영상 스타일’에서 이전 작업으로 가져옵니다. 기존 대본·장면·확정 이미지를 대체하지 않습니다.
+
+## WAN 3.0 직접 API 연결 (2026-11-06)
+- `wan3` 프로필은 Alibaba Model Studio의 `wan3.0-video`, 720p, 2~30초, 9:16/16:9 첫 프레임 영상이다. Runway 키와 별개다. 네이티브 오디오 여부는 저장된 영상 계획의 `audio`를 따른다. 공급자 프롬프트 자동 재작성은 꺼서 작성 지침을 그대로 전달한다.
+- 서버 비밀 설정: `ASA_WAN_API_KEY`, `ASA_WAN_WORKSPACE_ID`, `ASA_WAN_REGION=ap-southeast-1`. Model Studio의 실제 workspace ID·키·모델 권한은 같은 리전이어야 한다. 다른 지원 리전은 Settings의 허용 목록을 확인한다. 사용자 키는 채팅이나 Git에 넣지 않는다.
+- `ASA_VIDEO_AI_ENABLED=true` 후 API 프로세스를 재시작한다. 스키마 마이그레이션 `uv run --locked --project services/backend python -m asa.registry.init`을 먼저 적용한다. provider_task를 UUID에서 text로 전환하며 기존 작업 ID를 보존한다.
+- 영상 워커: `uv run --locked --project services/backend python -m asa.video_worker`. 기존 워커가 있으면 중복 실행하지 않는다. 워커 실행은 이미 대기 중인 유료 영상 요청을 소비할 수 있다.
+- 에이전트 설정 → 영상 모델 입력 → **WAN 3.0 · Alibaba 추가** → 저장. 기존 에이전트 선택지는 자동 수정하지 않는다. 새 실행에서 영상 스타일과 WAN을 선택하고, 프롬프트 답변의 클립을 검토한 뒤 **유료 영상 생성 요청**을 누른다.
+- `ASA_VIDEO_MODEL_PROFILES`를 직접 설정한 환경은 기본 프로필 사전을 덮어쓰므로 해당 JSON에도 wan3를 추가해야 한다. 현재 프로필은 `/api/v1/video-planning/models`에서 확인한다. 720p 직접 API 요율은 관리자 확인 후 프로필 `usd_per_second`에 설정한다. 미설정은 비용 미확인으로 표시하며 힉스필드 단가를 대신 쓰지 않는다.
+- WAN의 설정 확인 버튼은 서버 키·workspace 설정 존재 여부만 확인한다. API 인증·계정 권한·잔액을 검증했다고 표시하지 않는다. 실제 유료 생성은 사용자 요청 시 별도로 검증한다.
+- 첫 이미지: 서버에 저장된 확정 PNG, 20MB 이내, 각 변240~8000px, 최대8:1, 실제 투명 픽셀 없음. 원본을 임의 변경하지 않고 부적합 이미지는 제출 전 거절한다. Base64로 전달해 공개 이미지 URL을 만들지 않는다.
+- 접수 시 공급자 endpoint를 고정한다. 작업 중 리전/workspace 변경은 unknown으로 중단하고 관리자가 확인한다. 제출 결과 불명확/재시작 중 submitting은 자동 재전송하지 않는다. 저장한 작업 ID로만 폴링하며 만료/UNKNOWN은 확인 필요 상태다. 결과 다운로드에는 API 키를 전달하지 않는다. MP4 최대64MiB 보관 제한을 넘으면 결과 확인 필요로 표시한다.
+- 공식 요청 계약: https://docs.modelstudio.console.alibabacloud.com/en/model-studio/wan3-video-generation-api-reference
+# 비디오 클립 연결 설정 업그레이드
+
+`scripts/upgrade-video-continuity.py`는 영상 모델 입력이 있는 에이전트만 대상으로 공통·스타일 원문 뒤에 연결 지침을 추가하고 출력 계약을 확장한다. 기본 실행은 변경 대상 확인만 한다. `--apply`는 기존 draft를 `.local/diagnostics/video-continuity-backups`에 보관하고 revision 검사와 기존 저장/게시 검증으로 새 버전을 만든다. 이미 접수한 요청/버전은 수정하지 않는다.
+
+`uv run --locked --project services/backend python scripts/upgrade-video-continuity.py --apply`
+
+영상 워커를 켜면 접수된 유료 요청을 처리할 수 있다. 연결 지침 업그레이드 자체는 AI 호출이나 워커 시작을 하지 않는다. 마지막 프레임은 기존 imageio-ffmpeg 또는 ASA_FFMPEG_PATH를 사용하며 새 로컬 AI 모델 의존성은 없다.
+
+## 로컬 워커 화면 제어
+- 작업 공간 상단의 **에이전트 워커 또는 이미지 워커 상태 배지**를 누르면 워커 관리 모달이 열린다. 각각 시작하거나 `작업 완료 후 중지`한다. 소유자/관리자이고 API가 development로 실행될 때만 제어한다. 운영 배포의 프로세스 관리는 별도 서비스 관리자 범위다.
+- 시작은 현재 API와 같은 Python 환경·프로젝트 디렉터리·workspace·DB로 고정된 모듈을 실행한다. 생성 활성화 설정은 우회하지 않는다. API 재시작이나 브라우저 종료로 워커를 강제 종료하지 않는다.
+- 중지는 진행 중인 외부 호출을 취소하지 않으며 현재 작업/검수 완료 후 종료한다. 아직 선점하지 않은 요청은 대기 상태로 보존한다. 시작하면 대기 요청을 처리하므로 AI 사용료가 발생할 수 있다.
+- 기존 CLI 명령도 같은 제어 상태를 등록한다. 변경 전부터 실행 중이던 구버전 프로세스는 작업 종료 후 터미널에서 종료하고 최신 명령으로 한 번 다시 실행해야 한다. 구버전 상태는 화면에서 별도 안내하며 강제 종료하지 않는다.
+- 장애로 끊긴 워커는 온라인으로 표시하지 않는다. DB 수명 잠금으로 살아 있는 프로세스 중복 실행을 차단하며, 생성 결과가 불확실한 작업은 기존 unknown 정책을 유지한다. 자동 재시작이나 exactly-once를 보장하지 않는다.
+
+## 최근 작업 이름 편집
+최근 작업 카드의 ⋯ → 작업 이름 수정에서 최대120자로 저장하거나 자동 이름으로 되돌린다. 같은 계정·workspace의 다른 기기에도 적용된다. 제목이 없는 결과는 입력의 대표 문구 또는 에이전트 이름으로 표시하며 요청 번호로 구분한다. 다른 기기와 수정이 겹치면 최신 이름을 불러온 후 다시 수정한다. DB migration의 user_work_names 테이블이 필요하다. 기존 작업 원문을 변환하거나 AI를 호출하지 않는다.
+
+## 별도 음성·음악 제작
+[설정과 사용 순서](audio-production.md)를 참고한다. 마이그레이션 후 API를 재시작하고, 상단 워커 관리에서 오디오 워커를 제어하거나 `./scripts/run.ps1 audio-worker`를 사용한다. 기본 유료 음성 생성은 꺼져 있다. 관리자 서버 .env의 ASA_AUDIO_API_KEY/ASA_AUDIO_AI_ENABLED/ASA_AUDIO_MODEL_PROFILES로 관리한다. `scripts/upgrade-audio-production.py --apply`는 비디오 에이전트 설정을 백업하고 revision 검증 후 저장하며 기존 요청 답변은 바꾸지 않는다.
+
+보관함 적용: python -m asa.registry.init으로 library_works/library_assignments를 생성하고 API/웹 최신 코드를 실행한다. 기존 자료는 복사 없이 /characters에서 조회된다. 자세한 사용은 production-library.md 참고.
+
+## 테스트의 DB 연결 풀 종료
+DB를 사용하는 API 테스트는 `with TestClient(create_app(...)) as client:`로 실행해 앱 lifespan의 종료 정리를 반드시 거친다. 특히 접속 불가 상태를 검사하는 readiness 테스트는 응답 이후에도 연결 풀의 재시도가 진행될 수 있으므로 클라이언트 종료 후 pool.closed 및 DSN 등록 해제를 확인한다. 전역 로그 숨김이나 타임아웃 연장으로 종료 누수를 덮지 않는다.

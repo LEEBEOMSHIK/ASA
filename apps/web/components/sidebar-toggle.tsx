@@ -1,11 +1,12 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Button } from "./ui";
+import { NavigationLink } from "./navigation-link";
 
 export function SidebarHome() {
-  return <a href="/" className="studio-nav-item sidebar-home" title="홈 · 작업 공간" aria-label="작업 공간 홈으로 이동">
+  return <NavigationLink href="/" className="sidebar-home" label="홈 · 작업 공간" iconOnly>
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" aria-hidden="true"><path d="m3 10 9-7 9 7v10H15v-7H9v7H3Z"/></svg>
-  </a>;
+  </NavigationLink>;
 }
 
 export function useSidebarCollapse(key="asa-menu-rail-collapsed", initiallyCollapsed=true) {

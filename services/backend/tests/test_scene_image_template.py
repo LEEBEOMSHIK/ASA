@@ -25,7 +25,9 @@ def test_long_user_instructions_can_keep_existing_text_and_add_reference_rules()
     data['instructions'] = '가' * 65530 + '\n끝🙂END'
     saved = AgentDraft.model_validate(data)
     assert validate_definition(saved, {}) == []
-    assert AgentDraft.model_validate_json(saved.model_dump_json()).instructions == data['instructions']
+    assert (
+        AgentDraft.model_validate_json(saved.model_dump_json()).instructions == data["instructions"]
+    )
     data['instructions'] = 'a' * 65536
     assert len(AgentDraft.model_validate(data).instructions) == 65536
     data['instructions'] += 'a'
@@ -37,4 +39,6 @@ def test_non_instruction_settings_keep_size_limit():
     path = Path(__file__).resolve().parents[3] / 'docs/agent-templates/scene-image-planner.json'
     data = json.loads(path.read_text(encoding='utf-8'))
     data['input_schema']['description'] = 'a' * 65537
-    assert any(i.code == 'payload_size' for i in validate_definition(AgentDraft.model_validate(data), {}))
+    assert any(
+        i.code == "payload_size" for i in validate_definition(AgentDraft.model_validate(data), {})
+    )

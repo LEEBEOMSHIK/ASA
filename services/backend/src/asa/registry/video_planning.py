@@ -14,6 +14,7 @@ from asa.registry.repository import RegistryRepository
 from asa.registry.scene_selection import selected_scenes
 from asa.registry.schemas import RegistryError
 from asa.video_contracts import VideoModelProfile, VideoPreparation, duration_plan
+from asa.video_providers import connection_state, supported_model
 
 
 def profile(settings: Settings, key: str, revision: str) -> VideoModelProfile:
@@ -98,6 +99,8 @@ def prepare(
                     "resolution": model.resolution,
                     "audio": body.audio,
                     "start_image_id": str(clip.image_id),
+                    "connection_type": clip.connection_type,
+                    "previous_clip_id": clip.previous_clip_id,
                 },
             }
         )
@@ -134,6 +137,16 @@ def planner_constraints(settings: Settings, contract: dict[str, Any]) -> str | N
         "모델의 고정 생성 길이로 생기는 여분 시간은 편집 대상이며 원본 시간을 늘리지 "
         "않습니다. 후속 클립은 자동으로 이전 영상을 기억하지 않습니다. 연장 API 호출과 "
         "독립 클립 생성을 혼동하지 마세요. 실제 영상 생성은 여기서 실행하지 않습니다."
+        "각 클립에 connection_type(cut 또는 continue)와 previous_clip_id를 출력하세요. "
+        "첫 클립과 독립 컷은 cut, previous_clip_id는 빈 문자열이며 확정 씬 이미지로 시작합니다. "
+        "같은 동작을 이어갈 때만 continue와 바로 앞 clip_id를 지정합니다. 앞 영상이 사용자 "
+        "확정되기 전 다음 연속 클립은 생성할 수 없습니다. 확정 영상의 마지막 프레임을 "
+        "시작 이미지로 사용하므로 예상 종료 모습과 실제 종료 모습을 혼동하지 마세요. "
+        "앞 클립에 잘라낼 여분 시간이 있으면 마지막 프레임과 편집 종료점이 다르므로 "
+        "continue를 지정하지 마세요. 연속 구간은 생성 길이와 사용 길이를 일치시키세요. "
+        "음성·음악은 별도 생성·확정 후 컷 연결과 합성합니다. "
+        "자막·공급자 연장 API는 미구현이며 edit_notes에 "
+        "후반 작업으로 구분하세요."
     )
 
 
@@ -161,7 +174,9 @@ def video_planning_router(settings: Settings, sessions: OwnerSessions) -> APIRou
             )
         return {
             "models": [
-                {"key": key, **model.model_dump()}
+                {"key": key, **model.model_dump(),
+                 "connection_state": connection_state(settings, model.provider),
+                 "generation_supported": supported_model(model.model_dump())}
                 for key, model in settings.video_model_profiles.items()
                 if model.enabled
             ],

@@ -4,6 +4,9 @@ import { api, latestAgentTools, type Tool, type SchemaNode } from "../lib/regist
 import { Button, Field, SelectCombobox } from "./ui";
 import { InputRequirementEditor } from "./input-requirement-editor";
 import { ChoiceOptionsEditor } from "./choice-options-editor";
+import { VideoModelOptions } from "./video-model-options";
+import { inputEntries } from "../lib/input-requirements";
+import { isVideoStyleField, videoStyleField, videoStyles } from "../lib/video-prompt-settings";
 
 const modes = [["text", "짧은 글"], ["textarea", "긴 글"], ["radio", "라디오 버튼"], ["select", "선택 목록"], ["slider", "슬라이더"], ["number", "숫자"]];
 const modeHints: Record<string, string> = {
@@ -15,7 +18,7 @@ const modeHints: Record<string, string> = {
   number: "사용자가 숫자를 직접 입력합니다. 예: 등장인물 수, 목표 시간(분)",
   advanced: "중첩된 항목 등 기존 세부 형식입니다. 아래 ‘중첩 항목 및 세부 형식’에서 확인할 수 있습니다.",
 };
-export function InputFormEditor({ value, onChange }: { value: SchemaNode; onChange: (value: SchemaNode) => void }) {
+export function InputFormEditor({ value, onChange, videoStyleManaged=false }: { value: SchemaNode; onChange: (value: SchemaNode) => void; videoStyleManaged?:boolean }) {
   const [sources,setSources]=useState<Tool[]>([]);
   const [sourceError,setSourceError]=useState(false);
   useEffect(()=>{api<Tool[]>("/tools").then(v=>setSources(latestAgentTools(v).filter(t=>t.kind==="agent"))).catch(()=>setSourceError(true));},[]);
@@ -23,7 +26,16 @@ export function InputFormEditor({ value, onChange }: { value: SchemaNode; onChan
   const required = value.required || [];
   const update = (key: string, node: SchemaNode) => onChange({ ...value, properties: { ...properties, [key]: node } });
   return <div className="stack">
-    {Object.entries(properties).map(([key, node], index) => {
+    {inputEntries(value).map(([key, node], index) => {
+      if (videoStyleManaged && key==="video_style") return <details id="input-field-video_style" className="input-field-card" key={key} open>
+        <summary>{index+1}. 영상 스타일 <span className="muted">· 항상 필수</span></summary>
+        <div className="input-field-body">
+          <p className="helper-text">실행할 때 직접 선택하는 기본 항목입니다. 선택지·입력 방식·필수 여부·기본값은 변경하지 않습니다.</p>
+          <div className="badge-row" aria-label="영상 스타일 선택지">{videoStyles.map(style=><span className="status-badge" key={style.id}>{style.name}</span>)}</div>
+          {!isVideoStyleField(node) && <div className="stack"><p role="alert" className="field-error">영상 스타일 선택 항목이 변경되어 저장할 수 없습니다. 이 항목만 기본 선택지로 복구하세요. 작성한 공통·스타일별 지침과 다른 설정은 유지됩니다.</p>
+            <Button variant="secondary" onClick={()=>onChange({...value,properties:{...properties,video_style:videoStyleField()},required:[...new Set([...required,"video_style"])]})}>영상 스타일 선택 항목 복구</Button></div>}
+        </div>
+      </details>;
       const mode = node["x-widget"] || (node.enum ? "select" : node.type === "string" ? "textarea" : ["number", "integer"].includes(node.type) ? "number" : "advanced");
       const choice = mode === "radio" || mode === "select";
       const dependents = Object.values(properties).filter(other => other["x-required-when"]?.field === key);
@@ -31,6 +43,7 @@ export function InputFormEditor({ value, onChange }: { value: SchemaNode; onChan
       const changeMode = (next: string) => {
         const n: SchemaNode = { type: next === "slider" ? "integer" : next === "number" ? "number" : "string", description: node.description, "x-widget": next as SchemaNode["x-widget"] };
         if (node["x-required-when"]) n["x-required-when"] = node["x-required-when"];
+        if (node["x-visible-when"]) n["x-visible-when"] = node["x-visible-when"];
         if ((next === "text" || next === "textarea") && node["x-previous-answer"]) { n["x-previous-answer"] = true; n["x-answer-agent"] = node["x-answer-agent"]; }
         if (next === "radio" || next === "select") n.enum = ["선택지 1", "선택지 2"];
         if (next === "slider") { n.minimum = 1; n.maximum = 5; }
@@ -44,6 +57,7 @@ export function InputFormEditor({ value, onChange }: { value: SchemaNode; onChan
             <Field id={`form-mode-${key}`} label="사용자가 답하는 방식" hint={modeHints[mode]} help="에이전트를 실행할 때 사용자가 이 항목에 어떻게 답할지 정합니다. AI의 답변 형식이 아니라 사용자 입력 화면의 모양을 설정하는 곳입니다. 라디오 버튼은 보기를 모두 펼쳐 보여주고, 선택 목록은 열어서 확인합니다. 둘 다 하나만 고릅니다.">{p => <select {...p} value={mode} onChange={e => changeMode(e.target.value)}>{mode === "advanced" && <option value="advanced">기존 세부 형식</option>}{modes.map(([v, label]) => <option key={v} value={v}>{label}</option>)}</select>}</Field>
           </div>
           {choice && <ChoiceOptionsEditor id={`form-options-${key}`} node={node} onChange={n => update(key, n)} />}
+          {choice && node["x-video-model"] && <VideoModelOptions node={node} onChange={n=>update(key,n)} />}
           {numeric && <div className="input-form-grid">{(["minimum", "maximum"] as const).map((bound, i) => <Field key={bound} id={`form-${bound}-${key}`} label={i ? "최댓값" : "최솟값"}>{p => <input {...p} type="number" step={mode === "slider" ? 1 : "any"} value={node[bound] ?? ""} onChange={e => { const n = { ...node }; if (e.target.value === "") delete n[bound]; else n[bound] = Number(e.target.value); update(key, n); }} />}</Field>)}</div>}
           <InputRequirementEditor field={key} schema={value} onChange={onChange}/>
           <div className="input-field-options">

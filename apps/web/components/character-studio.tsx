@@ -10,6 +10,7 @@ import "./character-studio.css";
 import { CharacterHandoff } from "./character-handoff";
 import { SceneReferenceVersions, type UsedReference } from "./scene-reference-versions";
 import { ImageTaskManager } from "./image-task-manager";
+import { AudioProduction } from "./audio-production";
 
 type Character = { id: string; name: string; facts: string; appearance: string; proposed: string; scene_ids: string; image_prompt: string };
 type Job = ImageJob & { scene_context?:{reference_overrides?:Record<string,string>;references?:{characters:UsedReference[]}}; review_error_code?:string|null; id: string; character_id: string; version: number; model: string; character: Character; change: string; base_id: string | null; status: string; error_code: string | null; estimated_usd: string | null };
@@ -81,6 +82,7 @@ export function CharacterResults({requestId,version,scene=false}:{requestId:stri
     <div className="character-navigation"><Button variant="secondary" disabled={activeIndex===0} onClick={()=>setActiveId(project.characters[activeIndex-1].id)}>← 이전 {unit}</Button><span aria-live="polite">{activeIndex+1} / {project.characters.length} · {project.characters[activeIndex].name}</span><Button variant="secondary" disabled={activeIndex===project.characters.length-1} onClick={()=>setActiveId(project.characters[activeIndex+1].id)}>다음 {unit} →</Button></div>
     <div className="character-workbench">{project.characters.map(c=><div key={`${project.id}:${c.id}`} hidden={c.id!==currentId}><CharacterCard character={c} project={project} options={options} refresh={refresh} onError={setError} onReferences={value=>{referenceDrafts.current[`${project.id}:${c.id}`]=value;}} onDraft={value=>{drafts.current[`${project.id}:${c.id}`]=value;}}/></div>)}</div></>}
 
+    {!scene&&project&&<AudioProduction key={requestId+":"+version} requestId={requestId} version={version} voicesOnly characterId={currentId}/>}
   </section>;
 }
 

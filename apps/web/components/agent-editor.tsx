@@ -9,7 +9,9 @@ import { latestAgentTools, currentAgentRef, api, ApiError, message, type Agent, 
 import { AgentIcon, Button, Card, Field, StatusBadge, HelpText } from "./ui";
 import { ExecutionExample, GroupedTools, FriendlyFields, starters, starterDefinition } from "./agent-guide";
 import { AgentRunPreview } from "./agent-run-preview";
-import { useDirtyGuard } from "./registry-shell";
+import { useDirtyGuard, useRegistryAdmin } from "./registry-shell";
+import { VideoPromptEditor } from "./video-prompt-editor";
+import { isVideoStyleField, normalizeVideoPrompts } from "../lib/video-prompt-settings";
 
 const initial: Definition = {
   name: "", description: "", instructions: "", model_profile: "default", tools: [],
@@ -22,6 +24,7 @@ const instructionLimit = 65536;
 
 export function AgentEditor({ id }: { id?: string }) {
   const router = useRouter();
+  const admin = useRegistryAdmin();
   const [draft, setDraft] = useState<Definition>(initial);
   const instructionLength = Array.from(draft.instructions).length;
   const instructionsTooLong = instructionLength > instructionLimit;
@@ -51,7 +54,10 @@ export function AgentEditor({ id }: { id?: string }) {
     let active = true;
     Promise.all([api<{models: typeof models;default_model:string|null}>("/ai-models"), api<Tool[]>("/tools"), id ? api<Agent>(`/agents/${id}`) : Promise.resolve(null)])
       .then(([modelCatalog, catalog, agent]) => { if (!active) return; setModels(modelCatalog.models); setDefaultModel(modelCatalog.default_model); setTools(latestAgentTools(catalog));
-        if (agent) { setDraft({...agent.draft, tools: [...new Set(agent.draft.tools.map(ref => currentAgentRef(ref, catalog)))], after_tasks: {image_review: agent.draft.after_tasks?.image_review ? {...agent.draft.after_tasks.image_review, agent_ref: currentAgentRef(agent.draft.after_tasks.image_review.agent_ref, catalog)} : null}}); setRevision(agent.revision); }
+        if (agent) { setDraft(normalizeVideoPrompts({...agent.draft, tools: [...new Set(agent.draft.tools.map(ref => currentAgentRef(ref, catalog)))], after_tasks: {image_review: agent.draft.after_tasks?.image_review ? {...agent.draft.after_tasks.image_review, agent_ref: currentAgentRef(agent.draft.after_tasks.image_review.agent_ref, catalog)} : null}})); setRevision(agent.revision); }
+        if (agent && JSON.stringify(normalizeVideoPrompts(agent.draft)) !== JSON.stringify(agent.draft)) {
+          setDirty(true); setNotice("영상 스타일 선택 항목이 기본 설정에 추가되었습니다. 지침을 확인하고 저장하면 실행 화면에 적용됩니다.");
+        }
       }).catch(e => { if (active) { setError(message(e)); setFailedLoad(true); } })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -59,7 +65,7 @@ export function AgentEditor({ id }: { id?: string }) {
   useEffect(() => { const warn = (e: BeforeUnloadEvent) => { if (dirty) { e.preventDefault(); e.returnValue = ""; } };
     window.addEventListener("beforeunload", warn); return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
-  function edit(next: Definition) { setDraft(next); setDirty(true); setUnsaved(true); setNotice(""); setIssues([]); }
+  function edit(next: Definition) { setDraft(normalizeVideoPrompts(next)); setDirty(true); setUnsaved(true); setNotice(""); setError(""); setIssues([]); }
   function changeOutputMode(free: boolean) {
     outputDrafts.current[draft.output_schema.type === "string" ? "free" : "structured"] = draft.output_schema;
     const output_schema = free ? outputDrafts.current.free || { type: "string" } : outputDrafts.current.structured || {
@@ -68,6 +74,11 @@ export function AgentEditor({ id }: { id?: string }) {
     edit({ ...draft, output_schema });
   }
   async function action(kind: "save") {
+    if (draft.video_prompt_modules?.selection_required && !isVideoStyleField(draft.input_schema.properties?.video_style)) {
+      setError("영상 스타일 선택 항목을 복구한 뒤 저장하세요. 작성한 지침과 다른 설정은 유지됩니다.");
+      setIssues([{code:"video_style_contract",field_path:"input_schema.properties.video_style",message:"영상 스타일 항목에서 ‘영상 스타일 선택 항목 복구’를 눌러 주세요."}]);
+      return;
+    }
     if (instructionsTooLong) {
       setError("에이전트 지침은 65,536자까지 저장할 수 있습니다. 입력한 내용은 유지되며, 길이를 줄인 후 저장해 주세요.");
       document.getElementById("agent-instructions")?.focus();
@@ -122,14 +133,15 @@ export function AgentEditor({ id }: { id?: string }) {
             <Field id="agent-name" label="에이전트 이름" annotation="관리용">{p => <input {...p} required maxLength={80} placeholder="예: 우리 채널의 쇼츠 작가" value={draft.name} onChange={e => edit({ ...draft, name: e.target.value })} />}</Field>
             <AgentIconPicker value={draft.icon} onChange={icon=>edit({...draft,icon})}/>
             <Field id="agent-description" label="한 줄 소개" annotation="관리용" hint="어떤 상황에 쓰는 도우미인지 알아볼 수 있게 적어 주세요.">{p => <input {...p} maxLength={400} placeholder="예: 어려운 과학 이야기를 30초 대본으로 바꿔요." value={draft.description} onChange={e => edit({ ...draft, description: e.target.value })} />}</Field>
-            <ExpandableTextarea id="agent-instructions" aria-describedby="agent-instructions-hint" label="에이전트 지침" characterLimit={instructionLimit} required rows={6} aria-invalid={instructionsTooLong} placeholder="예: 주어진 주제로 30초 대본을 써 주세요. 첫 문장은 질문으로 시작하고, 전문 용어는 쉽게 풀어 주세요." value={draft.instructions} onChange={e => edit({ ...draft, instructions: e.target.value })} renderField={(input, action) => <Field id="agent-instructions" label="에이전트 지침" annotation="AI에 전달" help="이 에이전트가 매번 지킬 작업 규칙입니다. 예: ‘30초 대본을 쓰고, 첫 문장은 질문으로 시작하세요.’ ‘고양이가 상자를 좋아하는 이유’ 같은 이번 주제는 여기 대신 실행 화면에 입력하세요." hint={`${instructionLength.toLocaleString("ko-KR")} / 65,536자 · ${instructionsTooLong ? "저장 가능한 길이를 초과했습니다. 입력 내용은 잘리지 않았습니다. 길이를 줄인 뒤 저장해 주세요." : "역할·말투·작업 규칙을 적어 주세요. 실행마다 달라지는 내용은 실행 화면에서 입력합니다."}`} labelAction={<><HelpText ai label="에이전트 지침 · AI에 전달">이 에이전트가 매번 지킬 작업 규칙입니다. 예: ‘30초 대본을 쓰고, 첫 문장은 질문으로 시작하세요.’ ‘고양이가 상자를 좋아하는 이유’ 같은 이번 주제는 여기 대신 실행 화면에 입력하세요.</HelpText>{action}</>}>{() => input}</Field>} />
+            {admin || !draft.video_prompt_modules?.editor_managed ? <ExpandableTextarea id="agent-instructions" aria-describedby="agent-instructions-hint" label={draft.video_prompt_modules?.editor_managed ? "에이전트 지침 · 공통" : "에이전트 지침"} characterLimit={instructionLimit} required rows={6} aria-invalid={instructionsTooLong} placeholder="예: 주어진 주제로 30초 대본을 써 주세요. 첫 문장은 질문으로 시작하고, 전문 용어는 쉽게 풀어 주세요." value={draft.instructions} onChange={e => edit({ ...draft, instructions: e.target.value })} renderField={(input, action) => <Field id="agent-instructions" label={draft.video_prompt_modules?.editor_managed ? "에이전트 지침 · 공통" : "에이전트 지침"} annotation="AI에 전달" help="이 에이전트가 매번 지킬 작업 규칙입니다. 예: ‘30초 대본을 쓰고, 첫 문장은 질문으로 시작하세요.’ ‘고양이가 상자를 좋아하는 이유’ 같은 이번 주제는 여기 대신 실행 화면에 입력하세요." hint={`${instructionLength.toLocaleString("ko-KR")} / 65,536자 · ${instructionsTooLong ? "저장 가능한 길이를 초과했습니다. 입력 내용은 잘리지 않았습니다. 길이를 줄인 뒤 저장해 주세요." : "역할·말투·작업 규칙을 적어 주세요. 실행마다 달라지는 내용은 실행 화면에서 입력합니다."}`} labelAction={<><HelpText ai label="에이전트 지침 · AI에 전달">이 에이전트가 매번 지킬 작업 규칙입니다. 예: ‘30초 대본을 쓰고, 첫 문장은 질문으로 시작하세요.’ ‘고양이가 상자를 좋아하는 이유’ 같은 이번 주제는 여기 대신 실행 화면에 입력하세요.</HelpText>{action}</>}>{() => input}</Field>} /> : <p className="notice">공통 에이전트 지침은 관리자가 관리합니다. 아래 스타일별 추가 지침을 수정할 수 있습니다.</p>}
+            <VideoPromptEditor definition={draft} onChange={edit}/>
             <Field id="model-profile" label="사용할 AI 모델" annotation="호출 설정" help="누가 답변을 만들지 선택합니다. 기본 모델은 관리자가 정한 현재 모델을 따르고, 특정 모델을 고르면 그 모델을 계속 사용합니다. 모델에 따라 답변 특성·속도·비용이 달라집니다. 설정을 저장해도 이전 작업의 기록은 바뀌지 않습니다." hint="기본 모델을 선택하면 새 실행 시 작업 공간의 현재 기본 모델을 따릅니다. 특정 모델을 선택하면 해당 모델을 사용합니다. 선택을 변경한 뒤에는 저장하세요.">{p => <select {...p} value={draft.model ? `${draft.provider}:${draft.model}` : ""} onChange={e => { const selected = models.find(m => `${m.provider}:${m.id}` === e.target.value); edit({ ...draft, provider: selected?.provider ?? null, model: selected?.id ?? null }); }}><option value="">작업 공간 기본 모델{defaultModel ? ` · ${defaultModel}` : " · 관리자 설정 필요"}</option>{draft.model && !models.some(m => m.id === draft.model && m.provider === draft.provider) && <option value={`${draft.provider}:${draft.model}`}>{draft.model} · 사용할 수 없음</option>}{models.map(m => <option key={`${m.provider}:${m.id}`} value={`${m.provider}:${m.id}`}>{m.provider === "openai" ? "OpenAI" : "Claude"} · {m.label}</option>)}</select>}</Field>
           </section>
           <section id="information" className="editor-section"><div className="section-heading"><span className="step-number">2</span><div><h2>실행할 때 쓸 입력 양식과 결과 항목</h2><p className="muted">1번은 ‘항상 지킬 작업 지침’, 2번은 ‘실행할 때마다 바뀔 정보’를 정하는 곳이에요.</p></div></div>
             <div className="run-preview-entry"><div><strong>직접 입력해 보면 더 쉬워요</strong><p className="muted">현재 작성한 항목으로 실행 화면을 열어 봅니다. 저장하지 않은 설정도 반영되며, 실제 AI 호출은 하지 않아요.</p></div>
               <button ref={previewButton} className="button button--secondary" type="button" onClick={() => setPreview(true)}>실행 화면 미리보기 →</button></div>
             <div className="io-section"><div className="io-heading"><span aria-hidden="true">↘</span><div className="help-row"><h3>사용자가 입력할 항목</h3><HelpText ai label="사용자가 입력할 항목 · 실행 시 입력값을 AI에 전달">실행할 때 사용자에게 받을 정보의 이름과 설명을 정합니다. 예: ‘영상 주제’, ‘대상 시청자’. 여기에는 입력 항목을 만들고, 실제 주제나 시청자는 실행 화면에서 입력합니다.</HelpText></div></div><p className="muted">항목 이름과 입력 방식, 선택지, 필수 여부, 기본값을 정하세요. 실행 화면 미리보기에서 사용자가 보게 될 입력 양식을 바로 확인할 수 있어요.</p>
-              <FriendlyFields kind="input" value={draft.input_schema} onChange={input_schema => edit({ ...draft, input_schema })} /></div>
+              <FriendlyFields kind="input" videoStyleManaged={draft.video_prompt_modules?.selection_required} value={draft.input_schema} onChange={input_schema => edit({ ...draft, input_schema })} /></div>
             <div className="io-section"><div className="help-row"><h3>답변 받는 방식</h3><HelpText ai label="답변 받는 방식 · 자동화의 AI 응답 형식"><strong>자동화의 AI 응답 형식입니다. </strong>글로 읽기만 한다면 자유로운 답변을 선택하세요. 제목·대본·해시태그를 따로 확인하거나 다음 자동화 블록에 전달하려면 항목별 답변을 선택하세요. 실제 내용은 실행할 때 AI가 작성합니다.</HelpText></div><p className="muted">답변 내용은 실행 후에 알 수 있어요. 여기서는 답변을 자유롭게 받을지, 정해진 항목으로 나눠 받을지만 선택합니다.</p>
               <fieldset className="output-mode"><legend className="sr-only">답변 받는 방식</legend>
                 <label className="tool-choice"><input type="radio" name="output-mode" checked={draft.output_schema.type === "string"} onChange={() => changeOutputMode(true)} />
@@ -163,7 +175,7 @@ export function AgentEditor({ id }: { id?: string }) {
 
       </fieldset>
       <div id="agent-save-feedback" className="editor-feedback" aria-live="polite">{error && <p role="alert" className="field-error">{error}</p>}{notice && <p role="status">{notice}</p>}
-        {issues.length > 0 && <ul role="alert" className="validation-list">{issues.map((issue, i) => <li key={i}><a href={issue.field_path.includes("schema") ? "#information" : "#role"}>설정 확인</a>: {issue.message} <small>({issue.field_path})</small></li>)}</ul>}</div>
+        {issues.length > 0 && <ul role="alert" className="validation-list">{issues.map((issue, i) => <li key={i}><a href={issue.field_path.includes("video_style") ? "#input-field-video_style" : issue.field_path.includes("schema") ? "#information" : "#role"}>설정 확인</a>: {issue.message} <small>({issue.field_path})</small></li>)}</ul>}</div>
       <div className="editor-actions agent-save-bar" aria-label="에이전트 저장">
         <div className="agent-save-status" role="status" aria-live="polite">
           <strong>{busy ? "변경 내용을 저장하고 있습니다" : error ? "저장하지 못했습니다" : dirty ? "저장하지 않은 변경이 있습니다" : notice ? "저장되었습니다" : "설정을 수정하고 저장하세요"}</strong>

@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from asa.audio_contracts import AudioModel
 from asa.video_contracts import VideoModelProfile
 
 
@@ -34,6 +35,11 @@ class Settings(BaseSettings):
     ai_models: list[str] = Field(default_factory=list)
     ai_prices: dict[str, ModelPrice] = Field(default_factory=dict)
     ai_api_key: SecretStr = SecretStr("")
+    audio_ai_enabled: bool = False
+    audio_api_key: SecretStr = SecretStr("")
+    audio_model_profiles: dict[str, AudioModel] = Field(
+        default_factory=lambda: {"openai-realtime": AudioModel()})
+    audio_daily_calls: int = Field(default=50, ge=1, le=1000)
     openai_web_search_models: list[str] = Field(default_factory=list)
     anthropic_web_search_models: list[str] = Field(default_factory=list)
     anthropic_models: list[str] = Field(default_factory=list)
@@ -54,9 +60,20 @@ class Settings(BaseSettings):
             resolution="720p", max_prompt_chars=1000, usd_per_second=0.12,
             documentation_url="https://docs.dev.runwayml.com/guides/using-the-api/",
             verified_on="2026-11-04",
-        )
+        ),
+        "wan3": VideoModelProfile(
+            provider="alibaba", model="wan3.0-video", label="WAN 3.0 · Alibaba", revision="1",
+            enabled=True, durations=list(range(2, 31)), aspect_ratios=["9:16", "16:9"],
+            resolution="720p", max_prompt_chars=20000, supports_audio=True,
+            documentation_url="https://docs.modelstudio.console.alibabacloud.com/en/model-studio/wan3-video-generation-api-reference",
+            verified_on="2026-11-06",
+        ),
     })
     runway_api_key: SecretStr = SecretStr("")
+    wan_api_key: SecretStr = SecretStr("")
+    wan_workspace_id: str = Field(default="", pattern=r"^[a-zA-Z0-9-]{0,100}$")
+    wan_region: Literal["ap-southeast-1", "cn-beijing", "us-east-1", "ap-northeast-1",
+                        "eu-central-1", "cn-hongkong"] = "ap-southeast-1"
     video_ai_enabled: bool = False
     image_ai_enabled: bool = False
     image_models: list[str] = ['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare']

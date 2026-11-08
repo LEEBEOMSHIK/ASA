@@ -14,6 +14,7 @@ from asa.registry.schemas import RegistryError
 from asa.registry.service import safe_number
 from asa.registry.sse import snapshot_stream
 from asa.registry.work_progress import attach_progress
+from asa.registry.work_titles import attach_titles
 
 
 class WorkRequest(BaseModel):
@@ -24,6 +25,12 @@ class WorkRequest(BaseModel):
     input: Any
     source_id: UUID | None = None
     is_test: bool = Field(default=False, strict=True)
+
+
+class WorkNameEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    revision: int = Field(ge=0, strict=True)
 
 
 def valid_input(value: Any, schema: dict[str, Any]) -> bool:
@@ -75,6 +82,7 @@ class HistoryRepository(RegistryRepository):
                 "execution_available": False, "unavailable_reason": "실행 연결 준비 중",
             }
             attach_progress(conn, self.workspace_id, [row])
+            attach_titles(conn, self.workspace_id, self.requested_by, [row])
             return row
 
     def history(self, offset: int, hidden: bool = False) -> dict[str, Any]:
@@ -92,6 +100,7 @@ class HistoryRepository(RegistryRepository):
                 (self.workspace_id, self.requested_by, hidden, offset),
             ).fetchall()
             attach_progress(conn, self.workspace_id, rows[:20])
+            attach_titles(conn, self.workspace_id, self.requested_by, rows[:20])
             return {"items": rows[:20], "has_more": len(rows) > 20}
 
     def save(self, body: WorkRequest) -> dict[str, Any]:
@@ -194,6 +203,29 @@ def history_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
             return {"items": [item for chunk in chunks for item in chunk["items"]],
                     "has_more": chunks[-1]["has_more"]}
         return snapshot_stream(request, load, repository.dsn, repository.workspace_id)
+
+    @router.put("/{request_id}/name")
+    def rename(request_id: UUID, body: WorkNameEdit,
+               repository: HistoryRepository = Depends(repo)) -> dict[str, Any]:
+        with repository._connect() as conn:
+            if not conn.execute("SELECT id FROM customer_requests WHERE workspace_id=%s AND id=%s "
+                                "FOR KEY SHARE", (repository.workspace_id, request_id)).fetchone():
+                raise RegistryError(404, "work_not_found")
+            args = (repository.workspace_id, request_id, repository.requested_by, body.name)
+            if body.revision == 0:
+                row = conn.execute(
+                    "INSERT INTO user_work_names(workspace_id,request_id,user_id,name,revision) "
+                    "VALUES (%s,%s,%s,%s,1) ON CONFLICT DO NOTHING RETURNING revision", args,
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "UPDATE user_work_names SET name=%s,revision=revision+1 WHERE workspace_id=%s "
+                    "AND request_id=%s AND user_id=%s AND revision=%s RETURNING revision",
+                    (body.name, *args[:3], body.revision),
+                ).fetchone()
+            if row is None:
+                raise RegistryError(409, "work_name_conflict")
+        return repository.detail(request_id)
 
     @router.get("/answer-sources")
     def sources(agent_id: UUID | None = None, q: str = Query('', max_length=200),
