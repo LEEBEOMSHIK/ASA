@@ -28,7 +28,9 @@ export function AgentInput({ node, id, label, required, value, onChange, videoSt
   const isRatio = node.type === "string" && !!node.enum?.length && node.enum.every(v => typeof v === "string" && v in ratioLabels);
   const hint = isRatio
     ? `가로:세로 비율입니다. 쇼츠용 장면은 9:16 세로형을 선택하세요. 장면의 구도와 제작 지침에 적용되며, 기존 캐릭터 기준 이미지는 변경되지 않습니다.`
-    : undefined;
+    : label.trim() === "이야기 길이"
+      ? "선택한 길이는 완성 영상의 목표 시간입니다. 실제 길이는 대사 속도·행동·편집에 따라 짧거나 길어질 수 있으며, 씬 구성과 음성 측정 후 확인합니다. 목표와 차이가 크면 대본이나 구성을 보완해야 합니다."
+      : undefined;
   if (widget === "radio") return <fieldset className="input-radio-group"><legend>{label}<InputRequirement required={required}/></legend>{hint && <p className="helper-text">{hint}</p>}<div className="input-radio-options">{(node.enum || []).map((option, i) => <label key={i} className="input-radio-option"><input type="radio" name={id} required={required} checked={value === String(option)} value={String(option)} onChange={e => onChange(e.target.value)} /><span>{String(option)}</span></label>)}</div>{!required && value !== "" && <Button variant="secondary" onClick={() => onChange("")}>선택 해제</Button>}</fieldset>;
   if (node.type === "string" && !node.enum && widget !== "text") {
     const renderLongText = (importAction?: ReactNode, receipt?: ReactNode) => <div>

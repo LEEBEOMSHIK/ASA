@@ -48,3 +48,25 @@ export function inputConditionHint(schema: SchemaNode, key: string): string | un
   const source = schema.properties?.[rule.field];
   return `‘${source?.description || rule.field}’에서 ‘${conditionValueLabel(rule.equals)}’ 선택 시 필수입니다.`;
 }
+
+
+export function retryValues(input: unknown, schema: SchemaNode): Record<string, string> {
+  const source = schema.type === "object" && input && typeof input === "object"
+    ? input as Record<string, unknown> : { value: input };
+  return Object.fromEntries(inputEntries(schema).map(([key]) => {
+    const value = source[key];
+    return [key, value == null ? "" : typeof value === "string" ? value : JSON.stringify(value)];
+  }));
+}
+
+export function retryPayload(values: Record<string, string>, schema: SchemaNode): unknown {
+  const result: Record<string, unknown> = {};
+  for (const [key, node] of inputEntries(schema)) {
+    if (!isInputVisible(node, values)) continue;
+    const value = values[key];
+    if (value === undefined || value === "") continue;
+    result[key] = node.type === "string" ? value
+      : ["integer", "number"].includes(node.type) ? Number(value) : JSON.parse(value);
+  }
+  return schema.type === "object" ? result : result.value ?? null;
+}

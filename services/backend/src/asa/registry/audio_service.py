@@ -36,6 +36,14 @@ def load(
             seed = answer["audio_plan"] or {}
         elif isinstance(answer.get("characters"), list):
             seed = {"speakers": [{"id": c["id"], "name": c["name"]} for c in answer["characters"]]}
+    if not saved and isinstance(answer, dict) and isinstance(answer.get('characters'), list):
+        speakers = seed.setdefault('speakers', [])
+        if not any(s.get('role') == 'narrator' for s in speakers):
+            used = {s['id'] for s in speakers}
+            narrator_id = 'narrator'
+            while narrator_id in used:
+                narrator_id += '_'
+            speakers.append({'id': narrator_id, 'name': '나레이션', 'role': 'narrator'})
     return {
         "revision": saved["revision"] if saved else 0,
         "settings": AudioSettings.model_validate(saved["settings"] if saved else seed),
@@ -63,12 +71,46 @@ def speech_spec(settings: Settings, data: AudioSettings, cue_id: str) -> dict[st
     model = settings.audio_model_profiles.get(speaker.voice.model_key)
     if not model or not model.enabled or speaker.voice.voice not in model.voices:
         raise RegistryError(422, "audio_voice_unavailable")
-    return {"cue": cue.model_dump(), "speaker": speaker.model_dump(), "model": model.model_dump()}
+    return {"cue": cue.model_dump(), "speaker": speaker.model_dump(mode="json"),
+            "model": model.model_dump()}
+
+
+def sample_spec(settings: Settings, data: AudioSettings, speaker_id: str) -> dict[str, Any]:
+    speaker = next((s for s in data.speakers if s.id == speaker_id), None)
+    if not speaker:
+        raise RegistryError(404, 'audio_speaker_missing')
+    cue = Cue(id=speaker.id, speaker_id=speaker.id,
+              text='오늘은 어떤 이야기가 기다리고 있을까요? 우리 함께 시작해 봐요.',
+              start=0, end=60)
+    sample = data.model_copy(update={'cues': [cue]})
+    return {**speech_spec(settings, sample, cue.id), 'purpose': 'sample'}
+
+
+def job_speech_spec(settings: Settings, data: AudioSettings, job: dict[str, Any]) -> dict[str, Any]:
+    if job['input'].get('purpose') == 'sample':
+        return sample_spec(settings, data, job['cue_id'])
+    spec = speech_spec(settings, data, job['cue_id'])
+    if 'purpose' in job['input']:
+        spec['purpose'] = job['input']['purpose']
+    return spec
+
+
+def require_selected_voice(conn: Any, settings: Settings, data: AudioSettings,
+                           speaker_id: str) -> None:
+    speaker = next(s for s in data.speakers if s.id == speaker_id)
+    row = conn.execute('SELECT input,status,media,error_code,fingerprint FROM audio_jobs '
+                       'WHERE workspace_id=%s AND id=%s',
+                       (settings.workspace_id, speaker.sample_job_id)).fetchone()
+    if (not row or row['input'].get('purpose') != 'sample' or row['status'] != 'approved'
+            or not row['media'] or row['error_code']
+            or row['fingerprint'] != speech_key(sample_spec(settings, data, speaker_id))):
+        raise RegistryError(409, 'audio_voice_selection_required')
 
 
 def speech_key(spec: dict[str, Any]) -> str:
     return fingerprint(
         {
+            **({"purpose": spec["purpose"]} if "purpose" in spec else {}),
             "cue_id": spec["cue"]["id"],
             "text": spec["cue"]["text"],
             "emotion": spec["cue"]["emotion"],
@@ -79,8 +121,88 @@ def speech_key(spec: dict[str, Any]) -> str:
     )
 
 
+def review_speech(conn: Any, settings: Settings, request: UUID, version: int) -> dict[str, Any]:
+    """Follow actual answer lineage, never titles, adjacent versions, or other requests."""
+    workspace = settings.workspace_id
+    versions = {row['version']: row['base_version'] for row in conn.execute(
+        'SELECT version,base_version FROM script_versions WHERE workspace_id=%s AND request_id=%s',
+        (workspace, request)).fetchall()}
+    if version not in versions:
+        raise RegistryError(404, 'audio_work_missing')
+    source: int | None = version
+    visited: set[int] = set()
+    while source is not None and source in versions and source not in visited:
+        visited.add(source)
+        present = conn.execute(
+            'SELECT EXISTS(SELECT 1 FROM audio_settings WHERE workspace_id=%s AND request_id=%s '
+            'AND answer_version=%s) OR EXISTS(SELECT 1 FROM audio_jobs WHERE workspace_id=%s '
+            "AND request_id=%s AND answer_version=%s AND kind='speech') AS present",
+            (workspace, request, source, workspace, request, source)).fetchone()
+        if present['present']:
+            break
+        source = versions[source]
+    else:
+        source = None
+    if source is None:
+        return {'answer_version': version, 'source_version': None, 'jobs': []}
+    current = load(conn, workspace, request, source)
+    jobs = conn.execute(
+        'SELECT id,kind,cue_id,status,duration,transcript,error_code,fingerprint,input,'
+        'created_at,media IS NOT NULL AS has_media FROM audio_jobs WHERE workspace_id=%s '
+        "AND request_id=%s AND answer_version=%s AND kind='speech' ORDER BY created_at DESC,id",
+        (workspace, request, source)).fetchall()
+    output = []
+    for job in jobs:
+        snapshot = job.pop('input')
+        if snapshot.get('purpose') == 'sample':
+            continue
+        purpose = snapshot.get('purpose', current['settings'].purpose)
+        cue = snapshot['cue']
+        reason = job['error_code']
+        is_current = False
+        try:
+            spec = job_speech_spec(settings, current['settings'], {**job, 'input': snapshot})
+            is_current = speech_key(spec) == job['fingerprint']
+            if is_current:
+                cue = spec['cue']
+        except RegistryError:
+            pass
+        if not reason and not is_current:
+            reason = 'audio_source_changed'
+        if not reason and job['status'] in ('failed', 'unknown'):
+            reason = 'audio_' + job['status']
+        timing_ok = False
+        if not reason and job['duration']:
+            try:
+                validate_measured(Cue.model_validate(cue), job['duration'])
+                timing_ok = True
+            except ValueError:
+                pass
+        job.pop('fingerprint')
+        output.append({**job, 'text': snapshot['cue']['text'],
+                       'speaker_name': snapshot['speaker']['name'],
+                       'voice': snapshot['speaker']['voice']['voice'],
+                       'start': cue['start'], 'end': cue['end'],
+                       'excluded_reason': reason, 'timing_ok': timing_ok, 'purpose': purpose,
+                       'can_approve': purpose == 'production' and not reason
+                       and timing_ok and job['has_media']
+                       and job['status'] == 'review'})
+    from asa.audio_timing import summarize
+
+    timing = None
+    if current['settings'].purpose == 'timing':
+        timing = summarize(output, [c.id for c in current['settings'].cues],
+                           current['settings'].timing_duration_seconds,
+                           current['settings'].timing_preview_seconds or
+                           max((c.end for c in current['settings'].cues), default=0))
+    return {'answer_version': version, 'source_version': source, 'timing': timing,
+            'jobs': sorted(output, key=lambda job: (job['start'], job['cue_id']))}
+
+
 def approve_speech(settings: Settings, data: AudioSettings, job: dict[str, Any]) -> None:
-    spec = speech_spec(settings, data, job["cue_id"])
+    if job.get('input', {}).get('purpose') in ('timing', 'sample') or data.purpose == 'timing':
+        raise RegistryError(409, 'audio_timing_only')
+    spec = job_speech_spec(settings, data, job)
     if speech_key(spec) != job["fingerprint"]:
         raise RegistryError(409, "audio_source_changed")
     if job.get("error_code") or not job.get("duration"):
@@ -99,6 +221,8 @@ def composition_spec(
 ) -> dict[str, Any]:
     plan = VideoPreparation.model_validate(current["answer"])
     data: AudioSettings = current["settings"]
+    if data.purpose == "timing":
+        raise RegistryError(409, "audio_timing_only")
     if not data.enabled:
         raise RegistryError(409, "audio_disabled")
     duration = plan.clips[-1].source_end_seconds
@@ -128,7 +252,11 @@ def composition_spec(
         )
     speech = []
     for cue in data.cues:
-        key = speech_key(speech_spec(settings, data, cue.id))
+        require_selected_voice(conn, settings.model_copy(update={'workspace_id': workspace}),
+                               data, cue.speaker_id)
+        spec = speech_spec(settings, data, cue.id)
+        spec["purpose"] = "production"
+        key = speech_key(spec)
         job = conn.execute(
             "SELECT *,encode(sha256(media),'hex') AS sha FROM audio_jobs "
             "WHERE workspace_id=%s AND request_id=%s AND answer_version=%s "

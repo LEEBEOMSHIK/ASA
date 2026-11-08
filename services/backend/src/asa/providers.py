@@ -77,9 +77,10 @@ def make_agent_generator(
             api_key=settings.key_for(settings.ai_provider).get_secret_value(),
             timeout=settings.ai_timeout_seconds, max_retries=0,
             max_tokens=(settings.scene_plan_output_tokens if scene_plan or video_constraints
+                        or contract.get('scene_timing')
                         else settings.script_output_tokens),
         )
-        envelope = {"title": "AgentAnswer", "type": "object",
+        envelope: dict[str, Any] = {"title": "AgentAnswer", "type": "object",
                     "properties": {"value": schema}, "required": ["value"],
                     "additionalProperties": False}
         if on_progress is not None:
@@ -91,6 +92,12 @@ def make_agent_generator(
                 "value": schema,
             }
             envelope["required"] = ["understanding", "direction", "value"]
+        if contract.get('scene_timing'):
+            from asa.scene_timing import SceneTimingPlan
+            timing_schema = SceneTimingPlan.model_json_schema()
+            envelope['$defs'] = timing_schema.pop('$defs', {})
+            envelope['properties']['timing_plan'] = timing_schema
+            envelope['required'].append('timing_plan')
         text = json.dumps({key: contract[key] for key in
                            ['original_request', 'previous_answer', 'revision_request',
                             'input_schema'] if key in contract}, ensure_ascii=False)
@@ -100,6 +107,9 @@ def make_agent_generator(
             ("system", bundled_instructions(contract)),
             human,
         ]
+        if contract.get('scene_timing'):
+            from asa.scene_timing import INSTRUCTIONS
+            messages.insert(1, ('system', INSTRUCTIONS))
         if video_constraints:
             messages.insert(1, ("system", video_constraints))
         if scene_plan:
@@ -135,6 +145,12 @@ def make_agent_generator(
             raise ValueError('invalid_agent_output')
         if not valid_input(result['value'], schema):
             raise ValueError('invalid_agent_output')
-        return AgentAnswer(value=result['value'])
+        timing = None
+        if contract.get('scene_timing'):
+            from asa.scene_timing import SceneTimingPlan, timing_settings
+            plan = SceneTimingPlan.model_validate(result.get('timing_plan'))
+            timing_settings(plan, settings.audio_timing_model_key, settings.audio_timing_voice)
+            timing = plan.model_dump(mode='json')
+        return AgentAnswer(value=result['value'], timing_plan=timing)
 
     return generate

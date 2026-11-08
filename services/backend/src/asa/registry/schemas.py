@@ -22,6 +22,7 @@ class ReviewLink(BaseModel):
 class AfterTasks(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     image_review: ReviewLink | None = None
+    scene_timing: bool = False
 
 
 class AgentDraft(BaseModel):

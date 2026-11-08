@@ -109,6 +109,23 @@ def test_speech_worker_snapshot_timing_and_uncertain_call(db, monkeypatch):
             client.put(path, json={"revision": 0, "settings": data}, headers=headers).status_code
             == 200
         )
+        # A production voice must first be selected from a reviewed sample.
+        from asa.audio_contracts import AudioSettings
+        from asa.registry.audio_service import sample_spec, speech_key
+        assert client.post(path + '/speech', json={
+            'id': str(uuid4()), 'revision': 1, 'cue_id': 'one'}, headers=headers).status_code == 409
+        sample_id = uuid4()
+        data = client.get(path).json()['settings']
+        parsed = AudioSettings.model_validate(data)
+        spec = sample_spec(config, parsed, 'child')
+        with psycopg.connect(db[0]) as conn:
+            conn.execute("INSERT INTO audio_jobs(workspace_id,id,request_id,answer_version,kind,"
+                         "cue_id,fingerprint,input,status,media,duration) "
+                         "VALUES (%s,%s,%s,1,'speech','child',%s,%s,'approved',%s,1)",
+                         (db[1], sample_id, work['id'], speech_key(spec), Jsonb(spec), b'fixture'))
+            data['speakers'][0]['sample_job_id'] = str(sample_id)
+            conn.execute('UPDATE audio_settings SET settings=%s WHERE workspace_id=%s '
+                         'AND request_id=%s', (Jsonb(data), db[1], work['id']))
         operation = {"id": str(uuid4()), "revision": 1, "cue_id": "one"}
         queued = client.post(path + "/speech", json=operation, headers=headers)
         assert queued.status_code == 200, queued.text

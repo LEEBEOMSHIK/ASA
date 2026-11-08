@@ -28,6 +28,7 @@ class Speaker(Strict):
     name: str = Field(min_length=1, max_length=100)
     role: Literal["character", "narrator"] = "character"
     voice: Voice = Field(default_factory=Voice)
+    sample_job_id: UUID | None = None
 
 
 class Cue(Strict):
@@ -51,6 +52,10 @@ class Music(Strict):
 
 
 class AudioSettings(Strict):
+    timing_auto_align: bool = False
+    timing_preview_seconds: float | None = Field(default=None, gt=0, le=3600, allow_inf_nan=False)
+    timing_duration_seconds: float | None = Field(default=None, gt=0, le=3600, allow_inf_nan=False)
+    purpose: Literal['production', 'timing'] = 'production'
     enabled: bool = False
     speakers: list[Speaker] = Field(default_factory=list, max_length=30)
     cues: list[Cue] = Field(default_factory=list, max_length=200)

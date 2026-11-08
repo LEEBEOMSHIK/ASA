@@ -1,6 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {inputEntries,isInputVisible,isInputRequired} from './input-requirements.ts';
+import {retryValues,retryPayload} from './input-requirements.ts';
+
+test('retry keeps original values and parses only current visible input fields',()=>{
+  const schema={type:'object',properties:{topic:{type:'string'},count:{type:'integer'},
+    choice:{type:'string'},detail:{type:'string','x-visible-when':{field:'choice',equals:'custom'}}}};
+  const original={topic:'original',count:2,removed:'legacy',choice:'other',detail:'hidden'};
+  const values=retryValues(original,schema);
+  assert.equal(values.removed,undefined);
+  assert.deepEqual(retryPayload(values,schema),{topic:'original',count:2,choice:'other'});
+  assert.equal(original.removed,'legacy');
+  assert.equal(retryPayload({value:'hello'},{type:'string'}),'hello');
+});
 
 test('custom subject appears next to its choice and hidden text is excluded from payload fields',()=>{
   const rule={field:'subject',equals:'직접 입력'};

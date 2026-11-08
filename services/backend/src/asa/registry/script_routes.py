@@ -29,7 +29,8 @@ def script_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
             settings.model_copy(update={"workspace_id": repository.workspace_id})
         )
         with repository._connect() as conn:
-            agent = repository._request(conn, str(request_id))["definition"]
+            agent = repository._latest_request(
+                conn, repository._request(conn, str(request_id)))["definition"]
         provider = agent.get("provider") or config.ai_provider
         model = agent.get("model") or config.ai_model
         result["model_configured"] = bool(

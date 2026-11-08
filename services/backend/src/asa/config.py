@@ -36,7 +36,12 @@ class Settings(BaseSettings):
     ai_prices: dict[str, ModelPrice] = Field(default_factory=dict)
     ai_api_key: SecretStr = SecretStr("")
     audio_ai_enabled: bool = False
+    audio_timing_model_key: str = 'openai-realtime'
+    audio_timing_voice: str = 'marin'
     audio_api_key: SecretStr = SecretStr("")
+
+    def audio_key(self) -> SecretStr:
+        return self.audio_api_key if self.audio_api_key.get_secret_value() else self.ai_api_key
     audio_model_profiles: dict[str, AudioModel] = Field(
         default_factory=lambda: {"openai-realtime": AudioModel()})
     audio_daily_calls: int = Field(default=50, ge=1, le=1000)

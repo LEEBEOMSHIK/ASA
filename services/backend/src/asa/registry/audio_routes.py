@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import subprocess
+import wave
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -50,7 +51,7 @@ def audio_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
                 if value.enabled
             },
             "generation_enabled": bool(
-                settings.audio_ai_enabled and settings.audio_api_key.get_secret_value()
+                settings.audio_ai_enabled and settings.audio_key().get_secret_value()
             ),
             "ai_voice_notice": "AI로 생성하는 목소리입니다.",
         }
@@ -90,7 +91,7 @@ def audio_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
                 try:
                     if job["kind"] == "speech":
                         key = service.speech_key(
-                            service.speech_spec(settings, current["settings"], job["cue_id"])
+                            service.job_speech_spec(settings, current["settings"], job)
                         )
                     else:
                         key = fingerprint(
@@ -108,12 +109,31 @@ def audio_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
                 except (RegistryError, ValueError):
                     job["current"] = False
             for job in jobs:
+                job["purpose"] = job["input"].get("purpose", current["settings"].purpose)
                 job.pop("input", None)
+            selected = []
+            for speaker in current['settings'].speakers:
+                try:
+                    service.require_selected_voice(conn, settings.model_copy(
+                        update={'workspace_id': p.workspace_id}), current['settings'], speaker.id)
+                    selected.append(speaker.id)
+                except RegistryError:
+                    pass
             return {
+                "selected_speakers": selected,
                 "settings": current["settings"].model_dump(mode="json"),
                 "revision": current["revision"],
                 "jobs": jobs,
             }
+
+    @router.get(path + "/review")
+    def review(
+        request_id: UUID, version: int, p: Principal = Depends(sessions.principal)
+    ) -> dict[str, Any]:
+        with repo(p)._connect() as conn:
+            return service.review_speech(
+                conn, settings.model_copy(update={'workspace_id': p.workspace_id}),
+                request_id, version)
 
     @router.put(path)
     def save(
@@ -143,6 +163,30 @@ def audio_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
                 ),
             )
         return get(request_id, version, p)
+
+    @router.get(path + '/timing-preview')
+    def timing_preview(request_id: UUID, version: int,
+                       p: Principal = Depends(sessions.principal)) -> Response:
+        from asa.audio_timing import assemble_preview
+
+        with repo(p)._connect() as conn:
+            review_data = service.review_speech(conn, settings.model_copy(
+                update={'workspace_id': p.workspace_id}), request_id, version)
+            timing = review_data.get('timing')
+            if not timing or not timing['preview_ready']:
+                raise RegistryError(409, 'audio_timing_preview_not_ready')
+            clips = []
+            for clip in timing['clips']:
+                row = conn.execute('SELECT media FROM audio_jobs WHERE workspace_id=%s AND id=%s',
+                                   (p.workspace_id, clip['id'])).fetchone()
+                if not row or not row['media']:
+                    raise RegistryError(409, 'audio_timing_preview_not_ready')
+                clips.append((bytes(row['media']), clip['start']))
+        try:
+            media = assemble_preview(clips, timing['duration'])
+        except (ValueError, EOFError, OSError, wave.Error) as exc:
+            raise RegistryError(409, 'audio_timing_preview_not_ready') from exc
+        return Response(media, media_type='audio/wav', headers={'Cache-Control': 'no-store'})
 
     @router.get("/assets")
     def assets(p: Principal = Depends(sessions.principal)) -> list[dict[str, Any]]:
@@ -199,12 +243,25 @@ def audio_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
             current = service.load(conn, p.workspace_id, request_id, version, lock=True)
             if current["revision"] != body.revision:
                 raise RegistryError(409, "audio_settings_changed")
-            if not current["settings"].enabled:
+            if kind != "sample" and not current["settings"].enabled:
                 raise RegistryError(409, "audio_disabled")
-            if kind == "speech":
-                if not settings.audio_ai_enabled or not settings.audio_api_key.get_secret_value():
+            if kind in ("speech", "sample"):
+                if not settings.audio_ai_enabled or not settings.audio_key().get_secret_value():
                     raise RegistryError(409, "audio_generation_disabled")
-                spec = service.speech_spec(settings, current["settings"], body.cue_id)
+                if kind == 'sample':
+                    if current['revision'] == 0:
+                        raise RegistryError(409, 'audio_settings_changed')
+                    if not isinstance(current['answer'].get('characters'), list):
+                        raise RegistryError(409, 'audio_character_work_required')
+                    spec = service.sample_spec(settings, current['settings'], body.cue_id)
+                    kind = 'speech'
+                else:
+                    spec = service.speech_spec(settings, current['settings'], body.cue_id)
+                    spec['purpose'] = current['settings'].purpose
+                    if spec['purpose'] == 'production':
+                        service.require_selected_voice(conn, settings.model_copy(
+                            update={'workspace_id': p.workspace_id}), current['settings'],
+                            spec['cue']['speaker_id'])
                 key = service.speech_key(spec)
             else:
                 try:
@@ -256,6 +313,37 @@ def audio_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
     ) -> dict[str, Any]:
         return enqueue("speech", request_id, version, body, p)
 
+    @router.post(path + "/sample")
+    def sample(request_id: UUID, version: int, body: Generate,
+               p: Principal = Depends(sessions.principal)) -> dict[str, Any]:
+        return enqueue('sample', request_id, version, body, p)
+
+    @router.post(path + "/select-voice")
+    def select_voice(request_id: UUID, version: int, body: Generate,
+                     p: Principal = Depends(sessions.principal)) -> dict[str, Any]:
+        with repo(p)._connect() as conn:
+            current = service.load(conn, p.workspace_id, request_id, version, lock=True)
+            if current['revision'] != body.revision:
+                raise RegistryError(409, 'audio_settings_changed')
+            job = conn.execute('SELECT * FROM audio_jobs WHERE workspace_id=%s AND id=%s '
+                               'AND request_id=%s AND answer_version=%s',
+                               (p.workspace_id, body.id, request_id, version)).fetchone()
+            spec = service.sample_spec(settings, current['settings'], body.cue_id)
+            if (not job or job['input'].get('purpose') != 'sample'
+                    or job['fingerprint'] != service.speech_key(spec)
+                    or job['status'] not in ('review', 'approved')
+                    or not job['media'] or job['error_code']):
+                raise RegistryError(409, 'audio_sample_not_ready')
+            speaker = next(s for s in current['settings'].speakers if s.id == body.cue_id)
+            speaker.sample_job_id = body.id
+            conn.execute("UPDATE audio_jobs SET status='approved',updated_at=now() "
+                         'WHERE workspace_id=%s AND id=%s', (p.workspace_id, body.id))
+            conn.execute('UPDATE audio_settings SET revision=revision+1,settings=%s '
+                         'WHERE workspace_id=%s AND request_id=%s AND answer_version=%s',
+                         (Jsonb(current['settings'].model_dump(mode='json')),
+                          p.workspace_id, request_id, version))
+        return get(request_id, version, p)
+
     @router.post(path + "/compose")
     def compose(
         request_id: UUID, version: int, body: Generate, p: Principal = Depends(sessions.principal)
@@ -278,6 +366,10 @@ def audio_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
             try:
                 if job["kind"] == "speech":
                     service.approve_speech(settings, current["settings"], job)
+                    if job['input'].get('purpose') == 'production':
+                        service.require_selected_voice(conn, settings.model_copy(
+                            update={'workspace_id': p.workspace_id}), current['settings'],
+                            job['input']['cue']['speaker_id'])
                 else:
                     spec = service.composition_spec(
                         conn,

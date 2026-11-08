@@ -9,6 +9,7 @@ from langsmith import tracing_context
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field
 
+from asa.config import Settings
 from asa.models import AgentAnswer, Script
 from asa.registry.history import valid_input
 from asa.registry.repository import RegistryRepository
@@ -33,6 +34,7 @@ class GenerateScript(BaseModel):
     base_version: int = Field(ge=0, strict=True)
     instruction: str = Field(min_length=1, max_length=2000)
     acknowledge_unknown: bool = False
+    request_input: Any = None
 
 
 class ApproveScript(BaseModel):
@@ -46,7 +48,8 @@ class ScriptRepository(RegistryRepository):
         self, conn: psycopg.Connection[dict[str, Any]], request_id: str, lock: bool = False
     ) -> dict[str, Any]:
         row = conn.execute(
-            "SELECT r.input,v.definition FROM customer_requests r JOIN registry_versions v "
+            "SELECT r.input,r.agent_id,r.version,v.definition FROM customer_requests r "
+            "JOIN registry_versions v "
             "USING(workspace_id,agent_id,version) WHERE r.workspace_id=%s AND r.id=%s"
             + (" FOR UPDATE OF r" if lock else ""),
             (self.workspace_id, request_id),
@@ -54,6 +57,31 @@ class ScriptRepository(RegistryRepository):
         if row is None:
             raise RegistryError(404, "work_not_found")
         return row
+
+    def _latest_request(self, conn: Any, request: dict[str, Any]) -> dict[str, Any]:
+        latest = conn.execute(
+            "SELECT version,definition FROM registry_versions WHERE workspace_id=%s "
+            "AND agent_id=%s ORDER BY version DESC LIMIT 1",
+            (self.workspace_id, request['agent_id']),
+        ).fetchone()
+        if latest is None:
+            raise RegistryError(404, 'agent_not_found')
+        return {**request, **latest}
+
+    def _answer_definition(self, conn: Any, request: dict[str, Any],
+                           version: int | None) -> dict[str, Any]:
+        if not version:
+            return request
+        row = conn.execute(
+            "SELECT v.version,v.definition FROM script_versions a JOIN registry_versions v "
+            "ON v.workspace_id=a.workspace_id AND v.agent_id=%s "
+            "AND v.version=coalesce(a.agent_version,%s) "
+            "WHERE a.workspace_id=%s AND a.request_id=%s AND a.version=%s",
+            (request['agent_id'], request['version'], self.workspace_id, request['id'], version),
+        ).fetchone()
+        if row is None:
+            raise RegistryError(404, 'script_version_not_found')
+        return {**request, **row}
 
     def _stage(
         self, conn: psycopg.Connection[dict[str, Any]], request_id: str, expected: int | None = None
@@ -92,28 +120,60 @@ class ScriptRepository(RegistryRepository):
             ).fetchone() or {"revision": 0, "head_version": 0, "approved_version": None}
             stage["versions"] = conn.execute(
                 "SELECT version,title,narration,answer,source,base_version,instruction,"
-                "created_at::text "
+                "created_at::text,agent_version "
                 "FROM script_versions WHERE workspace_id=%s AND request_id=%s "
                 "ORDER BY version DESC",
                 (self.workspace_id, request_id),
             ).fetchall()
             stage["attempts"] = conn.execute(
                 "SELECT id::text,base_version,instruction,status,result_version,provider,model,"
-                "created_at::text,started_at::text,finished_at::text,error_code,live_output "
+                "created_at::text,started_at::text,finished_at::text,error_code,live_output,"
+                "agent_version "
                 "FROM script_attempts "
                 "WHERE workspace_id=%s AND request_id=%s ORDER BY created_at DESC LIMIT 20",
                 (self.workspace_id, request_id),
             ).fetchall()
-            stage["output_schema"] = request["definition"]["output_schema"]
+            definitions = {r['version']: r['definition'] for r in conn.execute(
+                'SELECT version,definition FROM registry_versions WHERE workspace_id=%s '
+                'AND agent_id=%s', (self.workspace_id, request['agent_id'])).fetchall()}
+            for answer in stage['versions']:
+                answer['agent_version'] = answer['agent_version'] or request['version']
+                definition = definitions[answer['agent_version']]
+                answer['output_schema'] = definition['output_schema']
+                answer['requires_approval'] = definition.get('requires_approval', False)
+            for attempt in stage['attempts']:
+                attempt['agent_version'] = attempt['agent_version'] or request['version']
+            latest = self._latest_request(conn, request)
+            stage['retry_agent_version'] = latest['version']
+            stage['retry_input_schema'] = latest['definition']['input_schema']
+            stage['retry_input'] = request['input']
+            previous_input = conn.execute(
+                'SELECT prompt FROM script_attempts WHERE workspace_id=%s AND request_id=%s '
+                'ORDER BY created_at DESC,id DESC LIMIT 1',
+                (self.workspace_id, request_id)).fetchone()
+            if previous_input:
+                stage['retry_input'] = json.loads(previous_input['prompt']).get(
+                    'original_request', request['input'])
+            stage['retry_input_valid'] = valid_input(
+                stage['retry_input'], stage['retry_input_schema'])
+            active = next(
+                (a for a in stage["attempts"] if a["status"] in ("queued", "running")), None
+            )
+            display = definitions[active['agent_version']] if active else request['definition']
+            stage["output_schema"] = display["output_schema"]
             stage["requires_approval"] = request["definition"].get("requires_approval", False)
-            stage["tools_supported"] = not request["definition"]["tools"]
+            stage["tools_supported"] = not latest["definition"]["tools"]
             return stage
 
     def save(self, request_id: str, body: SaveScript) -> dict[str, Any]:
         with self._connect() as conn:
             request = self._request(conn, request_id, True)
+            request['id'] = request_id
+            stage = self._stage(conn, request_id)
+            base = body.base_version if body.base_version is not None else stage['head_version']
+            answer_request = self._answer_definition(conn, request, base)
             if body.answer is not None:
-                if not valid_input(body.answer, request["definition"]["output_schema"]):
+                if not valid_input(body.answer, answer_request["definition"]["output_schema"]):
                     raise RegistryError(422, "invalid_work_input")
             else:
                 try:
@@ -157,6 +217,7 @@ class ScriptRepository(RegistryRepository):
                     base,
                     "",
                     body.answer,
+                    answer_request['version'],
                 )
         return self.get(request_id)
 
@@ -172,12 +233,13 @@ class ScriptRepository(RegistryRepository):
         base: int,
         instruction: str,
         answer: Any = None,
+        agent_version: int | None = None,
     ) -> int:
         version = int(stage["head_version"]) + 1
         conn.execute(
             "INSERT INTO script_versions(workspace_id,request_id,version,operation_id,"
-            "title,narration,source,base_version,instruction,answer) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            "title,narration,source,base_version,instruction,answer,agent_version) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             (
                 self.workspace_id,
                 request_id,
@@ -189,6 +251,7 @@ class ScriptRepository(RegistryRepository):
                 base or None,
                 instruction,
                 Jsonb(answer) if answer is not None else None,
+                agent_version,
             ),
         )
         conn.execute(
@@ -230,6 +293,8 @@ class ScriptRepository(RegistryRepository):
         model: str | None = None,
         automatic: bool = False,
         queue_limit: int = 100,
+        use_latest: bool = True,
+        execution_settings: Settings | None = None,
     ) -> dict[str, Any]:
         with self._connect() as conn:
             if automatic:
@@ -246,9 +311,40 @@ class ScriptRepository(RegistryRepository):
                 if (
                     existing["base_version"] != body.base_version
                     or existing["instruction"] != body.instruction
+                    or ('request_input' in body.model_fields_set and body.request_input !=
+                        json.loads(existing['prompt'])['original_request'])
                 ):
                     raise RegistryError(409, "work_conflict")
             else:
+                if use_latest:
+                    request = self._latest_request(conn, request)
+                if 'request_input' in body.model_fields_set:
+                    request['input'] = body.request_input
+                elif use_latest:
+                    prior = conn.execute(
+                        "SELECT prompt FROM script_attempts "
+                        "WHERE workspace_id=%s AND request_id=%s "
+                        "ORDER BY created_at DESC,id DESC LIMIT 1",
+                        (self.workspace_id, request_id),
+                    ).fetchone()
+                    if prior:
+                        request['input'] = json.loads(prior['prompt'])['original_request']
+                if not valid_input(request['input'], request['definition']['input_schema']):
+                    raise RegistryError(422, 'retry_input_required')
+                if execution_settings is not None:
+                    provider = (
+                        request["definition"].get("provider") or execution_settings.ai_provider
+                    )
+                    model = request['definition'].get('model') or execution_settings.ai_model
+                    if (model not in execution_settings.models_for(provider)
+                            or not execution_settings.key_for(provider).get_secret_value()):
+                        raise RegistryError(422, 'invalid_model_selection')
+                    if request['definition'].get('after_tasks', {}).get('scene_timing'):
+                        profile = execution_settings.audio_model_profiles.get(
+                            execution_settings.audio_timing_model_key)
+                        if (not profile or not profile.enabled
+                                or execution_settings.audio_timing_voice not in profile.voices):
+                            raise RegistryError(422, 'audio_voice_unavailable')
                 if automatic:
                     pending = conn.execute(
                         "SELECT count(*) n FROM script_attempts WHERE workspace_id=%s "
@@ -289,6 +385,10 @@ class ScriptRepository(RegistryRepository):
                 prompt = json.dumps(
                     {
                         "agent_instructions": request["definition"]["instructions"],
+                        "agent_version": request['version'],
+                        "agent_name": request['definition']['name'],
+                        "scene_timing": request['definition'].get('after_tasks', {}).get(
+                            'scene_timing', False),
                         "video_prompt_bundle": build_prompt_bundle(
                             request["definition"], request["input"]
                         ),
@@ -302,8 +402,9 @@ class ScriptRepository(RegistryRepository):
                 )
                 conn.execute(
                     "INSERT INTO script_attempts(workspace_id,request_id,id,base_version,"
-                    "instruction,status,prompt,model_profile,provider,model,automatic) "
-                    "VALUES (%s,%s,%s,%s,%s,'queued',%s,%s,%s,%s,%s)",
+                    "instruction,status,prompt,model_profile,provider,model,automatic,"
+                    "agent_version) "
+                    "VALUES (%s,%s,%s,%s,%s,'queued',%s,%s,%s,%s,%s,%s)",
                     (
                         self.workspace_id,
                         request_id,
@@ -315,6 +416,7 @@ class ScriptRepository(RegistryRepository):
                         provider,
                         model,
                         automatic,
+                        request["version"],
                     ),
                 )
                 conn.execute(
@@ -426,6 +528,7 @@ class ScriptRepository(RegistryRepository):
                         attempt["base_version"],
                         attempt["instruction"],
                         result.value,
+                        attempt.get('agent_version'),
                     )
                 else:
                     version = self._add_version(
@@ -438,6 +541,7 @@ class ScriptRepository(RegistryRepository):
                         "ai",
                         attempt["base_version"],
                         attempt["instruction"],
+                        agent_version=attempt.get('agent_version'),
                     )
             else:
                 conn.execute(
@@ -445,6 +549,13 @@ class ScriptRepository(RegistryRepository):
                     "WHERE workspace_id=%s AND request_id=%s",
                     (self.workspace_id, request_id),
                 )
+            if (version and isinstance(result, AgentAnswer) and result.timing_plan is not None
+                    and json.loads(attempt['prompt']).get('scene_timing')):
+                from asa.scene_timing import enqueue_timing
+
+                config = getattr(self, 'settings', None) or Settings()
+                enqueue_timing(conn, config.model_copy(update={'workspace_id': self.workspace_id}),
+                               request_id, version, result.timing_plan)
             conn.execute(
                 "UPDATE script_attempts SET status=%s,result_version=%s,error_code=%s,"
                 "finished_at=now() "

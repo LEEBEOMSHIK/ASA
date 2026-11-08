@@ -38,7 +38,7 @@ class AudioWorker:
             ).fetchone()
             can_speak = bool(
                 settings.audio_ai_enabled
-                and settings.audio_api_key.get_secret_value()
+                and settings.audio_key().get_secret_value()
                 and count
                 and count["n"] < settings.audio_daily_calls
             )
@@ -59,9 +59,12 @@ class AudioWorker:
             with connection(settings.database_url, dictionary=True) as conn:
                 current = service.load(conn, workspace, job["request_id"], job["answer_version"])
                 if job["kind"] == "speech":
-                    if not current["settings"].enabled:
+                    if job["input"].get("purpose") != "sample" and not current["settings"].enabled:
                         raise RegistryError(409, "audio_disabled")
-                    spec = service.speech_spec(settings, current["settings"], job["cue_id"])
+                    spec = service.job_speech_spec(settings, current["settings"], job)
+                    if job['input'].get('purpose') == 'production':
+                        service.require_selected_voice(conn, settings, current['settings'],
+                                                       spec['cue']['speaker_id'])
                     if service.speech_key(spec) != job["fingerprint"]:
                         raise RegistryError(409, "audio_source_changed")
                 else:
@@ -93,7 +96,7 @@ class AudioWorker:
             transcript = ""
             if job["kind"] == "speech":
                 media, transcript = synthesize(
-                    settings.audio_api_key.get_secret_value(), job["input"]
+                    settings.audio_key().get_secret_value(), job["input"]
                 )
                 seconds = wav_duration(media)
                 if not transcript_matches(job["input"]["cue"]["text"], transcript):
@@ -107,12 +110,15 @@ class AudioWorker:
                     settings.ffmpeg_path,
                 )
                 seconds = sum(v["duration"] for v in spec["videos"])
-            with connection(settings.database_url) as conn:
+            with connection(settings.database_url, dictionary=True) as conn:
                 conn.execute(
                     "UPDATE audio_jobs SET status='review',media=%s,duration=%s,"
                     "transcript=%s,error_code=%s,updated_at=now() WHERE workspace_id=%s AND id=%s",
                     (media, seconds, transcript, error, workspace, job["id"]),
                 )
+                if job['input'].get('purpose') == 'timing':
+                    from asa.scene_timing import finish_timing
+                    finish_timing(conn, settings, str(job['request_id']), job['answer_version'])
         except Exception as exc:
             # Error details may contain credentials or user scripts. Store only allowlisted codes.
             code = exc.code if isinstance(exc, RegistryError) else "audio_processing_failed"

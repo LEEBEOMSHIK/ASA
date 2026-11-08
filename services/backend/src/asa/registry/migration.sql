@@ -504,6 +504,10 @@ CREATE TRIGGER asa_audio_usage_trigger AFTER UPDATE OF status ON audio_jobs
  FOR EACH ROW WHEN (OLD.status IS DISTINCT FROM NEW.status) EXECUTE FUNCTION asa_audio_usage();
 
 -- Library organization is separate from immutable production records.
+-- NULL retains the original request's saved agent version for historical records.
+ALTER TABLE script_attempts ADD COLUMN IF NOT EXISTS agent_version integer;
+ALTER TABLE script_versions ADD COLUMN IF NOT EXISTS agent_version integer;
+
 CREATE TABLE IF NOT EXISTS library_works (
  workspace_id uuid NOT NULL REFERENCES registry_workspaces(id), id uuid NOT NULL,
  name text NOT NULL CHECK(length(name) BETWEEN 1 AND 120), revision integer NOT NULL DEFAULT 1,

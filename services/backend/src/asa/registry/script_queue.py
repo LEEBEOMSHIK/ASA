@@ -1,4 +1,5 @@
 """Durable script queue. One active consumer per workspace; uncertain calls never retry."""
+import json
 import threading
 import time
 from collections.abc import Callable
@@ -27,18 +28,12 @@ class ScriptQueue(ScriptRepository):
         if not self.settings.script_ai_enabled:
             raise RegistryError(409, "script_execution_disabled")
         config = effective_settings(self.settings)
-        with self._connect() as conn:
-            agent = self._request(conn, request_id)['definition']
-        provider = agent.get('provider') or config.ai_provider
-        model = agent.get('model') or config.ai_model
-        if (model not in config.models_for(provider)
-                or not config.key_for(provider).get_secret_value()):
-            raise RegistryError(422, "invalid_model_selection")
+        use_latest = body is not None
         body = body or GenerateScript(
             id=UUID(request_id), expected_revision=0, base_version=0,
             instruction='등록된 지침과 답변 형식에 따라 입력 요청에 답하세요.')
-        return self.queue(request_id, body, provider=provider, model=model, automatic=True,
-                          queue_limit=config.script_queue_limit)
+        return self.queue(request_id, body, automatic=True, use_latest=use_latest,
+                          execution_settings=config, queue_limit=config.script_queue_limit)
 
     def worker_online(self, conn: Any) -> bool:
         worker = conn.execute(
@@ -53,9 +48,11 @@ class ScriptQueue(ScriptRepository):
             request = self._request(conn, request_id)
             online = self.worker_online(conn)
             active = conn.execute(
-                "SELECT created_at FROM script_attempts WHERE workspace_id=%s AND request_id=%s "
+                "SELECT created_at,prompt FROM script_attempts "
+                "WHERE workspace_id=%s AND request_id=%s "
                 "AND automatic AND status IN ('queued','running')",
-                (self.workspace_id, request_id)).fetchone()
+                (self.workspace_id, request_id),
+            ).fetchone()
             ahead = conn.execute(
                 "SELECT count(*) n FROM script_attempts WHERE workspace_id=%s AND automatic "
                 "AND status IN ('queued','running') AND created_at < %s",
@@ -64,7 +61,8 @@ class ScriptQueue(ScriptRepository):
                       worker_online=online,
                       queue_ahead=ahead['n'] if ahead else 0,
                       request_input=request['input'],
-                      agent_instructions=request['definition']['instructions'])
+                      agent_instructions=json.loads(active['prompt'])['agent_instructions']
+                      if active else request['definition']['instructions'])
         return result
 
     def tick(self, generator: Callable[[str], Script | AgentAnswer] | None = None) -> bool:
@@ -155,13 +153,24 @@ class ScriptQueue(ScriptRepository):
                     "JOIN registry_versions v USING(workspace_id,agent_id,version) "
                     "WHERE r.workspace_id=%s AND r.id=%s", (self.workspace_id, rid)).fetchone()
             assert request
-            with trace_call(config, dict(
-                run_id=aid, request_id=rid, source='customer',
-                requested_by=request['requested_by'], name=request['name'],
-                requested_at=request['created_at'], revision=request['version'],
-                step_id='script', step_name='에이전트 답변', original_request=request['input'],
-                provider=provider, model=model,
-            )):
+            snapshot = json.loads(prompt)
+            with trace_call(
+                config,
+                dict(
+                    run_id=aid,
+                    request_id=rid,
+                    source="customer",
+                    requested_by=request["requested_by"],
+                    name=snapshot.get("agent_name", request["name"]),
+                    requested_at=request["created_at"],
+                    revision=snapshot.get("agent_version", request["version"]),
+                    step_id="script",
+                    step_name="에이전트 답변",
+                    original_request=snapshot.get("original_request", request["input"]),
+                    provider=provider,
+                    model=model,
+                ),
+            ):
                 # Model construction errors also leave a trace and cannot strand the job.
                 try:
                     return (generator or make_agent_generator(

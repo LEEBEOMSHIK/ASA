@@ -28,7 +28,7 @@ export type Definition = {
   name: string; description: string; instructions: string; model_profile: string;
   requires_approval?: boolean;
   purpose?: "general" | "image_review";
-  after_tasks?: {image_review?: {agent_ref: string; mode: "manual" | "automatic"} | null};
+  after_tasks?: {scene_timing?:boolean;image_review?: {agent_ref: string; mode: "manual" | "automatic"} | null};
   provider?: "openai" | "anthropic" | null; model?: string | null;
   input_schema: SchemaNode; output_schema: SchemaNode; tools: string[];
   limits: { model_calls: number; tool_calls: number; depth: number; seconds: number };
@@ -147,6 +147,7 @@ export function message(error: unknown): string {
     agent_not_found: "에이전트를 찾을 수 없거나 접근 권한이 없습니다.",
     tool_not_found: "도구를 찾을 수 없거나 접근 권한이 없습니다.",
     work_not_found: "작업을 찾을 수 없거나 접근 권한이 없습니다.",
+    retry_input_required: "최신 에이전트 설정에 필요한 입력이 달라졌습니다. 재요청 입력 확인·수정에서 필수 항목과 값의 형식을 확인하세요.",
     invalid_work_input: "입력 형식이 에이전트 설정과 맞지 않습니다. 필수 항목과 값의 형식을 확인하세요.",
     work_conflict: "이미 저장된 요청과 내용이 다릅니다. 작업 이력을 확인한 후 새 작업을 시작하세요.",
     script_revision_conflict: "대본이 다른 화면에서 변경되었습니다. 입력은 유지됩니다. 내용을 복사한 뒤 최신 버전을 다시 불러오세요.",
