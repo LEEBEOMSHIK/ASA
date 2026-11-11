@@ -100,18 +100,30 @@ def make_agent_generator(
             envelope['required'].append('timing_plan')
         text = json.dumps({key: contract[key] for key in
                            ['original_request', 'previous_answer', 'revision_request',
-                            'input_schema'] if key in contract}, ensure_ascii=False)
+                            'input_schema', 'video_voice_directions'] if key in contract},
+                          ensure_ascii=False)
         human: Any = (HumanMessage(content=[{'type': 'text', 'text': text}, *attachments])
                       if attachments else ('human', text))
         messages: list[Any] = [
             ("system", bundled_instructions(contract)),
             human,
         ]
+        if contract.get('work_visual_style'):
+            from asa.registry.art_styles import apply_style
+
+            messages.insert(1, ('system', apply_style(
+                'Apply this work visual category and style to every output video clip prompt. '
+                'Keep the selected category specialist instructions; do not change categories.',
+                contract['work_visual_style'])))
         if contract.get('scene_timing'):
             from asa.scene_timing import INSTRUCTIONS
             messages.insert(1, ('system', INSTRUCTIONS))
         if video_constraints:
             messages.insert(1, ("system", video_constraints))
+        if 'video_voice_directions' in contract:
+            from asa.voice_directions import INSTRUCTIONS
+
+            messages.insert(2, ('system', INSTRUCTIONS))
         if scene_plan:
             messages.insert(1, ("system",
                 "이 실행은 씬 분석 단계입니다. 완성된 shots는 씬별 이미지 생성·검수·수정·확정 "

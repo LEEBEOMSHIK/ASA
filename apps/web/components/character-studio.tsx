@@ -1,4 +1,5 @@
 "use client";
+import {workHref} from "../lib/work-route";
 import { useEffect, useRef, useState } from "react";
 import { api, message, type Tool } from "../lib/registry";
 import { Button, Card, StatusBadge, Switch } from "./ui";
@@ -10,10 +11,11 @@ import "./character-studio.css";
 import { CharacterHandoff } from "./character-handoff";
 import { SceneReferenceVersions, type UsedReference } from "./scene-reference-versions";
 import { ImageTaskManager } from "./image-task-manager";
-import { AudioProduction } from "./audio-production";
+import { VoiceDirections } from "./voice-directions";
+import { WorkArtStyle } from "./work-art-style";
 
 type Character = { id: string; name: string; facts: string; appearance: string; proposed: string; scene_ids: string; image_prompt: string };
-type Job = ImageJob & { scene_context?:{reference_overrides?:Record<string,string>;references?:{characters:UsedReference[]}}; review_error_code?:string|null; id: string; character_id: string; version: number; model: string; character: Character; change: string; base_id: string | null; status: string; error_code: string | null; estimated_usd: string | null };
+type Job = ImageJob & { art_style?:{work_id:string|null;revision:number;prompt:string}|null; scene_context?:{reference_overrides?:Record<string,string>;references?:{characters:UsedReference[]}}; review_error_code?:string|null; id: string; character_id: string; version: number; model: string; character: Character; change: string; base_id: string | null; status: string; error_code: string | null; estimated_usd: string | null };
 type SceneSource = {script:string;script_matched:boolean;scene:string;scene_matched:boolean;characters:{id:string;name:string;image_id:string|null;role?:string}[]};
 type Project = { scene_sources?:Record<string,SceneSource>; kind: "character"|"scene"; blocked?:Record<string,string[]>; context?:{plan:{summary:string;checks:string[];shots:{scene_id:string;shot_id:string;video_notes:string;review_notes:string}[]};input:{aspect_ratio?:string}}; reviews: AssetReview[]; review_config: {agent_ref:string;mode:string}|null; id: string; name: string; request_id: string; source_version: number; characters: Character[]; approved: Record<string,string>; approved_versions?: Record<string,string[]>; jobs: Job[]; worker_online: boolean; excluded: string[]; work_progress: WorkProgress };
 type Options = { agents: Tool[]; models: string[]; enabled: boolean };
@@ -34,7 +36,7 @@ export function CharacterStudio() {
   return <div className="character-studio"><header><p className="eyebrow">CHARACTER LIBRARY</p><h1>캐릭터 보관함</h1><p className="muted">에이전트 답변에서 만든 캐릭터를 모아 봅니다. 이미지 생성·수정·확정은 해당 실행 결과에서 이어집니다.</p></header>
     {error && <p role="alert">{error}</p>}{loading && <p role="status">보관함을 불러오는 중…</p>}
     {!loading && !error && !projects.length && <Card><p>아직 보관된 캐릭터가 없습니다. 캐릭터 설정 에이전트를 실행한 뒤 답변에서 생성할 인물을 선택하세요.</p><a href="/">작업 공간으로 이동 →</a></Card>}
-    <div className="character-grid">{projects.map(p=><Card key={p.id}><h2>{p.name}</h2><p className="muted">에이전트 답변 v{p.source_version}</p><a className="button button--secondary" href={`/?request=${p.request_id}&answer=${p.source_version}`}>실행 결과에서 확인 →</a></Card>)}</div>
+    <div className="character-grid">{projects.map(p=><Card key={p.id}><h2>{p.name}</h2><p className="muted">에이전트 답변 v{p.source_version}</p><a className="button button--secondary" href={workHref(p.request_id,p.source_version)}>실행 결과에서 확인 →</a></Card>)}</div>
   </div>;
 }
 
@@ -44,6 +46,7 @@ export function CharacterResults({requestId,version,scene=false}:{requestId:stri
   const [options,setOptions]=useState<Options>({agents:[],models:[],enabled:false});
   const [error,setError]=useState("");
   const [activeId,setActiveId]=useState("");
+  const [narrationTarget,setNarrationTarget]=useState<HTMLDivElement|null>(null);
   const [retry,setRetry]=useState(0);
   const drafts=useRef<Record<string,Character>>({});
   const referenceDrafts=useRef<Record<string,Record<string,string>>>({});
@@ -68,10 +71,12 @@ export function CharacterResults({requestId,version,scene=false}:{requestId:stri
   },[project?.id]);
   const activeIndex=Math.max(0,project?.characters.findIndex(c=>c.id===activeId) ?? 0);
   const currentId=project?.characters[activeIndex]?.id;
-  return <section id={scene?"followup-scene_images":"followup-character_images"} className="character-studio" aria-label={scene?"씬별 이미지":"등장인물과 기준 이미지"}><div className="character-heading"><h2>{scene?"씬별 이미지":"등장인물과 기준 이미지"}</h2><a className="button button--secondary" href={scene?"/characters?view=scenes":"/characters"}>이미지 보관함</a></div>
+  return <section id={scene?"followup-scene_images":"followup-character_images"} className="character-studio" aria-label={scene?"씬별 이미지":"등장인물과 기준 이미지"}>
     {error && <p role="alert" className="notice">{error}{!project && <Button variant="secondary" onClick={()=>setRetry(n=>n+1)}>다시 불러오기</Button>}</p>}
     {!project && !error && <p role="status">이미지 작업을 불러오는 중…</p>}
-    {project && <><div className="character-overview">
+    {project&&<section className="work-common-settings" aria-label="작품 공통 설정"><h2>작품 공통 설정</h2><WorkArtStyle key={project.id} projectId={project.id}/>
+    {!scene&&<div ref={setNarrationTarget} className="work-narration-slot"/>}</section>}
+    {project && <><div className="character-heading production-section-heading"><h2>{scene?"씬 설정 및 이미지":"캐릭터 설정 및 이미지"}</h2><a className="button button--secondary" href={scene?"/characters?view=scenes":"/characters"}>보관함</a></div><div className="character-overview">
       <div className="character-heading"><h3>{unit} 선택 · {project.characters.length}개</h3><StatusBadge tone={project.worker_online?"success":"warning"}>{project.worker_online?"이미지 워커 연결됨":"이미지 워커 연결 대기"}</StatusBadge></div>
       <div className="character-progress" role="status"><strong>{progressLabel(project.work_progress)}</strong><p>{progressCounts(project.work_progress)}</p></div>
       {!scene && <CharacterHandoff project={project}/>}
@@ -82,7 +87,7 @@ export function CharacterResults({requestId,version,scene=false}:{requestId:stri
     <div className="character-navigation"><Button variant="secondary" disabled={activeIndex===0} onClick={()=>setActiveId(project.characters[activeIndex-1].id)}>← 이전 {unit}</Button><span aria-live="polite">{activeIndex+1} / {project.characters.length} · {project.characters[activeIndex].name}</span><Button variant="secondary" disabled={activeIndex===project.characters.length-1} onClick={()=>setActiveId(project.characters[activeIndex+1].id)}>다음 {unit} →</Button></div>
     <div className="character-workbench">{project.characters.map(c=><div key={`${project.id}:${c.id}`} hidden={c.id!==currentId}><CharacterCard character={c} project={project} options={options} refresh={refresh} onError={setError} onReferences={value=>{referenceDrafts.current[`${project.id}:${c.id}`]=value;}} onDraft={value=>{drafts.current[`${project.id}:${c.id}`]=value;}}/></div>)}</div></>}
 
-    {!scene&&project&&<AudioProduction key={requestId+":"+version} requestId={requestId} version={version} voicesOnly characterId={currentId}/>}
+    {!scene&&project&&<VoiceDirections key={requestId+":"+version} requestId={requestId} version={version} characterId={currentId} narrationTarget={narrationTarget}/>}
   </section>;
 }
 
@@ -161,6 +166,7 @@ function CharacterCard({character,project,options,refresh,onError,onDraft,onRefe
     {shown ? <><img className="character-image" src={`/api/v1/characters/images/${shown.id}/asset`} alt={`${character.name} 기준 이미지 v${shown.version}`}/>
       <label className="character-field">이미지 버전<select value={shown.id} onChange={e=>{setChosen(e.target.value);const j=success.find(j=>j.id===e.target.value);if(j){setDraft(j.character);setReferenceOverrides(j.scene_context?.reference_overrides || {});}}}>{success.map(j=><option key={j.id} value={j.id}>v{j.version}{project.approved[character.id]===j.id?" · 기본 이미지":confirmedIds.includes(j.id)?" · 확정":" · 검토본"}</option>)}</select></label>
       <p className="muted">{shown.model} · 예상 비용 {shown.estimated_usd===null?"미확인":`$${Number(shown.estimated_usd).toFixed(5)}`}</p>
+      <details className="character-form"><summary>이 이미지에 적용된 공통 화풍</summary><p className="muted">{shown.art_style?.prompt?`공통 화풍 v${shown.art_style.revision} · ${shown.art_style.prompt}`:"공통 화풍 미설정 · 생성 당시 개별 제작 지침과 참조 이미지를 사용했습니다."}</p></details>
       <div className="button-row"><Button variant="secondary" disabled={busy || !!active || (scene ? project.approved[character.id]===shown.id && itemState==="approved" : confirmedIds.includes(shown.id) && itemState==="approved")} onClick={()=>void approve()}>{scene?"이 버전을 기준 이미지로 확정":confirmedIds.includes(shown.id)?"확정된 버전":"이 버전 확정"}</Button>{!scene&&confirmedIds.includes(shown.id)&&project.approved[character.id]!==shown.id&&<Button variant="secondary" disabled={busy||!!active} onClick={()=>void approve(true)}>기본 이미지로 사용</Button>}</div>{!scene&&<p className="helper-text">여러 버전을 확정할 수 있습니다. 기본 이미지는 하나이며, 다른 확정 버전은 필요한 씬에서 선택합니다.</p>}</>
       : <div className="character-empty">{active ? "이미지가 완성되면 여기에 표시됩니다." : scene ? "씬 설정과 참조 자료를 확인하고 이미지를 만들어 보세요." : "설정을 확인하고 첫 기준 이미지를 만들어 보세요."}</div>}
     {latest?.status==="succeeded" && latest.id!==shown?.id && <Button variant="secondary" onClick={()=>{setChosen(latest.id);setDraft(latest.character);setReferenceOverrides(latest.scene_context?.reference_overrides||{});}}>새 이미지 v{latest.version} 확인</Button>}

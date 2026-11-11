@@ -81,6 +81,11 @@ class ScriptRepository(RegistryRepository):
         ).fetchone()
         if row is None:
             raise RegistryError(404, 'script_version_not_found')
+        from asa.voice_directions import answer_contract
+
+        contract = answer_contract(conn, self.workspace_id, request['id'], version)
+        if contract and 'video_voice_directions' in contract:
+            row['definition'] = {**row['definition'], 'output_schema': contract['output_schema']}
         return {**request, **row}
 
     def _stage(
@@ -140,6 +145,11 @@ class ScriptRepository(RegistryRepository):
                 answer['agent_version'] = answer['agent_version'] or request['version']
                 definition = definitions[answer['agent_version']]
                 answer['output_schema'] = definition['output_schema']
+                from asa.voice_directions import answer_contract
+
+                contract = answer_contract(conn, self.workspace_id, request_id, answer['version'])
+                if contract and 'video_voice_directions' in contract:
+                    answer['output_schema'] = contract['output_schema']
                 answer['requires_approval'] = definition.get('requires_approval', False)
             for attempt in stage['attempts']:
                 attempt['agent_version'] = attempt['agent_version'] or request['version']
@@ -312,7 +322,8 @@ class ScriptRepository(RegistryRepository):
                     existing["base_version"] != body.base_version
                     or existing["instruction"] != body.instruction
                     or ('request_input' in body.model_fields_set and body.request_input !=
-                        json.loads(existing['prompt'])['original_request'])
+                        json.loads(existing['prompt']).get('submitted_request',
+                            json.loads(existing['prompt'])['original_request']))
                 ):
                     raise RegistryError(409, "work_conflict")
             else:
@@ -329,6 +340,16 @@ class ScriptRepository(RegistryRepository):
                     ).fetchone()
                     if prior:
                         request['input'] = json.loads(prior['prompt'])['original_request']
+                from asa.registry import art_styles
+
+                submitted_request = request['input']
+                is_video = any(field.get('x-video-model') is True for field in
+                               request['definition']['input_schema'].get('properties', {}).values())
+                visual_style = (art_styles.resolve(
+                    conn, self.workspace_id, request['input'], UUID(str(request_id)))
+                    if is_video else None)
+                request['input'] = art_styles.video_inputs(request['definition'], request['input'],
+                                                         visual_style)
                 if not valid_input(request['input'], request['definition']['input_schema']):
                     raise RegistryError(422, 'retry_input_required')
                 if execution_settings is not None:
@@ -382,15 +403,31 @@ class ScriptRepository(RegistryRepository):
                     if base
                     else None
                 )
+                voice_contract = {}
+                if any(field.get('x-video-model') is True for field in
+                       request['definition']['input_schema'].get('properties', {}).values()):
+                    from asa.audio_instructions import upgrade_definition
+                    from asa.voice_directions import snapshot
+
+                    # Extend the answer contract without appending legacy mute/TTS instructions.
+                    request['definition']['output_schema'] = upgrade_definition(
+                        request['definition'])['output_schema']
+                    voice_contract['video_voice_directions'] = snapshot(
+                        conn, self.workspace_id, request['input'])
                 prompt = json.dumps(
                     {
+                        **voice_contract,
+                        "work_visual_style": visual_style,
+                        "submitted_request": submitted_request,
                         "agent_instructions": request["definition"]["instructions"],
                         "agent_version": request['version'],
                         "agent_name": request['definition']['name'],
                         "scene_timing": request['definition'].get('after_tasks', {}).get(
                             'scene_timing', False),
                         "video_prompt_bundle": build_prompt_bundle(
-                            request["definition"], request["input"]
+                            request["definition"], request["input"],
+                            work_media_type=(visual_style.get('media_type')
+                                             if visual_style else None),
                         ),
                         "original_request": request["input"],
                         "input_schema": request["definition"]["input_schema"],
@@ -591,9 +628,18 @@ def execute_attempt(
     def draft(state: ScriptState) -> ScriptState:
         result = generate(state["prompt"])
         if isinstance(result, AgentAnswer):
-            schema = json.loads(state["prompt"])["output_schema"]
+            contract = json.loads(state['prompt'])
+            schema = contract['output_schema']
             if not valid_input(result.value, schema):
                 raise ValueError("invalid_agent_output")
+            if 'video_voice_directions' in contract:
+                from asa.voice_directions import apply_snapshot
+
+                try:
+                    apply_snapshot(result.value.get('audio_plan', {}),
+                                   contract['video_voice_directions'])
+                except RegistryError as exc:
+                    raise ValueError(exc.code) from exc
         elif not isinstance(result, Script):
             raise ValueError("invalid_agent_output")
         return {"script": result}

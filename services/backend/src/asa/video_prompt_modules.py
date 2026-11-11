@@ -121,13 +121,18 @@ def build_prompt_bundle(
     registry: tuple[Module, ...] = REGISTRY,
     root: Path = MODULE_ROOT,
     catalog: dict[str, Any] | None = None,
+    work_media_type: MediaType | None = None,
 ) -> dict[str, Any]:
     """Freeze composition at enqueue time, so retries never read newer module bodies."""
     config = VideoPromptModules.model_validate(definition.get("video_prompt_modules") or {})
+    if work_media_type:
+        config = config.model_copy(update={"enabled": True, "mode": "auto", "profile_id": None})
     # Agent schemas may accept scalar or array roots, which have no mapped fields.
     style_inputs = inputs if isinstance(inputs, dict) else {}
     warnings: list[str] = []
     candidates: list[tuple[str, str]] = []
+    if work_media_type:
+        candidates.append(("work", work_media_type))
     if config.enabled:
         if config.mode == "manual" and config.profile_id:
             candidates.append(("manual", config.profile_id))

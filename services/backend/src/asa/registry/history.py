@@ -135,7 +135,14 @@ class HistoryRepository(RegistryRepository):
             ).fetchone()
             if version is None:
                 raise RegistryError(404, "tool_not_found")
-            if not valid_input(body.input, version["definition"]["input_schema"]):
+            from asa.registry import art_styles
+
+            definition = version["definition"]
+            video = any(field.get('x-video-model') for field in
+                        definition['input_schema'].get('properties', {}).values())
+            style = art_styles.resolve(conn, self.workspace_id, body.input) if video else None
+            effective_input = art_styles.video_inputs(definition, body.input, style)
+            if not valid_input(effective_input, definition["input_schema"]):
                 raise RegistryError(422, "invalid_work_input")
             if body.source_id:
                 source = conn.execute(

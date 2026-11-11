@@ -34,6 +34,20 @@ export function Button({ variant = "primary", className = "", type = "button", .
   return <button type={type} className={`button button--${variant} ${className}`} {...props} />;
 }
 
+export function DisclosureIcon(){
+  return <svg className="disclosure-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d="m9 5 7 7-7 7"/></svg>;
+}
+export function DisclosureButton({children,className="",...props}:ButtonProps){
+  return <Button {...props} className={`disclosure-button ${className}`}><span>{children}</span><DisclosureIcon/></Button>;
+}
+export function DisclosureSummary({children}:{children:ReactNode}){
+  return <summary className="disclosure-summary"><span>{children}</span><DisclosureIcon/></summary>;
+}
+
+export function DraftNotice({message,hint,actionLabel,disabled,onReset}:{message:string;hint?:string;actionLabel:string;disabled?:boolean;onReset:()=>void}){
+  return <div className="preview-banner draft-notice"><div className="draft-notice-copy"><p role="status">{message}</p>{hint&&<p className="helper-text">{hint}</p>}</div><Button variant="secondary" disabled={disabled} onClick={onReset}>{actionLabel}</Button></div>;
+}
+
 export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
   return <div className={`card ${className}`}>{children}</div>;
 }

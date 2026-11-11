@@ -12,6 +12,9 @@
 
 ## 토큰
 
+작품 제작 화면은 `work-common-settings`의 ‘작품 공통 설정’ 제목 아래 화풍·나레이션을 모으고, `production-section-heading`의 구분선·제목으로 캐릭터/씬 영역을 분리한다. 기존 sidebar 폭은 유지한다.
+관리자 공통 화풍 편집은 `art-catalog-editor`에서 자체 저장을 제공한다. 입력과 예시 이미지를 데스크톱 2열/900px 이하 1열로 배치한다. 이 grid 내부 Field는 grid gap으로 간격을 관리하므로 공통 Field의 margin-top을 0으로 재정의한다. label/control 사이 gap8px, 항목 내부 gap24px 및 선택 상태·오류 안내를 유지한다.
+
 사용자 선택에 따라 밝고 정돈된 작업 도구 스타일을 기본으로 한다.
 light: canvas #f7f8fa, surface #ffffff, text #20252e, muted #626b78,
 border #dfe3e9, primary #5146d9, on-primary #ffffff.

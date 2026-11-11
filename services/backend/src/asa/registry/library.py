@@ -299,7 +299,7 @@ def index(repo: RegistryRepository, user_id: str) -> dict[str, Any]:
             by_work[auto_id] = work
         by_work[auto_id].update(
             automatic=True,
-            origin=f"/?request={root}" if root in roots else None,
+            origin=f"/works/{root}" if root in roots else None,
             source_label=sources[root].get("source_label", ""),
             created_at=sources[root].get("created_at"),
             context=sources[root].get("context", ""),
@@ -326,7 +326,7 @@ def index(repo: RegistryRepository, user_id: str) -> dict[str, Any]:
             source_name=names.get(
                 rid, item.get("source_name") or ("삭제된 작업" if rid else "직접 업로드")
             ),
-            origin=f"/?request={rid}&answer={item['answer_version']}" if rid in names else None,
+            origin=f"/works/{rid}/answers/{item['answer_version']}" if rid in names else None,
         )
         item["category"] = asset_category(item)
         item.setdefault("media_url", None)

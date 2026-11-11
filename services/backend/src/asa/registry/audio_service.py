@@ -36,7 +36,12 @@ def load(
             seed = answer["audio_plan"] or {}
         elif isinstance(answer.get("characters"), list):
             seed = {"speakers": [{"id": c["id"], "name": c["name"]} for c in answer["characters"]]}
-    if not saved and isinstance(answer, dict) and isinstance(answer.get('characters'), list):
+    if isinstance(answer, dict) and isinstance(answer.get('characters'), list):
+        # Present a narrator for legacy saved plans too, without persisting on a read.
+        if saved:
+            from copy import deepcopy
+
+            seed = deepcopy(saved['settings'])
         speakers = seed.setdefault('speakers', [])
         if not any(s.get('role') == 'narrator' for s in speakers):
             used = {s['id'] for s in speakers}
@@ -44,9 +49,17 @@ def load(
             while narrator_id in used:
                 narrator_id += '_'
             speakers.append({'id': narrator_id, 'name': '나레이션', 'role': 'narrator'})
+    if not saved and isinstance(answer, dict) and 'clips' in answer:
+        from asa.voice_directions import answer_snapshot, apply_snapshot
+
+        directions = answer_snapshot(conn, workspace, request, version)
+        if directions is not None:
+            seed = apply_snapshot(seed, directions)
     return {
         "revision": saved["revision"] if saved else 0,
-        "settings": AudioSettings.model_validate(saved["settings"] if saved else seed),
+        "settings": AudioSettings.model_validate(
+            seed if isinstance(answer, dict) and isinstance(answer.get('characters'), list)
+            else saved['settings'] if saved else seed),
         "answer": answer,
     }
 
@@ -75,12 +88,15 @@ def speech_spec(settings: Settings, data: AudioSettings, cue_id: str) -> dict[st
             "model": model.model_dump()}
 
 
+SAMPLE_TEXT = '오늘은 어떤 이야기가 기다리고 있을까요? 우리 함께 시작해 봐요.'
+
+
 def sample_spec(settings: Settings, data: AudioSettings, speaker_id: str) -> dict[str, Any]:
     speaker = next((s for s in data.speakers if s.id == speaker_id), None)
     if not speaker:
         raise RegistryError(404, 'audio_speaker_missing')
     cue = Cue(id=speaker.id, speaker_id=speaker.id,
-              text='오늘은 어떤 이야기가 기다리고 있을까요? 우리 함께 시작해 봐요.',
+              text=SAMPLE_TEXT,
               start=0, end=60)
     sample = data.model_copy(update={'cues': [cue]})
     return {**speech_spec(settings, sample, cue.id), 'purpose': 'sample'}
@@ -276,7 +292,8 @@ def composition_spec(
         music = {"id": str(data.music.asset_id), "sha": asset["sha256"]}
     return {
         "settings_revision": current["revision"],
-        "settings": data.model_dump(mode="json"),
+        "settings": data.model_dump(mode="json", exclude={
+            'delivery_mode': True, 'speakers': {'__all__': {'video_enabled'}}}),
         "videos": videos,
         "speech": speech,
         "music": music,

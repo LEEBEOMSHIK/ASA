@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from asa.auth.session import OwnerSessions
 from asa.config import Settings
 from asa.database import close_database, connection
+from asa.registry.art_style_catalog import catalog_router
 from asa.registry.audio_routes import audio_router
 from asa.registry.automation_categories import automation_category_router
 from asa.registry.automations import automation_router
@@ -57,6 +58,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(category_router(settings, sessions))
     app.include_router(automation_category_router(settings, sessions))
     app.include_router(branding_router(settings, sessions))
+    app.include_router(catalog_router(settings, sessions))
     app.include_router(video_planning_router(settings, sessions))
     app.include_router(video_job_router(settings, sessions))
     app.include_router(audio_router(settings, sessions))

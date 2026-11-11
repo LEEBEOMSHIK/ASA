@@ -139,6 +139,7 @@ def review_image(
     reference: bytes | None,
     scene_context: dict[str, Any] | None = None,
     scene_references: list[bytes] | None = None,
+    art_style: dict[str, Any] | None = None,
 ) -> Any:
     model = init_chat_model(
         definition["model"],
@@ -156,6 +157,7 @@ def review_image(
                     "character": character,
                     "scene_context": scene_context,
                     "requested_change": change,
+                    "common_art_style_at_generation": art_style,
                     "image_order": {
                         "target": 1,
                         "base_before_edit": 2 if reference else None,
@@ -185,9 +187,11 @@ def review_image(
         "required": ["value", "report"],
         "additionalProperties": False,
     }
+    from asa.registry.art_styles import apply_style
     result = model.with_structured_output(envelope).invoke(
         [SystemMessage(content=definition["instructions"]),
-         SystemMessage(content=REPORT_INSTRUCTIONS), HumanMessage(content=content)],
+         SystemMessage(content=apply_style(REPORT_INSTRUCTIONS, art_style)),
+         HumanMessage(content=content)],
         **call_config(),
     )
     if not isinstance(result, dict) or not valid_input(
@@ -222,7 +226,8 @@ def process_review(repo: Any, settings: Settings) -> bool:
             (repo.workspace_id, review["id"]),
         )
         job = conn.execute(
-            "SELECT j.image,j.base_id,j.scene_context,p.request_id FROM character_image_jobs j "
+            "SELECT j.image,j.base_id,j.scene_context,j.art_style,p.request_id "
+            "FROM character_image_jobs j "
             "JOIN character_projects p ON p.workspace_id=j.workspace_id AND p.id=j.project_id "
             "WHERE j.workspace_id=%s AND j.id=%s",
             (repo.workspace_id, review["image_id"]),
@@ -266,6 +271,9 @@ def process_review(repo: Any, settings: Settings) -> bool:
                 from asa.registry.scene_images import reference_bytes
                 extra = {"scene_context": job["scene_context"],
                          "scene_references": reference_bytes(repo, job["scene_context"])}
+            style = job.get('art_style') or {}
+            if style.get('prompt') or style.get('media_type'):
+                extra['art_style'] = job['art_style']
             result = review_image(
                 config,
                 definition,

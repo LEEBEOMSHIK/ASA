@@ -1,5 +1,74 @@
 # AI Shorts Studio — WORKBOARD
 
+### 완료 작업 일괄 커밋 준비 · 2026-11-12 · 검증 완료
+- 사용자 요청 범위: 현재까지 완료된 미커밋 변경 전체. 음성 특징/샘플·작업 경로와 임시 저장·작품 공통 화풍/관리자 목록 및 관련 테스트/문서/제품용 예시 이미지86개 파일. 기존 index 비어 있음. 사용자 생성 자료·비밀값·DB·캐시는 제외하고 로컬 유지. main에 일괄 커밋·origin 푸시 대상.
+
+- 최종 검증: backend pytest 492 passed (167.01초), Ruff, mypy 88개 소스, frontend typecheck/build 통과. Node 테스트는 TypeScript parameter property 변환을 위해 `node --experimental-transform-types --test apps/web/lib/*.test.mjs`로 실행하여 51개 통과. 기본 strip-only 실행 오류는 변환 옵션으로 해소했으며 제품 코드 변경 없음. diff-check 통과. 유료 AI 호출 없음. 시각 검증은 각 완료 작업 기록의 범위와 미검증 사항을 유지하며 이번 커밋 준비에서는 재실행하지 않음.
+
+### 관리자 공통 화풍 관리 및 영역 제목 · DONE
+- 관리자 에이전트 편집 상단의 접을 수 있는 ‘공통 화풍 관리’에서 workspace 공통 유형별 이름·생성 지침·예시 이미지 업로드/교체/제거·목록 숨김·추가를 관리한다. 일반 사용자는 읽기만 가능, CSRF/역할/workspace/낙관적 revision 검증. PNG/JPEG/WebP 단일 프레임·크기 검증 후 메타데이터 제거 및640px 정규화. 예시 이미지는 DB에 보관하며 생성 참조 이미지로 사용하지 않는다.
+- 기존 6개 기본 목록을 서버 공통값으로 이동하고 캐릭터/씬의 WorkArtStyle에서 조회한다. 선택 지침은 기존 work_art_styles snapshot에 저장하므로 카탈로그 변경이 기존 작품/이미지/대기 요청을 덮어쓰지 않는다. 이후 선택·저장한 작품 설정은 기존 이미지/비디오 프롬프트/영상 생성 경로를 공유한다.
+- ‘작품 공통 설정’과 ‘캐릭터 설정 및 이미지’/‘씬 설정 및 이미지’ 제목·구분선 추가. sidebar 폭 유지. 관리자 화풍은 에이전트 본문과 분리해 저장하고 미저장 경고를 합산한다.
+- 검증: 전체 pytest492건 통과(164.10s), Ruff/mypy88/typecheck/build/diff-check 통과. 목록 권한·동시 저장·이미지 입력 검증·workspace 격리·기존 작품 지침 유지 및 기존 생성 전달 회귀 포함. 로컬 DB additive migration/API 재시작 완료. 유료 AI 호출/사용자 설정 저장 없음.
+- 브라우저:1440×1000 밝음/어두움 및400×850에서 관리자 유형 필터·지침/긴 이름·숨김·예시 교체/제거·취소·접힘, 작품 영역 제목 확인. grid 내 기존 Field margin24px 중복 제거 후 margin0/gap8px, 항목 gap24px, 작품 제목과 카드 left405px 일치·gap24px, 모바일 가로 넘침 없음. 임시 편집·테마·viewport·나레이션 펼침 원상 복원. 증거 .local/diagnostics/art-style/catalog-*.png,work-section-headings.png,work-headings-mobile.png.
+- 미검증: 실제 유료 생성 품질, 저장 성공/충돌 UI의 시각 상태(격리 DB API 테스트는 통과), 씬 화면 자체 제목의 별도 시각 점검(동일 공통 컴포넌트). 업로드 chooser 도구 응답이 약8분 지연됐으나 교체 결과 확인 완료. 기존 자료 유지, 커밋/푸시 없음.
+
+### 작품 영상 유형 → 화풍 → 비디오 연결 · DONE
+- 작품 공통에서 2D/3D/실사 선택 후 해당 화풍 예시 또는 직접 입력. nullable 유형 추가로 기존 화풍·이미지·접수된 요청 보존. 임시 입력의 구형 문자열 형식 복원 유지, 변경 취소 제공.
+- 캐릭터/씬 이미지 접수 시 유형·화풍 고정. 비디오 프롬프트 새 요청/다시 요청은 선택 이미지의 workspace 소유권과 작품 연결로 공통 설정을 조회하고 영상 유형·스타일 모듈을 일치시킨다. 프론트도 참조 선택에 따라 공통 유형 읽기 전용 표시. 서로 다른 작품 혼합은 거부. 실제 영상 생성 요청에도 고정 설정 전달, 공통 설정이 바뀐 예전 계획은 재요청 안내.
+- 검증: 전체 pytest489건 통과(162.79s), 이후 접수 고정·재접수 멱등성 테스트 추가하여 관련7건 통과(총490개 테스트). Ruff/mypy87/typecheck/build/diff-check 통과. 로컬 additive migration/API 재시작 완료. 실제 유료 AI 호출 없음.
+- 브라우저: 1440×1000 밝음에서 미설정/2D/3D/실사 필터·직접 입력·취소·접힘, 400×850 어두움에서 직접 입력/포커스/버튼 정렬 확인. 콤보박스 같은 시작점·높이44px, 패널 및 카드 간격16px. 기존 sidebar 유지. 임시 선택·테마·viewport 복원, 사용자 설정 저장/확정 없음. 증거 .local/diagnostics/art-style/category-light.png 및 category-mobile-dark.png.
+- 미검증: 실제 AI 결과의 시각적 스타일 준수, 저장 성공/충돌·비디오 읽기 전용 상태의 브라우저 시각 검증(서버 경로는 테스트). 일반 자동화 도구 실행 경로는 이번 에이전트 작업 경로 연결 범위 밖이며 변경하지 않음. 계획 docs/superpowers/plans/2026-11-11-work-visual-category.md. 커밋/푸시 없음.
+
+### 화풍 예시 이미지 및 안내 간소화 · DONE
+- 장문 안내/중복 설명/정상 임시 저장 알림 제거. 동일 인물·정원 벤치 장면의 6종 실제 예시 이미지 카드와 콤보박스 선택 동기화. 직접 입력에서만 입력란 표시. 오류/복원 안내 유지. 기존 작품 자산/설정 변경 없음.
+- 내장 image_gen으로 UI용 예시6장 생성, 원본 복사 apps/web/public/art-style-examples/*.png. 사용자 작품 이미지는 사용하지 않음. 실제 이미지 생성에는 예시 PNG를 전달하지 않고 기존 화풍 설명만 사용. 출처/프롬프트 docs/art-style-examples.md.
+- 브라우저: 6개 이미지 로딩 완료·카드 선택/콤보박스 동기화·직접 입력 전환/내용 유지 확인. 데스크톱 밝음·어두움(1440×1000), 모바일400×850 어두움. 3열/1열, 카드 gap16px, 동일 이미지 경계, 가로 넘침 없음. 전체 카드와 하단 저장 확인, sidebar 폭 유지. 임시 선택/테마/viewport 복원 후 재로딩 확인. 사용자 설정 저장/확정 없음. .local/diagnostics/art-style/images-*.png.
+- typecheck/build/Ruff/mypy87/diff-check 통과. 전체 pytest485건 통과(205.84s), 종료 오류 없음. 변경하지 않은 저장 성공/오류 흐름 시각 재검증 제외, 실제 작품 이미지 생성 품질 미검증. 커밋/푸시 없음.
+
+### 직접 입력 선택 시 화풍 입력란 표시 · DONE
+- 직접 입력에서만 textarea를 표시하고 예시 선택에서는 읽기 전용 설명 표시. 기존 지침 사용에서는 둘 다 숨김. 저장/데이터 계약 유지.
+- 브라우저 실제 확인: 기존 지침/예시 입력란0개, 직접 입력1개 및 예시 내용 유지. 데스크톱 밝음·어두움/400px 밝음, 포커스/접힘 확인. field gap8px, 가로 넘침없음. 기존 미설정·테마·viewport 복원 후 재로딩 확인. 사용자 설정 저장/유료 생성 없음. 증거 .local/diagnostics/art-style/conditional-*.png. 저장 성공/오류 시각 재검증 제외(저장 흐름 불변).
+- typecheck/build/Ruff/mypy87/diff-check 통과. 전체 pytest485건 통과(164.91s), 종료 오류 없음. 커밋/푸시 없음.
+
+### 공통 화풍 예시 선택 · DONE
+- 공통 SelectCombobox에 수채화/2D/3D/실사/웹툰/클레이 예시와 설명, 직접 입력, 기존 제작 지침 사용 추가. 선택하면 설명을 채우며 자유 수정 가능. 직접 입력 전환 시 내용 유지, 기존 임의 화풍은 직접 입력으로 표시. 저장 계약과 기존 화풍/이미지 유지.
+- 브라우저: 예시 선택/설명 반영/직접 입력/키보드 방향키·Enter·Escape 확인. 데스크톱 밝음/어두움,400px 밝음 목록과 포커스 확인. 공통 panel gap16px/label gap8px, 가로 넘침없음. 기존 미설정 상태·테마·viewport 복원 후 새로고침 확인. 사용자 설정 저장·유료 생성 없음. 증거 .local/diagnostics/art-style/select-*.png. 오류/저장 성공 상태는 이번 UI 변경의 별도 시각 재검증 제외(저장 흐름 변경 없음).
+- 검증: typecheck/build/Ruff/mypy87/diff-check 통과. 빌드 최초 EPERM은 권한 있는 실행으로 해결. pytest460건 통과, 시스템 Temp 권한으로 setup 오류25건은 프로젝트 내부 basetemp로 재실행 통과(총485건 확인). 커밋/푸시 없음.
+
+### 작품 공통 화풍 · 2026-11-11 · DONE
+- 캐릭터/씬 상단에 접을 수 있는 공통 화풍 편집 추가. 제목이 아닌 보관함 작품 연결 ID로 공유하며 workspace·권한·낙관적 버전 검증을 적용한다. 저장 후 접힘, 작품/설정 버전별 임시 입력 보존.
+- 새 이미지 접수 시 공통 화풍 snapshot을 저장하고 생성/수정 및 해당 이미지 검수에서 사용한다. 렌더링 화풍만 기존 제안/개별 지침/참조 이미지보다 우선하며 인물·의상·스토리 원문은 보존. 기존 이미지와 접수된 요청은 변경하지 않고, 비워서 저장하면 기존 방식 유지.
+- 출처 확인: 이루리 작업 68b02fe9의 입력 scenes에 “공통 스타일 — 연출 제안: 부드러운 색감의 2D 애니메이션”이 있고, 캐릭터 proposed/appearance/image_prompt 및 이미지 작업 snapshot으로 전달됐다. 별도 사용자 입력 없이 상위 씬 제안에서 유입된 것. 초기 기록의 동화책풍 표현을 실제 원문으로 정정.
+- 검증: 전체 pytest485건 통과(315.25s), 씬 snapshot 공유 추가 후 해당 회귀2건 재통과. Ruff/mypy87/typecheck/build/diff-check 통과. 실제 유료 이미지 생성과 모델의 화풍 준수 품질은 미검증.
+- 브라우저: 캐릭터/씬 상단, 펼침/접힘, 비활성 저장, 포커스 확인. 데스크톱 밝음/어두움 및400px 밝음에서 확인; padding24px/16px, field gap8px, action gap16px, 가로 넘침없음. 사이드바 폭 유지. 증거 .local/diagnostics/art-style/*.png. 사용자 설정·이미지 저장/확정 없음, 테마/viewport 복원. 긴 입력·저장 성공/충돌 UI의 시각 상태는 미검증(API 검증은 통과).
+- 로컬 DB additive migration 적용 및 API 재시작 완료. 유료 큐 소비를 위해 워커를 임의 실행하지 않음. 기존 타 작업 변경 유지, 커밋/푸시 없음.
+
+### 로컬 실행 · 2026-11-11 · DONE
+- 웹3001/API8127/전용 PostgreSQL55439 상태 확인 후 로컬 프로세스로 실행. 생성 워커의 신규 작업 접수 없음.
+- 웹 HTTP200, API /health/ready ready/database connected 확인. 재로더 자식의 uuid_utils DLL 로드 실패 후 직접 import 정상 확인, 실패 재로더 종료 후 일반 API 프로세스로 정상 실행(자동 reload 없음). 보안 정책/의존성/사용자 자료 변경 없음. 실행 작업으로 코드 테스트는 미실행.
+
+### 캐릭터별 목소리 직접/자동 설정 · DONE
+- 나레이션과 같은 스위치/필드 숨김/기존 입력 복원을 캐릭터별로 적용하고 새 영상 요청에 자동 목소리 지시 전달. 사용자 자료 저장/유료 생성 없음.
+- 캐릭터 자동 모드도 원문 대사를 유지하고 역할/이름에 맞는 자동 지시를 snapshot에 기록한다. 과거 snapshot과 보존 입력은 변경하지 않는다.
+- 검증: 회귀9건/전체pytest483건(170.98s) 통과, 종료 오류 없음. Ruff/mypy86/typecheck/build/diff-check 통과. 유료 영상 음색 품질 미검증, 커밋/푸시 없음.
+- 브라우저: 이루리/유령 독립 토글 및 캐릭터 이동 시 유지, 이루리 기존 설명 복원 확인. 데스크톱 어두움 실제 화면 확인, 좁은 밝음 실제444px DOM gap16px/가로 넘침없음. 좁은 화면 스크린샷은 하단에 머물러 컨트롤 확대 시각 검증은 미완료. 테마/viewport/캐릭터/스위치 원상 복원, 사용자 미저장 초안 유지. 증거 .local/diagnostics/voice-directions/character-auto-dark.png.
+
+### 나레이션 자동 목소리와 설정 접기 · DONE
+- 직접 설정을 끄면 필드를 숨기고, 새 비디오 요청은 원문 나레이션을 유지하며 이야기·분위기·이미지 기반 자동 목소리 지시를 전달한다. 기존 입력/음성/과거 snapshot 보존.
+- 스위치 이름을 나레이션 목소리 직접 설정으로 정정. 꺼진 동안 특징/언어/속도 필드 숨김, 자동 안내 표시, 다시 켜면 기존 입력 복원. 원본 설정은 보존하고 새 snapshot에서만 enabled=true와 자동 지시로 변환한다.
+- 검증: pytest482 passed(169.49s), 알림 재연결 분리1건 통과, Ruff/mypy86/typecheck/build/diff-check 통과. 처음 로그가14%에 머물렀으나 최종 로그/exit0 확인. 유료 호출 없음.
+- 브라우저: 실제 사용자 미저장 off 상태 보존, on/off 필드 복원/제거 확인. 데스크톱 어두움·좁은 밝음 실제444px, gap16px, 가로 넘침없음. 설정 저장 안 함, 테마/viewport 복원. 증거 .local/diagnostics/voice-directions/auto-narration-dark.png 및 auto-narration-narrow-light.png. 터치 실기기/실제 영상 음색 품질 미검증. 로컬 에이전트 워커 유휴 정상 재시작/running 확인.
+
+### 목소리 특징을 영상 모델에 전달 · DONE
+- 승인 범위: 캐릭터·작품 공통 나레이션을 설명 기반 설정으로 전환, 비디오 프롬프트와 실제 영상 입력 연결. 기존 음성·샘플·시간 측정 TTS 보존.
+- 기존 미커밋 변경을 보존한다. 신규 유료 AI 생성/사용자 설정 변경 없이 격리 테스트와 브라우저 검증을 진행한다.
+- 계획: docs/superpowers/plans/2026-11-10-video-voice-directions.md.
+- 구현: 설명·언어·속도 의도 기반 캐릭터/공통 나레이션, 저장 후 접힘, 기존 음성 읽기 전용 보관. 요청 시 workspace/캐릭터 ID 기반 스냅샷을 고정하고 답변 편집 계보에도 유지. 영상 요청에 클립별 화자·대사·감정·상대 시간을 포함하고 오디오 미지원/범위 초과/경계 걸친 발화를 차단한다. 시간 측정 TTS와 기존 합성 fingerprint 보존.
+- 검증: 전체 pytest 480 passed(167.46s), Ruff 전체 통과, mypy86파일, frontend typecheck/build 통과. 격리 DB에서 WAN 최종 payload audio=true/특징/대사 전달 및 원본 변경 뒤 snapshot 유지 확인. 실제 유료 생성/음색 품질은 미검증.
+- UI: 실제 이루리 작업에서 기존 설명/샘플 보존, 데스크톱1600px 밝음/어둠 및 좁은 실제400px 확인. grid gap16px, desktop 입력 높이43.99px 동일, 좁은 화면1열/가로 넘침없음. 격리 임시 화면에서 긴 설명2줄 요약, 오류409/저장 성공/접힘/비활성 확인 후 route 제거. 사용자 설정·확정 변경 없음, 테마/viewport 복원. 증거 .local/diagnostics/voice-directions/. 터치 실기기·유료 생성 품질은 미검증.
+- 로컬 에이전트 워커 유휴 확인 후 정상 중지/재시작, running 확인. 커밋/푸시 없음.
+
 ### 입력 편집 순서와 선택지 정렬 · DONE
 - 필수 순서와 편집 표시 순서 불일치 수정. 선택지 삭제 버튼의 고정 margin-top 제거하고 실제 입력과 같은 행에 배치한다. 사용자 설정 저장 없음.
 - 원인/수정: 입력 편집만 properties 순서를 쓰던 것을 실행과 공통 inputEntries(required 우선)로 통합, 영상 스타일은 현재 구성에서5번. ChoiceOptionsEditor의 고정 margin-top32px이 공통 label 최소높이44px과 어긋나던 것을 입력/버튼 동일 grid 행으로 수정. 오류는 행 아래 유지, gap12px.
@@ -1132,3 +1201,29 @@ UI · 실제Chrome 양테마 desktopCSS1600에서 대표씬·연결계획·원�
 완료 · 이야기 길이 공통 도움말: 선택시간은 목표이며 대사속도·행동·편집에 따라 달라지고 씬/음성측정 후 확인, 큰 차이는 구성 보완 안내. 라디오 공통 도움말-선택지 간격 space-3(12px) 적용. 실제 브라우저 CSS1600px 양테마 캡처 및 선택/해제, CSS433px DOM 줄바꿈·넘침없음·12px 확인. 좁은 화면 캡처/다른 비율 입력 화면은 미검증. 임시 선택·테마·viewport 복원, 자료저장/AI호출 없음. pytest470통과177.85초, Ruff0/mypy84/typecheck/build 통과. 빌드 Windows EPERM은 권한 재실행으로 정상종료. 증거 .local/diagnostics/duration-hint/dark.png, light.png. 커밋·푸시 없음.
 진행 중 · 현재까지 완료된 54개 코드·테스트·문서 변경 전체 커밋/푸시 요청. 비밀값·DB·생성음성·스크린샷은 로컬 유지/제외, 직전 전체 pytest470/Ruff/mypy/typecheck/build 검증 결과 사용.
 커밋 준비 완료 · 54개 코드·테스트·문서 포함 목록 및 비밀값 패턴 점검, .env/.local 제외 확인. 테스트 EOF 빈 줄만 정리. 직전 전체470테스트/Ruff/mypy/typecheck/build 통과 상태 유지. 원본자료 삭제 없음. main에 커밋 후 origin/main 푸시 예정.
+진행 중 · 기본 음색 한글 표기/자유 말투 요청 안내/동일 문장 샘플 이력 비교 및 설정 불러오기. 기존 승인·권한·과금 버튼 유지, 사용자자료 보존.
+완료 · 기본 음색 한글 표기/직접 요청 예시·안내/서버 공통 문장 표시/화자별 샘플 이력 비교·설정 불러오기 구현. 현재 설정 일치·끝까지 듣기·정상 샘플 선택 유지. 전체pytest470(206.49초), Ruff/mypy84/typecheck/build 통과. 실제 양테마1600 입력 정렬44px/gap16px,433 단일열 DOM 확인. 생성샘플 카드 실브라우저 및 모바일 캡처 미검증(기존 샘플없음/CDP timeout), 모의 통합테스트 검증. 사용자자료·설정 보존, 유료호출없음. docs/worklogs/2026-11-09-voice-comparison.md 참조.
+진행 중 · 음색10종 한국어 기본샘플 1회 생성/보관·재생·측정 기반 느낌 안내, 맞춤샘플 구분, 단일 음성 상태 유지하며 나레이션 상단 공통 분리. 사용자 요청 기본샘플 생성만 실제 API 호출, 단위테스트는 모의.
+완료 · 기본 샘플10종 준비·즉시 재생/측정 참고 설명/맞춤 샘플 분리, 나레이션 상단 공통 portal 및 캐릭터 상세 분리. 실제 기본 준비11호출·10파일, 조회 추가호출없음. pytest473/Ruff/mypy85/typecheck/build 통과. dark1600·좁은433 배치/간격 확인, 마린 재생완료 및 캐릭터전환 확인. 이번 밝은 테마/10음색별 재생/오류 상태와 화면파일 저장 미검증(CDP timeout). 상세 docs/worklogs/2026-11-09-voice-comparison.md. 사용자자료 보존, 커밋/푸시 없음.
+진행 중 · 공통 나레이션 접기/펼치기와 저장·목소리 선택 성공 후 자동 접기. 저장된 작업은 요약으로 시작, 미설정은 펼침, 저장 실패는 유지. 사용자 설정/AI 호출 변경 없음.
+완료 · 공통 나레이션 접기/펼치기 및 저장·목소리 선택 성공 자동 접힘, 저장된 작업 초기 요약/오류 시 유지 구현. dark1600 초기·수동토글/높이123px/gap12px, 좁은433 넘침없음 확인. 사용자설정 임의저장 없음, 자동 저장후 동작은 코드확인·밝은테마 미검증. pytest473(172.58초), Ruff/mypy85/typecheck/build/diff-check 통과. docs/worklogs/2026-11-09-voice-comparison.md 참조. 커밋/푸시 없음.
+진행 중 · 맞춤 샘플 상태 공통 판정: 미생성/대기·생성/듣고 선택/선택 완료 및 실패 구분. 나레이션 요약과 각 화자에 동일 적용, 이전 설정 샘플 제외.
+완료 · 맞춤 샘플 상태 공통화: 미생성(중립)/대기·생성 중/듣고 선택/선택 완료 및 실패·호출 불명확 구분. 해당 화자 변경 여부와 현재 샘플만 반영, 나레이션 요약·상세/캐릭터 공통 적용. Node 상태회귀1건(11조건), pytest473(172.51초), Ruff/mypy85/typecheck/build/diff-check 통과. dark1600 미생성 실화면/간격12px 확인; 다른 생성 상태·밝은/좁은 화면 미검증. 유료호출/사용자설정 저장/커밋·푸시 없음. docs/worklogs/2026-11-09-voice-comparison.md 참조.
+진행 중 · 워커 상태 상단 스티키 복구. 모달 도입 후 panel 하위 strip의 position:static이 기존 sticky를 해제한 것이 원인. 전체 panel을 sticky로 고정, 모달/모바일 확인.
+완료 · 워커 상태 panel 상단 sticky 복구(position:static 덮어쓰기 원인 제거). dark1600 scrollY1577/top0, 모달 열기·닫기, 좁은433 top0/2줄/가로넘침없음 확인. 밝은테마·좁은캡처 미검증. 전체pytest473(168.28초), Ruff/mypy85/typecheck/build/diff-check 통과. docs/worklogs/2026-11-09-worker-sticky.md. 사용자 설정·워커 상태 변경/커밋·푸시 없음.
+진행 중 · 작업 선택 URL 미반영으로 새로고침 시 메뉴 복귀. request/agent/repeat 경로를 URL에 유지하고 초기 로드·popstate 복원 연결. 자동 실행/임의 사용자 데이터 저장 없음.
+완료 · 작업 선택 URL(request/agent/repeat) 유지와 새로고침·popstate 복원. 로딩중 탐색 복원·늦은 응답 무효화, 새 작업 URL정리. 실제 캐릭터작업 reload/back/forward, agent/repeat reload 확인. 미저장 초안·스크롤 영속화 제외. 전체pytest473(172.99초), Ruff/mypy85/typecheck/최종build/diff-check 통과. docs/worklogs/2026-11-09-work-refresh.md. 사용자자료 저장/AI호출/커밋·푸시 없음.
+진행 중 · 브라우저 임시저장: 사용자/workspace/작업/버전/신규draft ID 분리. 새 요청·답변 수정/재요청·음성설정 연결, 정상저장 정리·저장실패 유지·복원안내. 사용자 요청 범위로 구현.
+완료 · 새 요청/기존 답변 수정·재요청/음성설정 브라우저 임시 저장 복원. 사용자·workspace·작업/draft UUID·버전 분리,30일만료/실패안내/정상저장 정리. 실제 신규 A reload/동일에이전트 B 격리/A 재방문, 재요청 문구와 나레이션 초안 reload 확인·테스트내용 정리. codec테스트+pytest473(172.53초)/Ruff/mypy85/typecheck/build/diff-check 통과. 기기간동기화·파일업로드재개·개별이미지팝업 제외, 기타미검증 docs/worklogs/2026-11-09-input-drafts.md. 정식저장/AI호출/커밋·푸시 없음.
+진행 중 · IndexedDB 비동기 임시저장/400ms debounce, pagehide·beforeunload·탭숨김·unmount 최신입력 복구저널, 기존 localStorage 이관 성공후 정리. 키격리 유지/비동기복원 중 입력 덮어쓰기 방지 검증.
+완료 · IndexedDB 트랜잭션 완료 기반 저장/400ms debounce. 종료 직전 미완료값 동기 복구저널, 기존localStorage는 IDB이관commit 이후만 정리, 최신시각·삭제표식으로 오래된write 부활방지. Node5/pytest473(171.02초)/Ruff/mypy85/typecheck/build/diff-check 통과. 실제IDB 이관·복구·격리와 입력직후reload/A·B분리/삭제직후reload 확인. 테스트초안·임시페이지 정리, 정식저장/AI호출/커밋·푸시 없음. docs/worklogs/2026-11-10-indexed-drafts.md.
+진행 중 · 작업 상세 query URL을 /works/{id}, 특정답변 /works/{id}/answers/{version}으로 전환. legacy주소 호환·보관함 origin·새로고침/초안키 보존.
+완료 · 상세 /works/{id}, 답변 /works/{id}/answers/{version} 경로 전환. 보관함·관리origin 갱신, legacy query 호환/새로고침·back·새작업root 확인, 초안 키 유지. Node경로테스트/pytest473(172.11초)/Ruff/mypy85/typecheck/build/diff-check 통과. 레이아웃변경·자료저장·AI호출·커밋/푸시 없음. docs/worklogs/2026-11-10-restful-work-paths.md.
+진행 중 · 공통 DisclosureButton/DisclosureSummary로 작업 나레이션·기본샘플 비교·수정요청·요청이력·답변비교의 접힘/펼침 아이콘 통일. 기존 sidebar/combobox 전용아이콘 보존.
+완료 · 공통 접기·펼치기 chevron(닫힘 오른쪽/열림 아래)을 나레이션·기본음색비교·답변비교·수정요청·재요청입력·요청이력·운영자정보에 적용. native marker 중복 제거, 키보드/텍스트 보존. desktop dark 실제화면+DOM16px/8px간격 검증. 좁은화면 DOM검증, 캡처 timeout·밝은테마 등 시각미검증 기록. pytest473(173.05초)/Ruff/mypy85/typecheck/build/diff-check 통과. docs/worklogs/2026-11-10-disclosure-icons.md. 사용자자료저장/AI호출/커밋·푸시 없음.
+진행 중 · 사용자 요청에 따라 공통 disclosure 아이콘을 문구 뒤/summary 오른쪽 끝으로 이동. 간격·펼침 회전 유지.
+완료 · 공통 disclosure 아이콘을 오른쪽으로 이동(summary 행 끝, 버튼 문구 뒤). desktop dark 실제 화면/DOM 오른쪽배치·8px간격·중앙정렬·펼침회전·Enter접기 확인, 임시상태 복원. pytest473(169.77초)/Ruff/mypy85/typecheck/build/diff-check 통과. 밝은/좁은화면 이번 시각 미검증. docs/worklogs/2026-11-10-disclosure-icons.md. 커밋·푸시 없음.
+진행 중 · 맞춤 샘플 버튼에서 현재 설정 저장→응답 revision으로 생성 요청 연결. 나레이션/캐릭터 공통, 진행·실패 안내 및 중복 클릭 방지 검증.
+완료 · 나레이션/캐릭터 맞춤 샘플 버튼에서 변경·최초설정 저장→반환 revision으로 생성 접수. 저장실패는 생성중단/입력보존, 요청실패는 저장유지/인라인오류, 접수후조회실패 구분. ref잠금·진행문구·나레이션 펼침유지. 단위3/pytest473(169.71초)/Ruff/mypy85/typecheck/build/diff-check 통과. 실제 dark desktop 미저장초안 버튼활성·16px/12px간격 확인. 유료호출/실패·진행의 실제브라우저/밝은·좁은화면 미검증. docs/worklogs/2026-11-10-sample-auto-save.md. 사용자자료저장/AI호출/커밋·푸시 없음.
+진행 중 · 임시저장 안내 의미 명확화 및 공통 DraftNotice의 문구/버튼 간격 수정. 음성 되돌리기 버튼 기능과 보존 범위 안내, 다른 입력 화면 공통 적용.
+완료 · 공통 DraftNotice 적용(음성/새요청). 문구묶음8px/버튼16px, 상속문단margin제거. 음성 되돌리기 의미·생성음성보존 안내. dark desktop screenshot/DOM 실제16px, 좁은width433 overflow없음 확인. 밝은/새요청개별시각 미검증. pytest473(169.94초)/Ruff/mypy85/typecheck/build/diff-check 통과. docs/worklogs/2026-11-10-draft-notice.md. 사용자입력보존/자료저장·삭제·AI호출·커밋·푸시 없음.

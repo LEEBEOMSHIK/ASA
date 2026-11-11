@@ -149,6 +149,7 @@ class OwnerSessions:
                 "csrf_token": self.csrf(request.cookies[COOKIE]),
                 "workspace_id": str(principal.workspace_id),
                 "roles": principal.roles,
+                "user_id": principal.user_id,
             }
 
         @router.delete("/session", status_code=204)

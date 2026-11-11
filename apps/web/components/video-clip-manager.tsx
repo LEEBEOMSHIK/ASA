@@ -13,11 +13,14 @@ type Clip = {
   connection_type?: "cut" | "continue"; previous_clip_id?: string | null;
 };
 type Plan = {model_key: string; model_revision: string; aspect_ratio: string; clips: Clip[]};
-type Job = {id: string; clip_id: string; status: string; reference_valid?: boolean; error_code?: string; estimate: string | number | null; created_at:string; updated_at:string};
-type Jobs = {enabled: boolean; available_models:string[]; worker_online:boolean; jobs: Job[]; rates:Record<string,number|null>};
+type Job = {id: string; clip_id: string; status: string; reference_valid?: boolean; error_code?: string; estimate: string | number | null; created_at:string; updated_at:string;voice_direction_prompt?:string};
+type Jobs = {enabled: boolean; available_models:string[]; worker_online:boolean; jobs: Job[]; rates:Record<string,number|null>;voice_delivery?:{mode:string;supports_audio?:boolean;error:string|null;clips:{clip_id:string;prompt:string}[];speakers:{id:string;name:string;role:string;enabled:boolean;instructions:string;language:string;speed:number}[]}};
 const labels: Record<string,string> = {queued:"실행 대기",submitting:"요청 전송 중",running:"영상 생성 중",
   review:"검토 필요",approved:"확정",unknown:"공급자 결과 확인 필요",failed:"생성 실패"};
 const errors: Record<string,string> = {
+  audio_timeline_invalid:"영상 길이를 벗어난 대사·나레이션이 있습니다. 발화 시간표와 영상 길이를 맞춰 주세요.",
+  video_audio_unsupported:"선택한 영상 모델은 음성 생성을 지원하지 않습니다. 오디오 지원 모델로 비디오 프롬프트를 다시 요청해 주세요.",
+  video_voice_cue_crosses_clip:"대사가 클립 경계를 넘어갑니다. 발화가 한 클립 안에 들어가도록 시간표 또는 클립 구성을 수정해 주세요.",
   video_previous_approval_required:"앞 영상을 확인하고 확정한 뒤 생성할 수 있습니다.",
   video_previous_reference_changed:"앞 영상의 확정 버전이 변경되었습니다. 연결을 다시 검토해야 합니다.",
   video_frame_extraction_failed:"앞 영상의 마지막 프레임을 추출하지 못했습니다. 다음 영상은 생성하지 않았습니다.",
@@ -66,7 +69,7 @@ export function VideoClipManager({plan, requestId, version}: {plan:Plan; request
   const eligible = plan.clips.filter(c => mode === "generate" ? !byClip.has(c.clip_id) && ready(c) : byClip.get(c.clip_id)?.status === "review" && byClip.get(c.clip_id)?.reference_valid !== false);
   const seconds = plan.clips.filter(c => selected.includes(c.clip_id)).reduce((total,c)=>total+c.duration_seconds,0);
   const rate = data?.rates[plan.model_key];
-  const available = !!data?.enabled && !!data.available_models?.includes(plan.model_key);
+  const available = !!data?.enabled && !!data.available_models?.includes(plan.model_key) && !data.voice_delivery?.error;
   function enter(next:typeof mode) { setMode(next); setSelected([]); }
   async function submit() {
     setBusy(true);
@@ -82,6 +85,7 @@ export function VideoClipManager({plan, requestId, version}: {plan:Plan; request
     </div></div>
     {data && !available && <p className="notice">선택한 모델의 영상 생성 연결을 기다리고 있어요. 클립별 프롬프트와 시작 이미지를 먼저 확인할 수 있습니다.</p>}
     {available && !data?.worker_online && <p className="notice">영상 워커 연결 대기 중입니다. 접수한 클립은 워커가 연결되면 생성됩니다.</p>}
+    {data?.voice_delivery?.mode==="video"&&<div className="voice-directions"><h3>영상에 전달할 목소리 특징</h3><p className="muted">비디오 프롬프트를 요청할 때 저장된 특징입니다. 캐릭터 설정을 바꿨다면 다시 요청해야 새 특징이 반영됩니다. 실제 음색과 대사는 생성 영상에서 확인하세요.</p>{data.voice_delivery.error&&<p role="alert" className="notice">{errors[data.voice_delivery.error]||"음성 시간표를 확인해 주세요."}</p>}{data.voice_delivery.speakers.map(s=><div key={s.id}><strong>{s.name} · {s.role==="narrator"?"공통 나레이션":"캐릭터"}</strong><p>{s.enabled?(s.instructions||"목소리 특징 미지정"):"사용 안 함"}</p>{s.enabled&&<p className="muted">{s.language} · 속도 의도 {s.speed}배</p>}</div>)}</div>}
     {error && <p role="alert" className="field-error">{error} <Button variant="secondary" onClick={refresh}>상태 새로고침</Button></p>}
     <nav className="character-picker scene-manager-picker" aria-label="영상 클립 선택">{plan.clips.map((c,i) =>
       <button key={c.clip_id} type="button" disabled={busy || (!!mode && !eligible.includes(c))}
@@ -109,11 +113,12 @@ export function VideoClipManager({plan, requestId, version}: {plan:Plan; request
           ? `/api/v1/video-clips/asset/${parent.id}/last-frame`
           : `/api/v1/characters/images/${encodeURIComponent(clip.image_id)}/asset`} /></details>}
       <div><h4>영상 제작 지시</h4><p>{clip.prompt}</p></div>
+      {data?.voice_delivery?.mode==="video"&&<div><h4>{job?"생성 요청에 전달한 음성 지시":"이 클립의 음성 지시"}</h4><p style={{whiteSpace:"pre-wrap"}}>{job?.voice_direction_prompt??data.voice_delivery.clips.find(c=>c.clip_id===clip.clip_id)?.prompt??""}</p>{!(job?.voice_direction_prompt??data.voice_delivery.clips.find(c=>c.clip_id===clip.clip_id)?.prompt)&&<p className="muted">이 클립에 배정된 발화가 없습니다.</p>}</div>}
       {clip.style_application && <div><h4>참고 스타일 반영</h4><p>{clip.style_application}</p></div>}
       {clip.edit_notes && <div><h4>후반 편집 지시</h4><p>{clip.edit_notes}</p></div>}
-      <p className="helper-text">클립 연결은 시작 프레임 전달까지 지원합니다. 음성·음악 제작에서 컷 연결과 오디오 합성을 진행합니다. 자막 합성·모델 연장 API는 아직 지원하지 않습니다.</p>
+      <p className="helper-text">클립 연결은 시작 프레임 전달까지 지원합니다. {data?.voice_delivery?.mode==="video"?"목소리 특징과 대사는 영상 모델에 전달하며, 실제 음성은 생성 영상에서 확인합니다.":"음성·음악 제작에서 컷 연결과 오디오 합성을 진행합니다."} 자막 합성·모델 연장 API는 아직 지원하지 않습니다.</p>
       <details><summary>대본과 장면 연결 확인</summary><p>{clip.source_excerpt}</p><p>시작 모습 · {clip.continuity_in}</p>
         <p>종료 모습 · {clip.continuity_out}</p><p>{clip.split_reason}</p></details>
     </div></Card>
-  <AudioProduction key={requestId+":"+version} requestId={requestId} version={version}/></section>;
+  {data?.voice_delivery?.mode!=="video"&&<details><summary>기존 별도 음성·음악 제작</summary><p className="muted">이전 제작 방식입니다. 캐릭터의 목소리 특징을 영상 모델에 전달하려면 비디오 프롬프트를 새로 요청해 주세요. 기존 음성은 보존됩니다.</p><AudioProduction key={requestId+":"+version} requestId={requestId} version={version}/></details>}</section>;
 }

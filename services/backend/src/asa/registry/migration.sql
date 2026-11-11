@@ -513,6 +513,20 @@ CREATE TABLE IF NOT EXISTS library_works (
  name text NOT NULL CHECK(length(name) BETWEEN 1 AND 120), revision integer NOT NULL DEFAULT 1,
  PRIMARY KEY(workspace_id,id)
 );
+CREATE TABLE IF NOT EXISTS work_art_styles (
+ workspace_id uuid NOT NULL REFERENCES registry_workspaces(id), work_id uuid NOT NULL,
+ prompt text NOT NULL DEFAULT '' CHECK(length(prompt)<=2000),
+ revision integer NOT NULL DEFAULT 1,
+ PRIMARY KEY(workspace_id,work_id)
+);
+CREATE TABLE IF NOT EXISTS art_style_catalog (
+  workspace_id uuid PRIMARY KEY REFERENCES registry_workspaces(id),
+  revision integer NOT NULL DEFAULT 0,
+  items jsonb NOT NULL DEFAULT '[]'::jsonb
+);
+ALTER TABLE character_image_jobs ADD COLUMN IF NOT EXISTS art_style jsonb;
+ALTER TABLE work_art_styles ADD COLUMN IF NOT EXISTS media_type text
+ CHECK(media_type IN ('animation_2d','animation_3d','live_action'));
 CREATE TABLE IF NOT EXISTS library_assignments (
  workspace_id uuid NOT NULL REFERENCES registry_workspaces(id), subject text NOT NULL,
  work_id uuid, revision integer NOT NULL,

@@ -31,8 +31,14 @@ def prepare(
     settings: Settings,
     body: VideoPreparation,
     source_selection: dict[str, Any] | None = None,
+    voice_settings: Any = None,
+    visual_style: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     model = profile(settings, body.model_key, body.model_revision)
+    if voice_settings:
+        from asa.voice_directions import validate_timeline
+
+        validate_timeline(voice_settings, body.clips[-1].source_end_seconds)
     if body.aspect_ratio not in model.aspect_ratios:
         raise RegistryError(422, "video_aspect_ratio_unsupported")
     if body.audio and not model.supports_audio:
@@ -61,6 +67,12 @@ def prepare(
     images = {scene["image_id"]: scene for scene in selected["scenes"]}
     prepared = []
     for clip in body.clips:
+        from asa.voice_directions import clip_audio_prompt
+
+        voice_prompt = (clip_audio_prompt(voice_settings, clip.source_start_seconds,
+                                         clip.source_end_seconds) if voice_settings else '')
+        if voice_prompt and not model.supports_audio:
+            raise RegistryError(422, 'video_audio_unsupported')
         image = images[str(clip.image_id)]
         if (clip.scene_id, clip.shot_id) != (image["scene_id"], image["shot_id"]):
             raise RegistryError(422, "video_scene_reference_mismatch")
@@ -74,9 +86,13 @@ def prepare(
                 clip.prompt.strip(),
                 f"시작 상태 / Start: {clip.continuity_in}" if clip.continuity_in else "",
                 f"종료 상태 / End: {clip.continuity_out}" if clip.continuity_out else "",
+                voice_prompt,
             )
             if part
         )
+        from asa.registry.art_styles import apply_style
+
+        prompt = apply_style(prompt, visual_style)
         if not prompt or len(prompt) > model.max_prompt_chars:
             raise RegistryError(422, "video_prompt_limit")
         prepared.append(
@@ -97,7 +113,9 @@ def prepare(
                     "duration_seconds": clip.duration_seconds,
                     "aspect_ratio": body.aspect_ratio,
                     "resolution": model.resolution,
-                    "audio": body.audio,
+                    "audio": bool(voice_prompt) or body.audio,
+                    "voice_direction_prompt": voice_prompt,
+                    "work_visual_style": visual_style,
                     "start_image_id": str(clip.image_id),
                     "connection_type": clip.connection_type,
                     "previous_clip_id": clip.previous_clip_id,

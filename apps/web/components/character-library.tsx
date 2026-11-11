@@ -1,4 +1,5 @@
 "use client";
+import {workHref} from "../lib/work-route";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { api, message, type SchemaNode } from "../lib/registry";
 import { Button, Field, InputRequirement, SelectCombobox, StatusBadge } from "./ui";
@@ -11,7 +12,7 @@ type Listing = {items:ImageCard[];has_more:boolean;facets:Facet[]};
 type Selection = {format:string;characters:Character[]};
 const labels:Record<string,string> = {approved:"확정",review:"검토 필요",excluded:"사용 안 함",running:"새 이미지 생성 중",queued:"새 이미지 대기",failed:"생성 실패 확인",unknown:"상태 확인 필요"};
 const asset = (id:string) => `/api/v1/characters/images/${id}/asset`;
-const origin = (item:ImageCard) => `/?request=${item.request_id}&answer=${item.source_version}`;
+const origin = (item:ImageCard) => workHref(item.request_id,item.source_version);
 
 function CloseIcon() {return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>;}
 export function Modal({title,onClose,children,footer,className=""}:{title:string;onClose:()=>void;children:ReactNode;footer?:ReactNode;className?:string}) {

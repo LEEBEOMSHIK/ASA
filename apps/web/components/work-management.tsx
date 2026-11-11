@@ -1,4 +1,5 @@
 "use client";
+import {workHref} from "../lib/work-route";
 import { useEffect, useState } from "react";
 import { api, message } from "../lib/registry";
 import { Button, Card, Field } from "./ui";
@@ -71,7 +72,7 @@ export function WorkManagement(){
         {!deleted&&<Button variant="secondary" onClick={()=>setTarget(r)}>삭제 범위 확인</Button>}</div>
         {deleted?<><p>삭제한 사람 · {r.actor} · {new Date(r.deleted_at).toLocaleString("ko-KR")}</p>
           <Scope counts={r.summary}/>{r.videos.map(v=><a key={v.id} className="button button--secondary" href={"/api/v1/video-clips/asset/"+v.id+"/video"}>보존 영상 · {v.label}</a>)}</>:
-          <p>{new Date(r.created_at).toLocaleString("ko-KR")} · {workStatus(r.status)} · <a href={"/?request="+r.request_id}>작업 열기</a></p>}
+          <p>{new Date(r.created_at).toLocaleString("ko-KR")} · {workStatus(r.status)} · <a href={workHref(r.request_id)}>작업 열기</a></p>}
       </Card>)}
       {(more||offset>0)&&<div className="button-row"><Button variant="secondary" disabled={!offset} onClick={()=>setOffset(offset-20)}>이전</Button><Button variant="secondary" disabled={!more} onClick={()=>setOffset(offset+20)}>다음</Button></div>}
     </>}

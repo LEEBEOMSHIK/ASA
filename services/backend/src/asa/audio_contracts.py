@@ -24,6 +24,7 @@ class Voice(Strict):
 
 
 class Speaker(Strict):
+    video_enabled: bool = True
     id: Identifier
     name: str = Field(min_length=1, max_length=100)
     role: Literal["character", "narrator"] = "character"
@@ -52,6 +53,7 @@ class Music(Strict):
 
 
 class AudioSettings(Strict):
+    delivery_mode: Literal['separate', 'video'] = 'separate'
     timing_auto_align: bool = False
     timing_preview_seconds: float | None = Field(default=None, gt=0, le=3600, allow_inf_nan=False)
     timing_duration_seconds: float | None = Field(default=None, gt=0, le=3600, allow_inf_nan=False)

@@ -32,6 +32,35 @@ def video_job_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
     ) -> dict[str, Any]:
         repo = RegistryRepository(settings.database_url, principal.workspace_id)
         with repo._connect() as conn:
+            from asa.registry.audio_service import load as load_audio
+            from asa.voice_directions import clip_audio_prompt, validate_timeline
+
+            current_audio = load_audio(conn, repo.workspace_id, request_id, version)
+            voice_settings = current_audio['settings']
+            delivery: dict[str, Any] = {'mode': voice_settings.delivery_mode, 'clips': [],
+                                        'speakers': [], 'error': None}
+            if voice_settings.delivery_mode == 'video':
+                model_key = current_audio['answer'].get('model_key')
+                selected_model = settings.video_model_profiles.get(model_key)
+                delivery['supports_audio'] = bool(selected_model and selected_model.supports_audio)
+                delivery['speakers'] = [
+                    {'id': s.id, 'name': s.name, 'role': s.role, 'enabled': s.video_enabled,
+                     'instructions': s.voice.instructions, 'language': s.voice.language,
+                     'speed': s.voice.speed} for s in voice_settings.speakers]
+                try:
+                    validate_timeline(voice_settings,
+                                      current_audio['answer']['clips'][-1]['source_end_seconds'])
+                except RegistryError as exc:
+                    delivery['error'] = exc.code
+                for clip in current_audio['answer'].get('clips', []):
+                    try:
+                        prompt = clip_audio_prompt(voice_settings, clip['source_start_seconds'],
+                                                   clip['source_end_seconds'])
+                        if prompt and not delivery['supports_audio']:
+                            delivery['error'] = 'video_audio_unsupported'
+                        delivery['clips'].append({'clip_id': clip['clip_id'], 'prompt': prompt})
+                    except RegistryError as exc:
+                        delivery['error'] = exc.code
             rows = conn.execute(
                 "SELECT id,clip_id,status,error_code,created_at,updated_at, "
                 "request_id,answer_version,generation_input, "
@@ -45,6 +74,8 @@ def video_job_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
             for row in rows:
                 row["reference_valid"] = reference_valid(row, by_clip)
             for row in rows:
+                row['voice_direction_prompt'] = row['generation_input'].get(
+                    'voice_direction_prompt')
                 row.pop("generation_input")
                 row.pop("video_sha256")
             online = (
@@ -56,6 +87,7 @@ def video_job_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
                 is not None
             )
         return {
+            'voice_delivery': delivery,
             "jobs": rows,
             "worker_online": online,
             "rates": {
@@ -98,9 +130,17 @@ def video_job_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
             from asa.registry.audio_service import load as load_audio
             audio_settings = load_audio(conn, repo.workspace_id, request_id, version,
                                         lock=True)["settings"]
-            if audio_settings.enabled:
+            if audio_settings.enabled and audio_settings.delivery_mode != 'video':
                 plan.audio = False
-            inputs = row["input"]
+            from asa.voice_directions import answer_contract
+
+            contract = answer_contract(conn, repo.workspace_id, request_id, version)
+            inputs = contract.get('original_request', row['input']) if contract else row['input']
+            from asa.registry import art_styles
+
+            visual_style = contract.get('work_visual_style') if contract else None
+            current_style = art_styles.resolve(conn, repo.workspace_id, inputs, request_id)
+            art_styles.check_plan_style(visual_style, current_style)
             if plan.model_key != inputs.get("video_model"):
                 raise RegistryError(422, "video_model_mismatch")
             selection = inputs.get("scene_images")
@@ -112,7 +152,9 @@ def video_job_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
             source_images = {s["image_id"] for s in selection["scenes"]}
             if any(str(c.image_id) not in source_images for c in plan.clips):
                 raise RegistryError(422, "video_scene_reference_mismatch")
-            prepared = prepare(repo, settings, plan, selection)
+            prepared = prepare(repo, settings, plan, selection,
+                               audio_settings if audio_settings.delivery_mode == 'video' else None,
+                               visual_style)
             model = prepared["model_snapshot"]
             if not supported_model(model):
                 raise RegistryError(422, "video_model_unavailable")

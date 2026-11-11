@@ -1,22 +1,25 @@
 "use client";
+import { useWorkDraft } from "../lib/work-draft";
 import { useEffect, useRef, useState } from "react";
 import { api, message, type Definition, type SchemaNode } from "../lib/registry";
 import { pendingVideoUrl, videoLinkLabel } from "../lib/video-link";
 import { isVideoReference } from "./video-input";
-import { AgentIcon, Button, Card, StatusBadge } from "./ui";
+import { AgentIcon, Button, DraftNotice, Card, StatusBadge } from "./ui";
 
 import { inputEntries as entries, isInputRequired, inputConditionHint, isInputVisible } from "../lib/input-requirements";
 import { AgentInput } from "./agent-input";
 
-export function AgentRunPreview({ definition, onBack, customer = false, initialInput, onSave }: {
+export function AgentRunPreview({ definition, onBack, customer = false, initialInput, onSave, draftKey }: {
   definition: Pick<Definition, "name" | "description" | "input_schema"> & Partial<Pick<Definition, "instructions" | "icon">>;
-  onBack: () => void; customer?: boolean; initialInput?: unknown; onSave?: (input: unknown) => Promise<void>;
+  draftKey?:string; onBack: () => void; customer?: boolean; initialInput?: unknown; onSave?: (input: unknown) => Promise<void>;
 }) {
   const [values, setValues] = useState<Record<string, string>>(() => {
     if (initialInput === undefined) return Object.fromEntries(entries(definition.input_schema).filter(([, n]) => n.default !== undefined).map(([key, n]) => [key, String(n.default)]));
     const source = definition.input_schema.type === "object" ? initialInput as Record<string, unknown> : { value: initialInput };
     return Object.fromEntries(Object.entries(source).map(([key, value]) => [key, typeof value === "string" ? value : JSON.stringify(value)]));
   });
+  const originalValues=useRef(values);
+  const draft=useWorkDraft(draftKey,values,setValues,true,JSON.stringify(values)!==JSON.stringify(originalValues.current));
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const [checked, setChecked] = useState(false);
@@ -81,7 +84,7 @@ export function AgentRunPreview({ definition, onBack, customer = false, initialI
             setValues(current => ({ ...current, [key]: JSON.stringify(payload[key]) }));
           }
         }
-        await onSave(definition.input_schema.type === "object" ? payload : payload.value);
+        await onSave(definition.input_schema.type === "object" ? payload : payload.value);draft.clear();
       }
       catch (e) { setError(message(e)); }
       finally { savingRef.current = false; setSaving(false); }
@@ -91,6 +94,7 @@ export function AgentRunPreview({ definition, onBack, customer = false, initialI
     <Button variant="secondary" disabled={saving} onClick={onBack}>{customer ? "← 다른 에이전트 선택" : "← 설정 편집으로 돌아가기"}</Button>
     <div className="page-heading"><div><h1 className="agent-title" ref={heading} tabIndex={-1}><AgentIcon icon={definition.icon}/>{definition.name || "새 에이전트"}</h1><p className="muted">{definition.description || "정보를 입력하고 이 에이전트에게 작업을 맡기는 화면입니다."}</p></div>{!customer && <StatusBadge tone="neutral">미리보기 · 실제 AI 호출 없음</StatusBadge>}</div>
     <p className="preview-banner">{customer ? "실행 후 진행 상태와 답변은 최근 작업에서 확인할 수 있습니다. AI 실행 시 API 이용 비용이 발생합니다." : "현재 편집 중인 설정의 미리보기입니다. 입력 내용은 저장되지 않으며 AI를 호출하지 않습니다."}</p>
+    {draft.notice&&<DraftNotice message={draft.notice} actionLabel="임시 입력 지우기" disabled={saving} onReset={()=>{draft.clear();setValues(originalValues.current);}}/>}
     <div className="run-input-layout"><Card><header className="run-form-heading"><h2>요청 내용</h2><p className="muted">{customer ? "이 에이전트가 작업하는 데 필요한 내용을 입력해 주세요." : "실행할 때 사용자가 입력할 내용을 확인해 보세요."}</p></header>
       <form onSubmit={checkInput}>
         <fieldset disabled={saving} className="request-fields">
@@ -100,7 +104,7 @@ export function AgentRunPreview({ definition, onBack, customer = false, initialI
           const conditionHint = inputConditionHint(definition.input_schema, key);
           return <div className="run-field-section" key={key}>
             {conditionHint && <p className="input-condition-hint" role="status">{conditionHint} {required ? "현재 필수 입력입니다." : "현재 선택 입력입니다."}</p>}
-            <AgentInput node={node} id={`run-input-${key}`} label={label} required={required} value={values[key] ?? ""} videoStyle={values.video_style ?? ""} onChange={v => { setValues(current => ({ ...current, [key]: v })); setChecked(false); setError(""); }} />
+            <AgentInput inputs={values} node={node} id={`run-input-${key}`} label={label} required={required} value={values[key] ?? ""} videoStyle={values.video_style ?? ""} onChange={v => { setValues(current => ({ ...current, [key]: v })); setChecked(false); setError(""); }} />
           </div>;
         })}
         {input.length === 0 && <p>입력 없이 실행하도록 설정된 에이전트입니다.</p>}

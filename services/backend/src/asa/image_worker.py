@@ -94,6 +94,8 @@ def process(repo: CharacterRepository, settings: Settings) -> bool:
             prompt = scene_prompt(scene, job["character"], job["change"])
         else:
             prompt = image_prompt(job["character"], job["change"])
+        from asa.registry.art_styles import apply_style
+        prompt = apply_style(prompt, job.get('art_style'))
         source = conn.execute("SELECT request_id FROM character_projects WHERE workspace_id=%s "
                               "AND id=%s", (repo.workspace_id, job["project_id"])).fetchone()
         assert source

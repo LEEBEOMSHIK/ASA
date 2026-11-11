@@ -16,6 +16,8 @@ from asa.config import Settings
 from asa.registry import audio_service as service
 from asa.registry.repository import RegistryRepository
 from asa.registry.schemas import RegistryError
+from asa.voice_directions import DirectionEdit, merge_directions
+from asa.voice_previews import preview_catalog, preview_info, preview_paths
 
 
 class Edit(Strict):
@@ -54,7 +56,23 @@ def audio_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
                 settings.audio_ai_enabled and settings.audio_key().get_secret_value()
             ),
             "ai_voice_notice": "AI로 생성하는 목소리입니다.",
+            "sample_text": service.SAMPLE_TEXT,
+            "previews": preview_catalog(settings.model_copy(
+                update={'workspace_id': p.workspace_id})),
         }
+
+    @router.get('/previews/{model_key}/{voice}')
+    def basic_preview(model_key: str, voice: str,
+                      p: Principal = Depends(sessions.principal)) -> Response:
+        model = settings.audio_model_profiles.get(model_key)
+        if not model or not model.enabled or voice not in model.voices:
+            raise RegistryError(404, 'audio_preview_missing')
+        scoped = settings.model_copy(update={'workspace_id': p.workspace_id})
+        if not preview_info(scoped, model_key, voice)['ready']:
+            raise RegistryError(404, 'audio_preview_missing')
+        _, path = preview_paths(scoped, model_key, voice)
+        return Response(path.read_bytes(), media_type='audio/wav',
+                        headers={'Cache-Control': 'private, max-age=3600'})
 
     @router.get("/sources")
     def sources(p: Principal = Depends(sessions.principal)) -> list[dict[str, Any]]:
@@ -110,6 +128,9 @@ def audio_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
                     job["current"] = False
             for job in jobs:
                 job["purpose"] = job["input"].get("purpose", current["settings"].purpose)
+                if job['purpose'] == 'sample':
+                    job['sample_voice'] = job['input']['speaker']['voice']
+                    job['sample_text'] = job['input']['cue']['text']
                 job.pop("input", None)
             selected = []
             for speaker in current['settings'].speakers:
@@ -162,6 +183,26 @@ def audio_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
                     Jsonb(body.settings.model_dump(mode="json")),
                 ),
             )
+        return get(request_id, version, p)
+
+    @router.put(path + '/voice-directions')
+    def save_directions(request_id: UUID, version: int, body: DirectionEdit,
+                        p: Principal = Depends(sessions.principal)) -> dict[str, Any]:
+        with repo(p)._connect() as conn:
+            current = service.load(conn, p.workspace_id, request_id, version, lock=True)
+            if current['revision'] != body.revision:
+                raise RegistryError(409, 'audio_settings_changed')
+            if not isinstance(current['answer'], dict) or not isinstance(
+                    current['answer'].get('characters'), list):
+                raise RegistryError(422, 'video_voice_character_work_required')
+            updated = merge_directions(current['settings'],
+                                       [s.model_dump() for s in body.speakers])
+            conn.execute(
+                'INSERT INTO audio_settings VALUES (%s,%s,%s,%s,%s) '
+                'ON CONFLICT(workspace_id,request_id,answer_version) DO UPDATE SET '
+                'revision=excluded.revision,settings=excluded.settings',
+                (p.workspace_id, request_id, version, body.revision+1,
+                 Jsonb(updated.model_dump(mode='json'))))
         return get(request_id, version, p)
 
     @router.get(path + '/timing-preview')

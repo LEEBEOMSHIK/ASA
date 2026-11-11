@@ -11,6 +11,7 @@ import { ExecutionExample, GroupedTools, FriendlyFields, starters, starterDefini
 import { AgentRunPreview } from "./agent-run-preview";
 import { useDirtyGuard, useRegistryAdmin } from "./registry-shell";
 import { VideoPromptEditor } from "./video-prompt-editor";
+import { ArtStyleCatalogEditor } from "./art-style-catalog-editor";
 import { isVideoStyleField, normalizeVideoPrompts } from "../lib/video-prompt-settings";
 
 const initial: Definition = {
@@ -25,6 +26,7 @@ const instructionLimit = 65536;
 export function AgentEditor({ id }: { id?: string }) {
   const router = useRouter();
   const admin = useRegistryAdmin();
+  const [catalogDirty,setCatalogDirty]=useState(false);
   const [draft, setDraft] = useState<Definition>(initial);
   const instructionLength = Array.from(draft.instructions).length;
   const instructionsTooLong = instructionLength > instructionLimit;
@@ -46,7 +48,7 @@ export function AgentEditor({ id }: { id?: string }) {
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
   const setUnsaved = useDirtyGuard();
-  useEffect(() => { setUnsaved(dirty); return () => setUnsaved(false); }, [dirty, setUnsaved]);
+  useEffect(() => { setUnsaved(dirty||catalogDirty); return () => setUnsaved(false); }, [dirty,catalogDirty,setUnsaved]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [issues, setIssues] = useState<Issue[]>([]);
@@ -62,9 +64,9 @@ export function AgentEditor({ id }: { id?: string }) {
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [id]);
-  useEffect(() => { const warn = (e: BeforeUnloadEvent) => { if (dirty) { e.preventDefault(); e.returnValue = ""; } };
+  useEffect(() => { const warn = (e: BeforeUnloadEvent) => { if (dirty||catalogDirty) { e.preventDefault(); e.returnValue = ""; } };
     window.addEventListener("beforeunload", warn); return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty]);
+  }, [dirty,catalogDirty]);
   function edit(next: Definition) { setDraft(normalizeVideoPrompts(next)); setDirty(true); setUnsaved(true); setNotice(""); setError(""); setIssues([]); }
   function changeOutputMode(free: boolean) {
     outputDrafts.current[draft.output_schema.type === "string" ? "free" : "structured"] = draft.output_schema;
@@ -107,6 +109,7 @@ export function AgentEditor({ id }: { id?: string }) {
           {dirty ? "저장된 설정으로 작업 공간 열기 (새 탭)" : "작업 공간에서 열기 →"}
         </a>}
       </div></div>
+    {admin&&<ArtStyleCatalogEditor onDirtyChange={setCatalogDirty}/>}
     <form className="agent-editor-form" onInvalidCapture={e => {
       if (e.target instanceof HTMLElement) {
         let parent = e.target.parentElement;

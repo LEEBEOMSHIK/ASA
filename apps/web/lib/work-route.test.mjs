@@ -1,0 +1,3 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {workHref,workRoute} from './work-route.ts';
+const id='68b02fe9-3e62-4d9c-9b54-77fdae593ca8';
+test('detail and answer paths preserve resource identity and legacy compatibility',()=>{assert.equal(workHref(id),`/works/${id}`);assert.equal(workHref(id,3),`/works/${id}/answers/3`);for(const path of [`/works/${id}/answers/3`,`/?request=${id}&answer=3`])assert.deepEqual(workRoute(new URL(path,'http://local')),{id,answer:3});for(const path of ['/works/no-id',`/works/${id}/answers/0`,`/works/${id}/wrong`,`/?agent=${id}`])assert.equal(workRoute(new URL(path,'http://local')),null);});

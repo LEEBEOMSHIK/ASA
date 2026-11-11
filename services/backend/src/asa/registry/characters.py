@@ -12,6 +12,7 @@ from starlette.responses import StreamingResponse
 
 from asa.auth.session import OwnerSessions, Principal
 from asa.config import Settings
+from asa.registry import art_styles
 from asa.registry.character_library import ImageSelection
 from asa.registry.character_uploads import UploadReference, save_upload
 from asa.registry.history import HistoryRepository
@@ -94,7 +95,7 @@ class ItemScope(BaseModel):
 JOB_COLUMNS = (
     "id::text,project_id::text,character_id,version,model,character,change,"
     "base_id::text,status,error_code,review_error_code,usage,estimated_usd,created_at::text,"
-    "started_at::text,finished_at::text,scene_context"
+    "started_at::text,finished_at::text,scene_context,art_style"
 )
 
 
@@ -386,10 +387,11 @@ class CharacterRepository(RegistryRepository):
                 (self.workspace_id, project_id, body.character.id),
             ).fetchone()
             assert version
+            art_style = art_styles.load(conn, self.workspace_id, project['request_id'])
             row = conn.execute(
                 "INSERT INTO character_image_jobs(workspace_id,id,project_id,character_id,"
-                "version,model,character,change,base_id,scene_context) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+                "version,model,character,change,base_id,scene_context,art_style) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
                 f"RETURNING {JOB_COLUMNS}",
                 (
                     self.workspace_id,
@@ -400,7 +402,7 @@ class CharacterRepository(RegistryRepository):
                     body.model,
                     Jsonb(body.character.model_dump()),
                     body.change,
-                    body.base_id, Jsonb(scene_context),
+                    body.base_id, Jsonb(scene_context), Jsonb(art_style),
                 ),
             ).fetchone()
             assert row
@@ -502,6 +504,26 @@ def character_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
 
     def repo(p: Principal = Depends(sessions.principal)) -> CharacterRepository:
         return CharacterRepository(settings.database_url, p.workspace_id)
+
+    @router.post('/art-style/resolve')
+    def resolve_style(body: dict[str, Any], r: CharacterRepository = Depends(repo)
+                      ) -> dict[str, Any]:
+        with r._connect() as conn:
+            return {'style': art_styles.resolve(conn, r.workspace_id, body.get('inputs', {}))}
+
+    @router.get('/projects/{project_id}/art-style')
+    def style(project_id: UUID, r: CharacterRepository = Depends(repo)) -> dict[str, Any]:
+        with r._connect() as conn:
+            project = r.project(project_id, conn)
+            return art_styles.load(conn, r.workspace_id, UUID(project['request_id']))
+
+    @router.put('/projects/{project_id}/art-style')
+    def save_style(project_id: UUID, body: art_styles.StyleEdit,
+                   r: CharacterRepository = Depends(repo)) -> dict[str, Any]:
+        with r._connect() as conn:
+            project = r.project(project_id, conn)
+            r._check_editable(conn, UUID(project['request_id']))
+            return art_styles.save(conn, r.workspace_id, UUID(project['request_id']), body)
 
     @router.get("/library")
     def library(kind: str = Query(default="character", pattern="^(character|scene)$"),
