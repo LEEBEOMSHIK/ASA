@@ -1697,3 +1697,10 @@ dialog .select-combobox-popup { position:static; inset:auto; margin-top:var(--sp
 .agent-brief-content section { display:grid; gap:var(--space-2); }
 .action-icon { width:calc(var(--space-4) + var(--space-1)); height:calc(var(--space-4) + var(--space-1)); flex-shrink:0; }
 .button:has(> .action-icon) { display:inline-flex; align-items:center; justify-content:center; gap:var(--space-2); }
+
+.draft-notice.draft-notice--compact { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:var(--space-2) var(--space-4); padding:var(--space-2) var(--space-3); margin:0; background:var(--surface-subtle); border:1px solid var(--border); }
+.draft-notice--compact .draft-notice-copy { flex:1 1 16rem; }
+.draft-notice--compact > .button { flex-shrink:0; padding:var(--space-2) var(--space-3); }
+
+.voice-speaker-save { display:flex; justify-content:flex-end; gap:var(--space-2); padding-top:var(--space-3); border-top:1px solid var(--border); }
+.voice-speaker-save > .button { max-width:100%; white-space:normal; }

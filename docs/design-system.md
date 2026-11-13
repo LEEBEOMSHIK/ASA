@@ -54,6 +54,8 @@ success/warning/danger는 background + foreground 쌍으로 제공한다.
 
 ## 컴포넌트 계약
 
+목소리 설정은 화자별 fieldset 안에 저장 버튼을 둔다. 버튼은 저장 아이콘과 화자 이름을 표시하고 해당 화자의 설정만 저장한다. 일반 임시 저장 배너는 표시하지 않으며 저장 실패 안내는 유지한다.
+
 ActionIcon은 버튼의 기능을 구분하는 공통 SVG다. ai는 반짝임, edit은 연필, confirm은 체크 원이며 currentColor/20px/aria-hidden을 사용한다. 버튼 텍스트는 유지하고 아이콘과 텍스트 간 space-2, 수직 중앙 정렬을 적용한다. 이미지 상세 AI 검수/생성/수정 요청과 검수 모달 요청 버튼은 같은 ai 아이콘을 사용한다. 외부 이미지나 특정 서비스 로고는 사용하지 않는다.
 
 입력 양식 편집과 실행/미리보기는 `inputEntries`의 동일한 순서(required 배열 순서 → 나머지 속성 순서)를 사용한다. 선택지 입력과 삭제 버튼은 공통 `ChoiceOptionsEditor`의 같은 controls 행에서 세로 중앙 정렬하며 gap12px을 사용한다. 라벨 높이를 가정한 margin-top 보정은 금지한다. 오류 안내는 controls 행 아래에 표시해 버튼이 이동하지 않게 한다.

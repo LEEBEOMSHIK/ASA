@@ -34,8 +34,8 @@ export function Button({ variant = "primary", className = "", type = "button", .
   return <button type={type} className={`button button--${variant} ${className}`} {...props} />;
 }
 
-export function ActionIcon({kind}:{kind:"ai"|"edit"|"confirm"}) {
-  return <svg className="action-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">{kind==="ai"?<><path d="m10 3 2.3 6.7L19 12l-6.7 2.3L10 21l-2.3-6.7L1 12l6.7-2.3Z"/><path d="m19 2 1 3 3 1-3 1-1 3-1-3-3-1 3-1Z"/></>:kind==="edit"?<><path d="m14 5 5 5M4 20l4-1L20 7a2.1 2.1 0 0 0-3-3L5 16Z"/></>:<><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></>}</svg>;
+export function ActionIcon({kind}:{kind:"ai"|"edit"|"confirm"|"undo"|"save"}) {
+  return <svg className="action-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">{kind==="save"?<><path d="M5 3h12l4 4v14H3V3Z"/><path d="M7 3v6h10V3M7 21v-8h10v8"/></>:kind==="undo"?<path d="M4 10h10a6 6 0 0 1 0 12M4 10l5-5M4 10l5 5"/>:kind==="ai"?<><path d="m10 3 2.3 6.7L19 12l-6.7 2.3L10 21l-2.3-6.7L1 12l6.7-2.3Z"/><path d="m19 2 1 3 3 1-3 1-1 3-1-3-3-1 3-1Z"/></>:kind==="edit"?<><path d="m14 5 5 5M4 20l4-1L20 7a2.1 2.1 0 0 0-3-3L5 16Z"/></>:<><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></>}</svg>;
 }
 export function DisclosureIcon(){
   return <svg className="disclosure-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d="m9 5 7 7-7 7"/></svg>;
@@ -47,8 +47,8 @@ export function DisclosureSummary({children}:{children:ReactNode}){
   return <summary className="disclosure-summary"><span>{children}</span><DisclosureIcon/></summary>;
 }
 
-export function DraftNotice({message,hint,actionLabel,disabled,onReset}:{message:string;hint?:string;actionLabel:string;disabled?:boolean;onReset:()=>void}){
-  return <div className="preview-banner draft-notice"><div className="draft-notice-copy"><p role="status">{message}</p>{hint&&<p className="helper-text">{hint}</p>}</div><Button variant="secondary" disabled={disabled} onClick={onReset}>{actionLabel}</Button></div>;
+export function DraftNotice({message,hint,actionLabel,disabled,onReset,compact=false}:{message:string;hint?:string;actionLabel:string;disabled?:boolean;onReset:()=>void;compact?:boolean}){
+  return <div className={`preview-banner draft-notice${compact?" draft-notice--compact":""}`}><div className="draft-notice-copy"><p role="status">{message}</p>{hint&&<p className="helper-text">{hint}</p>}</div><Button variant="secondary" disabled={disabled} onClick={onReset}>{compact&&<ActionIcon kind="undo"/>}{actionLabel}</Button></div>;
 }
 
 export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
