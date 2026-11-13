@@ -21,3 +21,27 @@ export function progressCounts(p: WorkProgress): string {
   const order: FollowupState[] = ["running", "queued", "review", "pending", "failed", "unknown", "approved", "excluded"];
   return order.filter(s=>p.counts[s]>0).map(s=>`${itemStateLabel(s,p.kind)} ${p.counts[s]}`).join(" · ");
 }
+
+export function workActionTone(p: WorkProgress): "danger" | "warning" | "primary" | "neutral" | "success" {
+  if (p.counts.failed > 0 || p.counts.unknown > 0) return "danger";
+  if (p.counts.review > 0) return "warning";
+  if (p.counts.pending > 0) return "primary";
+  return p.status === "complete" ? "success" : "neutral";
+}
+
+export function characterNextStep(aiStatus: string, p: WorkProgress): {label:string;tone:ReturnType<typeof workActionTone>;tab:"history"|"images"} {
+  if (aiStatus === "running" || aiStatus === "queued") return {label:aiStatus === "running"?"답변 작성 중":"답변 생성 대기 중",tone:"neutral",tab:"history"};
+  if (aiStatus === "failed") return {label:"답변 생성 오류 확인",tone:"danger",tab:"history"};
+  if (aiStatus === "saved" || aiStatus === "cancelled") return {label:"답변 생성 필요",tone:"primary",tab:"history"};
+  if (aiStatus !== "succeeded") return {label:"작업 상태 확인 필요",tone:"danger",tab:"history"};
+  const states = [
+    ["unknown","이미지 생성 결과 확인 필요","danger"],
+    ["failed","이미지 생성 오류 확인","danger"],
+    ["review","이미지 검토 필요","warning"],
+    ["pending","이미지 생성 필요","primary"],
+    ["running","이미지 생성 중","neutral"],
+    ["queued","이미지 생성 대기 중","neutral"],
+  ] as const;
+  for (const [state,label,tone] of states) if (p.counts[state]>0) return {label:`${label} · ${p.counts[state]}개`,tone,tab:"images"};
+  return {label:p.status==="complete"?"작업 완료":p.status==="not_required"?"작업 대상 없음":"작업 상태 확인 필요",tone:p.status==="complete"?"success":"neutral",tab:"images"};
+}

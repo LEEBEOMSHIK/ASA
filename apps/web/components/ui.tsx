@@ -34,6 +34,9 @@ export function Button({ variant = "primary", className = "", type = "button", .
   return <button type={type} className={`button button--${variant} ${className}`} {...props} />;
 }
 
+export function ActionIcon({kind}:{kind:"ai"|"edit"|"confirm"}) {
+  return <svg className="action-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">{kind==="ai"?<><path d="m10 3 2.3 6.7L19 12l-6.7 2.3L10 21l-2.3-6.7L1 12l6.7-2.3Z"/><path d="m19 2 1 3 3 1-3 1-1 3-1-3-3-1 3-1Z"/></>:kind==="edit"?<><path d="m14 5 5 5M4 20l4-1L20 7a2.1 2.1 0 0 0-3-3L5 16Z"/></>:<><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></>}</svg>;
+}
 export function DisclosureIcon(){
   return <svg className="disclosure-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d="m9 5 7 7-7 7"/></svg>;
 }

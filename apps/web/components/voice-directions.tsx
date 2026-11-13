@@ -9,20 +9,19 @@ import { Button, DisclosureButton, DraftNotice, Field, StatusBadge, Switch } fro
 type Speaker = {id:string;name:string;role:"character"|"narrator";video_enabled?:boolean;
   voice:{instructions:string;language:string;speed:number}};
 type Settings = {speakers:Speaker[]};
-type Job = {id:string;kind:string;purpose:string;status:string;created_at:string};
-type State = {revision:number;settings:Settings;jobs:Job[]};
+type State = {revision:number;settings:Settings};
 
 export function VoiceDirections({requestId,version,characterId,narrationTarget}:{
   requestId:string;version:number;characterId?:string;narrationTarget?:HTMLElement|null;
 }) {
   const path=`/audio/work/${requestId}/${version}`,prefix=useId(),lock=useRef(false);
   const [state,setState]=useState<State|null>(null),[draft,setDraft]=useState<Settings|null>(null);
-  const [dirty,setDirty]=useState(false),[busy,setBusy]=useState(false),[open,setOpen]=useState(true);
+  const [dirty,setDirty]=useState(false),[busy,setBusy]=useState(false),[open,setOpen]=useState(false);
   const [error,setError]=useState(""),[notice,setNotice]=useState("");
   const pending=useWorkDraft(state?`audio:${requestId}:v${version}:r${state.revision}`:undefined,draft,
-    saved=>{if(saved){setDraft(saved);setDirty(true);setOpen(true);}},Boolean(state&&draft),dirty);
+    saved=>{if(saved){setDraft(saved);setDirty(true);}},Boolean(state&&draft),dirty);
   function accept(value:State){setState(value);setDraft(value.settings);setDirty(false);
-    setOpen(!value.settings.speakers.some(s=>s.role==="narrator"&&(s.voice.instructions||s.video_enabled===false)));}
+    setOpen(false);}
   useEffect(()=>{let alive=true;api<State>(path).then(value=>{if(alive)accept(value);})
     .catch(e=>{if(alive)setError(message(e));});return()=>{alive=false;};},[path]);
   async function save(){
@@ -57,6 +56,5 @@ export function VoiceDirections({requestId,version,characterId,narrationTarget}:
     <section className="voice-directions" aria-label="캐릭터 목소리 특징"><div><h3>캐릭터 목소리 특징</h3><p className="muted">저장한 특징을 비디오 프롬프트와 영상 생성에 전달합니다. 클립마다 완전히 같은 음색이 유지되는지는 영상 모델에 따라 달라집니다.</p></div>
       {pending.notice&&<DraftNotice message={pending.notice} hint="특징 저장을 누르면 반영됩니다. 기존 음성은 유지됩니다." actionLabel="저장된 특징으로 되돌리기" disabled={busy} onReset={()=>{pending.clear();setDraft(state.settings);setDirty(false);}}/>}
       {draft.speakers.filter(s=>s.role==="character"&&(!characterId||s.id===characterId)).map(form)}{saveButton}{feedback}
-      {!!state.jobs.length&&<details className="voice-direction-archive"><summary>기존 음성 보관 · {state.jobs.length}개</summary><p className="muted">이전에 생성한 음성입니다. 새 영상에 자동으로 합성하거나 목소리 고정에 사용하지 않습니다. 시간 측정용 TTS는 씬 구성에서 계속 사용합니다.</p>{state.jobs.map(j=><div key={j.id}><p>{j.purpose==="timing"?"시간 측정용":j.purpose==="sample"?"이전 샘플":"이전 제작 음성"} · {new Date(j.created_at).toLocaleString("ko-KR")}</p>{["review","approved"].includes(j.status)?j.kind==="compose"?<video controls preload="none" src={`/api/v1/audio/jobs/${j.id}/media`}/>:<audio aria-label="보존된 음성" controls preload="none" src={`/api/v1/audio/jobs/${j.id}/media`}/>:<p className="muted">{j.status==="queued"||j.status==="running"?"기존 생성 처리 중":"재생 가능한 결과 없음"}</p>}</div>)}</details>}
     </section></>;
 }

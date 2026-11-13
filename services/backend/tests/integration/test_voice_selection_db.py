@@ -114,32 +114,10 @@ def test_voice_sample_selection_and_timing_exclusion(db, monkeypatch):
         assert len(calls) == 4  # Restoring/selecting a sample never generates paid audio.
 
 
-def test_basic_previews_are_read_only_scoped_media(db, monkeypatch, tmp_path):
-    from asa.voice_previews import prepare_previews
-
+def test_basic_preview_feature_removed(db):
     config = Settings(_env_file=None, database_url=db[0], workspace_id=db[1],
-                      owner_access_key=KEY, allowed_origins=['http://testserver'],
-                      audio_preview_dir=str(tmp_path),
-                      audio_ai_enabled=True, audio_api_key='test-only')
-    calls = []
-
-    def speak(key, spec):
-        calls.append(spec)
-        return pcm_wav(b'\0\0' * 24000), spec['cue']['text']
-
-    monkeypatch.setattr('asa.voice_previews.synthesize', speak)
-    prepare_previews(config, allow_paid_call=True)
+                      owner_access_key=KEY, allowed_origins=['http://testserver'])
     with TestClient(create_app(config)) as client:
-        url = '/api/v1/audio/previews/openai-realtime/marin'
-        assert client.get(url).status_code in (401, 403)
         script_work(client)
-        assert client.get(url).status_code == 200
-        assert client.get(url).content.startswith(b'RIFF')
-        assert client.get(url.replace('marin', 'invalid')).status_code == 404
-        assert client.get(url.replace('openai-realtime', 'invalid')).status_code == 404
-        catalog = client.get('/api/v1/audio/catalog').json()
-        assert all(v['ready'] for v in catalog['previews']['openai-realtime'].values())
-        assert len(calls) == 10
-    other = config.model_copy(update={'workspace_id': uuid4()})
-    from asa.voice_previews import preview_catalog
-    assert not preview_catalog(other)['openai-realtime']['marin']['ready']
+        assert 'previews' not in client.get('/api/v1/audio/catalog').json()
+        assert client.get('/api/v1/audio/previews/openai-realtime/marin').status_code == 404

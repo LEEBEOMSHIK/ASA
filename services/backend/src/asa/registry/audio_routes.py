@@ -17,7 +17,6 @@ from asa.registry import audio_service as service
 from asa.registry.repository import RegistryRepository
 from asa.registry.schemas import RegistryError
 from asa.voice_directions import DirectionEdit, merge_directions
-from asa.voice_previews import preview_catalog, preview_info, preview_paths
 
 
 class Edit(Strict):
@@ -57,22 +56,7 @@ def audio_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
             ),
             "ai_voice_notice": "AI로 생성하는 목소리입니다.",
             "sample_text": service.SAMPLE_TEXT,
-            "previews": preview_catalog(settings.model_copy(
-                update={'workspace_id': p.workspace_id})),
         }
-
-    @router.get('/previews/{model_key}/{voice}')
-    def basic_preview(model_key: str, voice: str,
-                      p: Principal = Depends(sessions.principal)) -> Response:
-        model = settings.audio_model_profiles.get(model_key)
-        if not model or not model.enabled or voice not in model.voices:
-            raise RegistryError(404, 'audio_preview_missing')
-        scoped = settings.model_copy(update={'workspace_id': p.workspace_id})
-        if not preview_info(scoped, model_key, voice)['ready']:
-            raise RegistryError(404, 'audio_preview_missing')
-        _, path = preview_paths(scoped, model_key, voice)
-        return Response(path.read_bytes(), media_type='audio/wav',
-                        headers={'Cache-Control': 'private, max-age=3600'})
 
     @router.get("/sources")
     def sources(p: Principal = Depends(sessions.principal)) -> list[dict[str, Any]]:

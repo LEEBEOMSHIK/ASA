@@ -254,7 +254,9 @@ def prompt(snapshot: dict[str, Any], settings: dict[str, Any], change: str) -> s
     return (
         "Create ONE finished scene still, NOT a character sheet or collage. "
         "Follow the scene composition and original script. Preserve the identities, clothing "
-        "and style in the attached character references. Each reference is identified in order "
+        "in the attached character references. If a WORK ART STYLE POLICY is supplied, "
+        "re-render references in its category and style rather than copying their rendering. "
+        "Otherwise preserve reference style. Each reference is identified in order "
         "by references.characters below. reference_roles distinguishes cast from reference_only. "
         "Never depict a reference_only character merely because its image is attached. "
         "Use it only for the props, clothing, shapes or style required by the scene. "

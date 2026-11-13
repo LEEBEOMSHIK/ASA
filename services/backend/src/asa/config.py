@@ -36,7 +36,6 @@ class Settings(BaseSettings):
     ai_prices: dict[str, ModelPrice] = Field(default_factory=dict)
     ai_api_key: SecretStr = SecretStr("")
     audio_ai_enabled: bool = False
-    audio_preview_dir: str = '.local/voice-previews'
     audio_timing_model_key: str = 'openai-realtime'
     audio_timing_voice: str = 'marin'
     audio_api_key: SecretStr = SecretStr("")
