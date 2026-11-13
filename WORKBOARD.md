@@ -1,5 +1,11 @@
 # AI Shorts Studio — WORKBOARD
 
+### 직접 목소리 설정 상태별 저장 버튼 · DONE
+- 캐릭터/나레이션 공통 폼에서 꺼짐·변경 없음이면 버튼 행 제거, 꺼짐 변경이면 자동 목소리로 적용 표시. 기존 개별 저장 계약 유지.
+- Chrome 모바일 viewport390×844(실제CSS폭433px/기존 확대배율 유지) 어두운·밝은 테마에서 캐릭터 자동 적용 버튼, 밝은 테마 나레이션 켜짐/꺼짐 전환 확인. fieldset gap/padding16px, 버튼47.5px, 가로 넘침 없음. 실제 스크린샷 및 DOM 확인.
+- 원래 캐릭터 선택/입력, 나레이션 켜짐·접힘, 어두운 테마 및 viewport 복원. 정식 저장/AI 호출 없음. 저장된 꺼짐·변경 없음 상태는 사용자 데이터 저장을 피하여 조건문 검토만 수행(해당 상태 시각 미검증).
+- pytest492개, Ruff/mypy87파일, frontend typecheck/build, diff-check 통과. 커밋·푸시 없음.
+
 ### 목소리 설정 모바일·밝은 테마 검증 및 커밋 · DONE
 - 모바일 viewport390×844 요청(기존 사용자 확대 배율 유지, 실제 CSS폭433px)에서 어두운 자동 설정, 밝은 직접 설정/비활성 저장 버튼 확인. 나레이션 펼침/저장 영역도 확인. 가로 넘침 없음.
 - 실제 스크린샷 및 computed DOM: fieldset padding/gap16px, 버튼47.5px, 저장 행 상단12px·gap8px. 모바일 입력3개 시작 x32.55px/동일 폭351.56px. 밝은 데스크톱 CSS폭1600px에서 언어/속도 입력 y576.04px 동일, 2열 간격16px.
@@ -1353,3 +1359,15 @@ UI · 실제Chrome 양테마 desktopCSS1600에서 대표씬·연결계획·원�
 완료 · 나레이션/캐릭터 맞춤 샘플 버튼에서 변경·최초설정 저장→반환 revision으로 생성 접수. 저장실패는 생성중단/입력보존, 요청실패는 저장유지/인라인오류, 접수후조회실패 구분. ref잠금·진행문구·나레이션 펼침유지. 단위3/pytest473(169.71초)/Ruff/mypy85/typecheck/build/diff-check 통과. 실제 dark desktop 미저장초안 버튼활성·16px/12px간격 확인. 유료호출/실패·진행의 실제브라우저/밝은·좁은화면 미검증. docs/worklogs/2026-11-10-sample-auto-save.md. 사용자자료저장/AI호출/커밋·푸시 없음.
 진행 중 · 임시저장 안내 의미 명확화 및 공통 DraftNotice의 문구/버튼 간격 수정. 음성 되돌리기 버튼 기능과 보존 범위 안내, 다른 입력 화면 공통 적용.
 완료 · 공통 DraftNotice 적용(음성/새요청). 문구묶음8px/버튼16px, 상속문단margin제거. 음성 되돌리기 의미·생성음성보존 안내. dark desktop screenshot/DOM 실제16px, 좁은width433 overflow없음 확인. 밝은/새요청개별시각 미검증. pytest473(169.94초)/Ruff/mypy85/typecheck/build/diff-check 통과. docs/worklogs/2026-11-10-draft-notice.md. 사용자입력보존/자료저장·삭제·AI호출·커밋·푸시 없음.
+
+### 직접 목소리 끄기 즉시 저장 · DONE (전체 회귀 후속 확인)
+- 캐릭터·나레이션 OFF 조작에서 해당 화자만 저장. 별도 자동 적용 버튼 제거. 저장 성공 전 기존 상태 유지, 실패 시 입력 보존 및 안내.
+- 검증: frontend typecheck/build, Ruff, mypy(87 files), 화자 초안 보존 Node 2건, 목소리 설정 DB 통합 1건 통과. 전체 pytest는 제한 환경 오류 후 권한 환경 재실행도 14%에서 진행 정체되어 중단(통과 아님).
+- 시각 검증: CUA 실제 데스크톱/모바일(390×844 override) 밝은·어두운 테마에서 OFF 표시와 저장 버튼 미노출 확인. fieldset gap/padding 16px, 가로 넘침 없음. 스크린샷은 해당 도구 기록에 남김. 테마·뷰포트 복원. 사용자 설정 저장 없이 확인했으므로 실제 OFF 저장 중/실패 및 나레이션 전환 시각 상태는 미검증.
+- 생성 자료 변경·유료 호출·커밋·푸시 없음.
+
+### 전체 백엔드 테스트 정체 조사 · DONE
+- 동일 전체 suite를 `-vv -o faulthandler_timeout=45`로 단독 실행: 492 passed in 199.61s, 프로세스 exit 0. 14%를 지나 종료까지 실패/장기 대기 스택/DB pool timeout 없음. 실제 교착은 재현되지 않았으며, 이전 -q 리다이렉트 로그의 마지막 진행률만으로 정체를 단정했던 보고를 정정한다. 이전 중단 실행의 실제 대기 원인은 스택 미확보로 확정할 수 없다.
+- scripts/check.ps1: 테스트별 진행, 느린 테스트 10개, 60초 초과 스택 출력 추가. 테스트 생략/강제 통과/업무 DB 로직 변경 없음. 제한 환경 오류 실행과 재실행의 중복 실행을 피하도록 개발 문서 보완.
+- 필수 검증: 전체 pytest492, Ruff, mypy87 files, frontend typecheck/build, 화자 초안 보존 Node2, PowerShell parser, diff-check 통과. 진단 원본은 .local/pytest-hang-diagnosis-1.log (Git 제외).
+- 현재까지 목소리 OFF 즉시 저장/문서와 진단 개선 총 5파일을 포함하여 커밋·푸시. 사용자 자료·비밀값·생성 자산은 포함하지 않음. 기존 UI 미검증 상태는 앞선 기록 유지.

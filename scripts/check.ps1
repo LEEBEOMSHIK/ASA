@@ -2,7 +2,7 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot -Parent
 Push-Location $repoRoot
 try {
-    & uv run --locked --project services/backend pytest services/backend/tests -q
+    & uv run --locked --project services/backend pytest services/backend/tests -vv --durations=10 -o faulthandler_timeout=60
     if ($LASTEXITCODE -ne 0) { throw 'Backend tests failed.' }
     & uv run --locked --project services/backend ruff check services/backend
     if ($LASTEXITCODE -ne 0) { throw 'Backend lint failed.' }

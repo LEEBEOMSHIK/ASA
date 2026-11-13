@@ -21,6 +21,7 @@ export function VoiceDirections({requestId,version,characterId,narrationTarget}:
   const path=`/audio/work/${requestId}/${version}`,prefix=useId(),lock=useRef(false);
   const [state,setState]=useState<State|null>(null),[draft,setDraft]=useState<Settings|null>(null);
   const [dirty,setDirty]=useState(false),[busy,setBusy]=useState(false),[open,setOpen]=useState(false);
+  const [automaticSaving,setAutomaticSaving]=useState<string|null>(null);
   const [error,setError]=useState(""),[notice,setNotice]=useState("");
   const pending=useWorkDraft(state?`audio:${requestId}:v${version}:r${state.revision}`:undefined,draft,
     saved=>{if(saved){setDraft(saved);setDirty(true);}},Boolean(state&&draft),dirty);
@@ -30,7 +31,7 @@ export function VoiceDirections({requestId,version,characterId,narrationTarget}:
     .catch(e=>{if(alive)setError(message(e));});return()=>{alive=false;};},[path]);
   async function save(speaker:Speaker){
     if(!state||!draft||lock.current)return;
-    lock.current=true;setBusy(true);setError("");setNotice("");
+    lock.current=true;setBusy(true);setAutomaticSaving(speaker.video_enabled===false?speaker.id:null);setError("");setNotice("");
     try{
       const value=await api<State>(path+"/voice-directions","PUT",{revision:state.revision,
         speakers:[speaker].map(s=>({id:s.id,...s.voice,enabled:s.video_enabled!==false}))
@@ -44,23 +45,24 @@ export function VoiceDirections({requestId,version,characterId,narrationTarget}:
       }
       pending.clear();setState(value);setDraft(next);setDirty(remaining);
       if(speaker.role==="narrator")setOpen(false);
-      setNotice(`${speaker.name} 목소리 설정을 저장했습니다.`);
+      setNotice(speaker.video_enabled===false?`${speaker.name} 목소리를 자동 설정으로 변경했습니다.`:`${speaker.name} 목소리 설정을 저장했습니다.`);
     }catch(e){setError(e instanceof ApiError&&e.code==="audio_settings_changed"
-      ?"다른 화면에서 설정이 변경됐습니다. 입력을 복사해 두고 최신 설정을 다시 불러와 주세요.":message(e));}
-    finally{lock.current=false;setBusy(false);}
+      ?"다른 화면에서 설정이 변경됐습니다. 입력을 복사해 두고 최신 설정을 다시 불러와 주세요.":`${speaker.video_enabled===false?"자동 설정으로 변경하지 못했습니다. 직접 설정과 입력은 유지됩니다. ":""}${message(e)}`);}
+    finally{lock.current=false;setBusy(false);setAutomaticSaving(null);}
   }
   if(!state||!draft)return <section className="voice-directions">{error?<p role="alert">{error}</p>:<p role="status">목소리 특징을 불러오는 중…</p>}</section>;
   const update=(id:string,patch:Partial<Speaker>)=>{setDraft({...draft,speakers:draft.speakers.map(s=>s.id===id?{...s,...patch}:s)});setDirty(true);setNotice("");};
   const changed=(s:Speaker)=>JSON.stringify(s)!==JSON.stringify(state.settings.speakers.find(v=>v.id===s.id));
   const form=(s:Speaker)=><fieldset key={s.id} className="voice-direction-fields"><legend>{s.name}</legend>
-    <Switch label={s.role==="narrator"?"나레이션 목소리 직접 설정":`${s.name} 목소리 직접 설정`} checked={s.video_enabled!==false} disabled={busy} onChange={()=>update(s.id,{video_enabled:s.video_enabled===false})}/>
+    <Switch label={s.role==="narrator"?"나레이션 목소리 직접 설정":`${s.name} 목소리 직접 설정`} checked={s.video_enabled!==false} disabled={busy} onChange={()=>{if(s.video_enabled===false)update(s.id,{video_enabled:true});else void save({...s,video_enabled:false});}}/>
+    {automaticSaving===s.id&&<p role="status">자동 설정으로 저장 중…</p>}
     {s.video_enabled!==false?<><Field id={prefix+s.id+"description"} label="목소리 특징" hint="나이 느낌·음역·음색·말투·발음을 적어 주세요. 영상 모델에 전달할 설명이며, 별도 음성 샘플을 만들지 않습니다.">{p=><textarea {...p} rows={3} maxLength={1000}
       disabled={busy||s.video_enabled===false} value={s.voice.instructions}
       placeholder={s.role==="narrator"?"예: 따뜻하고 차분한 중저음, 또렷한 발음과 부드러운 이야기체. 장면 사이에는 짧게 쉬어 주세요.":"예: 밝고 높은 음역의 어린아이 느낌, 가볍고 맑은 음색. 호기심 많은 말투로 또렷하게 말해 주세요."}
       onChange={e=>update(s.id,{voice:{...s.voice,instructions:e.target.value}})}/>}</Field>
     <div className="voice-direction-grid"><Field id={prefix+s.id+"language"} label="언어">{p=><input {...p} maxLength={80} value={s.voice.language} disabled={busy||s.video_enabled===false} onChange={e=>update(s.id,{voice:{...s.voice,language:e.target.value}})}/>}</Field>
       <Field id={prefix+s.id+"speed"} label="말하기 속도 의도" hint="0.75~1.25배 · 실제 속도는 생성 영상에서 확인합니다.">{p=><input {...p} type="number" min={.75} max={1.25} step={.05} value={s.voice.speed} disabled={busy||s.video_enabled===false} onChange={e=>update(s.id,{voice:{...s.voice,speed:Number(e.target.value)}})}/>}</Field></div></>:<p className="muted">자동 설정 · {s.role==="narrator"?"대본의 나레이션은":"캐릭터의 대사는"} 유지하고, {s.role==="narrator"?"이야기 내용":"캐릭터 설정과 이야기 내용"}·장면 분위기·이미지에 어울리는 목소리와 말투를 정합니다. 이전에 입력한 특징은 보관됩니다.</p>}
-    <div className="voice-speaker-save"><Button variant="secondary" disabled={busy||(!changed(s)&&state.revision>0)||(s.video_enabled!==false&&(!s.voice.language.trim()||!Number.isFinite(s.voice.speed)||s.voice.speed<.75||s.voice.speed>1.25))} onClick={()=>void save(s)}><ActionIcon kind="save"/>{busy?"저장 중…":`${s.role==="narrator"?"나레이션":s.name} 목소리 저장`}</Button></div>
+    {s.video_enabled!==false&&<div className="voice-speaker-save"><Button variant="secondary" disabled={busy||(!changed(s)&&state.revision>0)||((!s.voice.language.trim()||!Number.isFinite(s.voice.speed)||s.voice.speed<.75||s.voice.speed>1.25))} onClick={()=>void save(s)}><ActionIcon kind="save"/>{busy?"저장 중…":`${s.role==="narrator"?"나레이션":s.name} 목소리 저장`}</Button></div>}
   </fieldset>;
   const feedback=<>{pending.notice.includes("못")&&<p role="alert">{pending.notice}</p>}{error&&<div className="voice-direction-feedback" role="alert"><p>{error}</p><Button variant="secondary" disabled={busy} onClick={()=>void api<State>(path).then(value=>{pending.clear();accept(value);setError("");}).catch(e=>setError(message(e)))}>최신 설정 다시 불러오기</Button></div>}{notice&&<p role="status">{notice}</p>}</>;
   const narrators=draft.speakers.filter(s=>s.role==="narrator");
