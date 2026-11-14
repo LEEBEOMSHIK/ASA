@@ -27,7 +27,7 @@ STYLES = {
 }
 
 
-def upgrade_definition(definition: dict[str, Any]) -> dict[str, Any]:
+def upgrade_definition(definition: dict[str, Any], *, video_voice: bool = False) -> dict[str, Any]:
     result = deepcopy(definition)
     result["instructions"] = result["instructions"].replace(
         "prompt_en에는 음성 생성 지시를 넣지 않는다.", "prompt에는 음성 생성 지시를 넣지 않는다.")
@@ -90,4 +90,13 @@ def upgrade_definition(definition: dict[str, Any]) -> dict[str, Any]:
     required = result["output_schema"].setdefault("required", [])
     if "audio_plan" not in required:
         required.append("audio_plan")
+    if video_voice:
+        speaker = result['output_schema']['properties']['audio_plan']['properties'][
+            'speakers']['items']
+        speaker['properties']['voice'] = obj({
+            'instructions': {**string(1000), 'minLength': 1},
+            'language': {**string(80), 'minLength': 1},
+            'speed': {'type': 'number', 'minimum': 0.75, 'maximum': 1.25},
+        })
+        speaker['required'].append('voice')
     return result

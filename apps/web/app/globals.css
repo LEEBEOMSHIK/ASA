@@ -1573,11 +1573,14 @@ article.flow-library-card { display:flex; flex-direction:column; gap:0; padding:
  font-size:var(--font-small); font-weight:600;
 }
 
-/* Dialog bodies scroll independently: keep select lists in normal flow so the
-   footer cannot clip them. Applies to all dialog consumers, not one screen. */
-dialog .select-combobox-popup { position:static; inset:auto; margin-top:var(--space-2); }
+/* Dialog selects use the same anchored overlay as other selects. Keeping the
+   list out of flow prevents filter menus from moving the results below them. */
 
 .select-combobox-options [role="option"] > span:first-child { min-width:0; }
+.answer-failure-content { display:grid; gap:var(--space-4); min-width:0; overflow-wrap:anywhere; }
+.answer-failure-content p,.answer-failure-content h3 { margin:0; }
+.answer-failure-content section { display:grid; gap:var(--space-3); }
+.answer-failure-content ul { margin:0; padding-inline-start:var(--space-6); display:grid; gap:var(--space-2); }
 .select-combobox-options small { margin-top:var(--space-1); }
 .select-combobox-option-badge { flex-shrink:0; font-size:var(--font-small); color:var(--primary); }
 .narration-panel:not([hidden]) { display:grid; gap:var(--space-4); min-width:0; }
@@ -1760,3 +1763,15 @@ dialog .select-combobox-popup { position:static; inset:auto; margin-top:var(--sp
 .background-work-content .worker-control { display:flex; flex-direction:column; gap:var(--space-3); }
 .background-work-content .worker-control > p { margin:0; flex:1; }
 @media(max-width:520px) { .background-management-trigger { margin-left:0; } .background-work-actions > .button { flex:1; } }
+
+.answer-failure-actions { display:grid; gap:var(--space-3); width:100%; min-width:0; overflow-wrap:anywhere; }
+.answer-failure-actions p,.answer-failure-actions .script-ack { margin:0; }
+
+.agent-answer--workspace { max-width:none; width:100%; min-width:0; }
+
+/* Request-method choices share the common radio control, with responsive equal columns. */
+.script-request-modes { grid-template-columns:repeat(2,minmax(0,1fr)); gap:var(--space-3); }
+.script-request-modes .input-radio-option { margin:0; padding:var(--space-3) var(--space-4); gap:var(--space-3); min-height:var(--control-height); border-radius:var(--radius-md); }
+.script-request-modes .input-radio-option:has(input:checked) { background:var(--accent-soft); border-color:var(--primary); }
+.script-request-modes .input-radio-option span { min-width:0; overflow-wrap:anywhere; }
+@media (max-width:640px) { .script-request-modes { grid-template-columns:minmax(0,1fr); } }

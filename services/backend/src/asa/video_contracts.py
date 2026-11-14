@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from asa.audio_contracts import AudioSettings
+from asa.video_plan_quality import ClipQuality, DurationReview
 
 
 class VideoModelProfile(BaseModel):
@@ -54,12 +55,15 @@ class VideoClip(BaseModel):
     edit_notes: str = Field(default="", max_length=700)
     connection_type: Literal["cut", "continue"] = "cut"
     previous_clip_id: str = Field(default="", max_length=100)
+    quality: ClipQuality | None = None
 
     @model_validator(mode="after")
     def validate_span(self) -> "VideoClip":
         span = self.source_end_seconds - self.source_start_seconds
         if span <= 0 or span > self.duration_seconds:
             raise ValueError("video_clip_timeline_invalid")
+        if self.quality and any(e.end > span for e in self.quality.events):
+            raise ValueError('video_event_outside_clip')
         return self
 
 
@@ -72,6 +76,7 @@ class VideoPreparation(BaseModel):
     audio_plan: AudioSettings | None = None
     mode: Literal["image_to_video"] = "image_to_video"
     clips: list[VideoClip] = Field(min_length=1, max_length=100)
+    duration_review: DurationReview | None = None
 
     @model_validator(mode="after")
     def validate_sequence(self) -> "VideoPreparation":
@@ -95,6 +100,8 @@ class VideoPreparation(BaseModel):
             previous_trim = clip.duration_seconds - (
                 clip.source_end_seconds - clip.source_start_seconds
             )
+        if self.duration_review and self.duration_review.planned_seconds != previous_end:
+            raise ValueError('video_duration_review_invalid')
         return self
 
 

@@ -2146,6 +2146,7 @@ def test_agent_sse_reconnect_isolation_and_persisted_partial(client, db, monkeyp
             assert 'ai_timeout' in first.text
             assert 'private provider error' not in first.text
             assert queue.get(work['id'])['versions'] == []
+        assert 'prompt' not in queue.get(work['id'])['attempts'][0]
         assert first.headers['content-encoding'] == 'identity'
         assert 'no-transform' in first.headers['cache-control']
         assert browser.get(f'/api/v1/work-requests/{uuid4()}/script/events').status_code == 404
@@ -3108,6 +3109,38 @@ def test_image_library_and_selected_handoff(client, db, monkeypatch):
     card = listing['items'][0]
     assert card['id'] == str(first) and card['state'] == 'approved'
     assert card['project_name'] == '이야기 작업' and card['agent_name']
+    work = card['work_id']
+    assert work and card['work_name']
+    assert listing['facets'][0]['work_id'] == work
+    assert listing['total'] == 1 and listing['selected_matching'] == 0
+    counted = client.get('/api/v1/characters/library', params={
+        'selected': str(first), 'offset': 24}).json()
+    assert counted['items'] == []
+    assert counted['total'] == 1 and counted['selected_matching'] == 1
+    hidden = client.get('/api/v1/characters/library', params={
+        'q': '없는이름', 'selected': str(first)}).json()
+    assert hidden['total'] == 0 and hidden['selected_matching'] == 0
+    assert client.get('/api/v1/characters/library', params={
+        'selected': 'invalid'}).status_code == 422
+    assert client.get('/api/v1/characters/library', params={
+        'selected': [str(first)] * 33}).status_code == 422
+    assert len(client.get('/api/v1/characters/library', params={
+        'work': work, 'project': str(pid), 'q': '하나'}).json()['items']) == 1
+    assert client.get('/api/v1/characters/library', params={
+        'work': str(uuid4())}).json()['items'] == []
+    assert client.get('/api/v1/characters/library?work=unassigned').json()['items'] == []
+    with repo._connect() as conn:
+        conn.execute("UPDATE character_projects SET kind='scene' WHERE id=%s", (pid,))
+    scenes = client.get('/api/v1/characters/scene-library', params={'work': work}).json()
+    assert [item['id'] for item in scenes['items']] == [str(first)]
+    scene_counts = client.get('/api/v1/characters/scene-library', params={
+        'work': work, 'selected': str(first)}).json()
+    assert scene_counts['total'] == 1 and scene_counts['selected_matching'] == 1
+    assert client.get('/api/v1/characters/scene-library', params={
+        'work': str(uuid4())}).json()['items'] == []
+    with repo._connect() as conn:
+        conn.execute("UPDATE character_projects SET kind='character' WHERE id=%s", (pid,))
+
     assert client.get('/api/v1/characters/library?q=없는이름').json()['items'] == []
     assert len(client.get('/api/v1/characters/library?q=하나&state=approved').json()['items']) == 1
     assert client.get('/api/v1/characters/library?offset=24').json()['items'] == []
@@ -3638,7 +3671,7 @@ def test_wan_queue_worker_lifecycle(client, db, monkeypatch, outcome, continuati
             ),
         )
         conn.execute(
-            "INSERT INTO script_stages(workspace_id,request_id) VALUES(%s,%s)",
+            "INSERT INTO script_stages(workspace_id,request_id,head_version) VALUES(%s,%s,1)",
             (db[1], rid),
         )
         conn.execute(
@@ -3676,6 +3709,41 @@ def test_wan_queue_worker_lifecycle(client, db, monkeypatch, outcome, continuati
         assert not catalog["key_configured"]  # Runway key must not gate WAN.
         path = f"/api/v1/video-clips/{rid}/1"
         assert api_client.get(path).json()["available_models"] == ["wan3"]
+        denied = api_client.post(path, json={"clip_ids": ["clip1"]}, headers=h)
+        assert denied.status_code == 409
+        assert denied.json()['detail'] == 'video_plan_approval_required'
+        assert api_client.post(f"/api/v1/work-requests/{rid}/script/approve", headers=h,
+                               json={"expected_revision": 0, "version": 1}).status_code == 200
+        with psycopg.connect(db[0]) as conn:
+            assert conn.execute("SELECT count(*) FROM video_clip_jobs").fetchone()[0] == 0
+            conn.execute("UPDATE script_stages SET head_version=2 WHERE workspace_id=%s "
+                         "AND request_id=%s", (db[1], rid))
+        assert api_client.post(path, json={"clip_ids": ["clip1"]}, headers=h).status_code == 409
+        with psycopg.connect(db[0]) as conn:
+            conn.execute("UPDATE script_stages SET head_version=1 WHERE workspace_id=%s "
+                         "AND request_id=%s", (db[1], rid))
+        for test_version, image_status in enumerate(('conflict', 'unverified'), start=2):
+            blocked = {**plan, 'clips': [{**plan['clips'][0], 'quality': {
+                'image_status': image_status, 'image_reason': '시작 이미지 검토 필요',
+                'events': [{'start': 0, 'end': 2, 'minimum_seconds': 2,
+                            'kind': 'action', 'description': '웃음'}]}}, *plan['clips'][1:]]}
+            with psycopg.connect(db[0]) as conn:
+                conn.execute(
+                    'INSERT INTO script_versions(workspace_id,request_id,version,operation_id,'
+                    "title,narration,source,answer) VALUES(%s,%s,%s,%s,'test','test','manual',%s)",
+                    (db[1], rid, test_version, uuid4(), Jsonb(blocked)))
+                conn.execute('UPDATE script_stages SET head_version=%s,approved_version=%s '
+                             'WHERE workspace_id=%s AND request_id=%s',
+                             (test_version, test_version, db[1], rid))
+            rejected = api_client.post(f'/api/v1/video-clips/{rid}/{test_version}',
+                                       json={'clip_ids': ['clip1']}, headers=h)
+            assert rejected.status_code == 422
+            assert rejected.json()['detail'] == 'video_start_image_review_required'
+            with psycopg.connect(db[0]) as conn:
+                assert conn.execute('SELECT count(*) FROM video_clip_jobs').fetchone()[0] == 0
+        with psycopg.connect(db[0]) as conn:
+            conn.execute('UPDATE script_stages SET head_version=1,approved_version=1 '
+                         'WHERE workspace_id=%s AND request_id=%s', (db[1], rid))
         assert api_client.post(
             path, json={"clip_ids": ["clip1"]}, headers=h
         ).json() == {"queued": 1}
@@ -3817,3 +3885,50 @@ def test_continuation_approval_gate_and_worker_reference(client, db, monkeypatch
             current = next(j for j in jobs if j["clip_id"] == "clip2")
             assert current["reference_valid"] is not changed
             assert "generation_input" not in current and "video_sha256" not in current
+
+
+def test_failed_script_retry_reuses_input_and_is_idempotent(client, db):
+    import json
+
+    from asa.registry.script_stage import ScriptRepository, execute_attempt
+
+    headers, work, url = script_work(client)
+    assert client.post(url + "/versions", headers=headers, json={
+        "id": str(uuid4()), "expected_revision": 0, "title": "Original",
+        "narration": "Keep existing answer",
+    }).status_code == 201
+    aid = str(uuid4())
+    assert client.post(url + "/generate", headers=headers, json={
+        "id": aid, "expected_revision": 1, "base_version": 1,
+        "request_input": {"topic": "Changed request"},
+        "instruction": "Keep this instruction",
+    }).status_code == 201
+
+    def broken(_):
+        raise TimeoutError("private")
+
+    execute_attempt(ScriptRepository(db[0], db[1]), work["id"], aid, broken)
+    state = client.get(url).json()
+    retry = {"id": str(uuid4()), "attempt_id": aid,
+             "expected_revision": state["revision"]}
+    assert client.post(url + "/retry", headers=headers, json=retry).status_code == 409
+    retry["acknowledge_unknown"] = True
+    result = client.post(url + "/retry", headers=headers, json=retry)
+    assert result.status_code == 201, result.text
+    assert client.post(url + "/retry", headers=headers, json=retry).status_code == 201
+    with psycopg.connect(db[0], row_factory=psycopg.rows.dict_row) as conn:
+        rows = conn.execute("SELECT id,prompt,instruction,base_version FROM script_attempts "
+                            "WHERE workspace_id=%s AND request_id=%s",
+                            (db[1], work["id"])).fetchall()
+    assert client.get(url).json()["head_version"] == 1
+    assert len(rows) == 2
+    old = next(row for row in rows if str(row['id']) == aid)
+    new = next(row for row in rows if str(row['id']) == retry['id'])
+    assert new['instruction'] == old['instruction']
+    assert new['base_version'] == old['base_version']
+    assert (json.loads(new['prompt'])['submitted_request']
+            == json.loads(old['prompt'])['submitted_request'])
+    stale = {**retry, "id": str(uuid4())}
+    assert client.post(url + "/retry", headers=headers, json=stale).status_code == 409
+    foreign = {**retry, "id": str(uuid4()), "attempt_id": str(uuid4())}
+    assert client.post(url + "/retry", headers=headers, json=foreign).status_code == 409

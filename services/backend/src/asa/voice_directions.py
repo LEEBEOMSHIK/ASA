@@ -84,7 +84,8 @@ def snapshot(conn: Any, workspace: UUID, inputs: Any) -> dict[str, Any]:
 
     visit(inputs)
     if not image_ids:
-        return {'speakers': [], 'sources': []}
+        return {'speakers': [], 'sources': [], 'resolution_version': 2,
+                'automatic_speaker_ids': []}
     rows = conn.execute(
         'SELECT DISTINCT p.request_id,p.source_version,j.character_id FROM character_image_jobs j '
         'JOIN character_projects p ON p.workspace_id=j.workspace_id AND p.id=j.project_id '
@@ -92,6 +93,7 @@ def snapshot(conn: Any, workspace: UUID, inputs: Any) -> dict[str, Any]:
         "AND j.status='succeeded' ORDER BY p.request_id,p.source_version,j.character_id",
         (workspace, list(image_ids))).fetchall()
     speakers: dict[str, dict[str, Any]] = {}
+    automatic_ids: set[str] = set()
     sources = []
     loaded = {}
     for row in rows:
@@ -107,10 +109,13 @@ def snapshot(conn: Any, workspace: UUID, inputs: Any) -> dict[str, Any]:
             if speaker.id != row['character_id'] and speaker.role != 'narrator':
                 continue
             value = snapshot_speaker(speaker)
+            if not speaker.video_enabled or not speaker.voice.instructions.strip():
+                automatic_ids.add(speaker.id)
             if speaker.id in speakers and speakers[speaker.id] != value:
                 raise RegistryError(422, 'video_voice_source_conflict')
             speakers[speaker.id] = value
-    return {'speakers': list(speakers.values()), 'sources': sources}
+    return {'speakers': list(speakers.values()), 'sources': sources,
+            'resolution_version': 2, 'automatic_speaker_ids': sorted(automatic_ids)}
 
 
 def answer_contract(conn: Any, workspace: UUID, request: UUID | str,
@@ -140,18 +145,27 @@ def apply_snapshot(seed: dict[str, Any], directions: dict[str, Any]) -> dict[str
     result = AudioSettings.model_validate(seed)
     saved = {s['id']: s for s in directions['speakers']}
     known = set(saved)
+    resolve = directions.get('resolution_version') == 2
+    automatic = set(directions.get('automatic_speaker_ids', []))
     for speaker in result.speakers:
         if known and speaker.id not in known:
             raise RegistryError(422, 'video_voice_speaker_mismatch')
+        is_auto = resolve and (speaker.id in automatic or not known)
+        if is_auto:
+            description = speaker.voice.instructions.strip()
+            if not description or description.startswith('자동 목소리:'):
+                raise RegistryError(422, 'video_voice_description_required')
         if speaker.id in saved:
             value = saved.pop(speaker.id)
             speaker.name = value['name']
             speaker.role = value['role']
             speaker.video_enabled = value['video_enabled']
-            speaker.voice = speaker.voice.model_copy(update=value['voice'])
+            if not is_auto:
+                speaker.voice = speaker.voice.model_copy(update=value['voice'])
     from asa.audio_contracts import Speaker
 
-    result.speakers.extend(Speaker.model_validate(s) for s in saved.values())
+    result.speakers.extend(Speaker.model_validate(s) for s in saved.values()
+                           if not (resolve and s['id'] in automatic))
     result.delivery_mode = 'video'
     result.enabled = False  # Legacy separate-audio mixing is never enabled implicitly.
     return result.model_dump(mode='json')
@@ -183,7 +197,9 @@ def clip_audio_prompt(settings: AudioSettings, start: float, end: float) -> str:
     if not lines:
         return ''
     return ('[클립 음성 연출]\n아래 시간은 이 클립 시작 기준입니다. 지정 화자가 원문을 '
-            '말하고 인물별 목소리 특징을 유지하세요. 다른 화자에게 대사를 넘기거나 '
+            '말하고 인물별 목소리 특징을 유지하세요. 아래 목소리 특징은 영상 계획 전체의 '
+            '공통 기준이며 클립마다 다시 정하지 마세요. 감정·연출은 해당 발화에만 적용하고 '
+            '화자의 기본 음색을 바꾸지 마세요. 다른 화자에게 대사를 넘기거나 '
             '추가 대사·나레이션을 만들지 마세요.\n' + '\n\n'.join(lines))
 
 
@@ -196,6 +212,14 @@ audio_plan은 enabled=false로 두고 speakers와 cues를 출력한다. cues에�
 목소리 특징을 반영한다. video_enabled=false 화자는 발화시키지 않는다.
 자동 목소리 나레이션은 원문 대사를 유지하고 이야기·장면 분위기·제공된 이미지로 음색과
 말투를 정한다. 목소리 직접 설정이 없다는 이유로 나레이션을 삭제하거나 대사를 추가하지 않는다.
+resolution_version=2이면 automatic_speaker_ids에 지정된 화자는 자동 설정이다.
+전달된 speakers가 비어 있으면 필요한 모든 화자를 자동 설정으로 정한다.
+자동 화자의 목소리는 영상 계획 전체를 보고 화자별로 한 번만 정하여 audio_plan.speakers의
+voice.instructions에 구체적인 나이 느낌·음역·음색·발음·기본 말투를 작성한다.
+언어와 기본 속도도 함께 정한다. '자동 목소리: ... 정하세요' 같은 결정 요청을 복사하지 않는다.
+직접 설정된 화자의 목소리 특징·언어·속도는 그대로 유지한다. 같은 화자 ID는 모든 클립에서
+동일한 목소리 특징을 사용한다. 장면별 감정·말투·강세·쉼은 cues.emotion에 별도로 작성하며
+기본 음색을 다시 정하지 않는다. 각 클립 prompt에도 이 공통 목소리 기준과 일치하게 반영한다.
 오디오 지원 모델이면 audio=true로 한다. 미지원이면 audio=false로 두고 edit_notes에
 음성 생성 미지원이라고 명시한다. 목소리 고정이나 정확한 발화 길이를 보장하지 않는다.
 시간 측정용 TTS와 과거 음성은 참고 자료이며 최종 영상 음성으로 자동 합성하지 않는다.

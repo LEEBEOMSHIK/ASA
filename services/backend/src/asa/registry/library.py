@@ -5,7 +5,8 @@ from uuid import UUID, uuid5
 
 from asa.registry.library_excerpt import excerpt
 from asa.registry.library_lineage import production_roots
-from asa.registry.library_presentation import annotate, visible_items
+from asa.registry.library_presentation import annotate
+from asa.registry.library_presentation import visible_items as visible_items
 from asa.registry.repository import RegistryRepository
 from asa.registry.schemas import RegistryError
 from asa.registry.work_titles import attach_titles, explicit_title

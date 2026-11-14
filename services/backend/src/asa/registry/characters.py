@@ -535,19 +535,27 @@ def character_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
                 agent: str = Query(default="", max_length=36),
                 offset: int = Query(default=0, ge=0, le=100000),
                 confirmed_versions: bool = False,
+                work: str = Query(default="", max_length=100),
+                selected: list[UUID] = Query(default=[], max_length=32),
+                principal: Principal = Depends(sessions.principal),
                 r: CharacterRepository = Depends(repo)) -> dict[str, Any]:
         from asa.registry.character_library import library as load
         return load(r, q, state, project, agent, offset, kind=kind,
-                    confirmed_versions=confirmed_versions)
+                    confirmed_versions=confirmed_versions, work=work, user_id=principal.user_id,
+                    selected=selected)
 
     @router.get("/scene-library")
-    def scene_library(q: str = Query(default="", max_length=200),
+    def scene_library(work: str = Query(default="", max_length=100),
+                      selected: list[UUID] = Query(default=[], max_length=32),
+                      principal: Principal = Depends(sessions.principal),
+                      q: str = Query(default="", max_length=200),
                       project: str = Query(default="", max_length=36),
                       agent: str = Query(default="", max_length=36),
                       offset: int = Query(default=0, ge=0, le=100000),
                       r: CharacterRepository = Depends(repo)) -> dict[str, Any]:
         from asa.registry.character_library import library as load
-        return load(r, q, "approved", project, agent, offset, kind="scene")
+        return load(r, q, "approved", project, agent, offset, kind="scene",
+                    work=work, user_id=principal.user_id, selected=selected)
 
     @router.post("/scene-library/selection")
     def scene_selection(body: SceneSelection,

@@ -11,6 +11,8 @@ from asa.registry.script_queue import ScriptQueue
 from asa.registry.script_stage import (
     ApproveScript,
     GenerateScript,
+    RetryScript,
+    RewriteScript,
     SaveScript,
 )
 from asa.registry.sse import snapshot_stream
@@ -60,6 +62,22 @@ def script_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
     @router.post("/generate", status_code=201)
     def generate(
         request_id: UUID, body: GenerateScript, repository: ScriptQueue = Depends(repo)
+    ) -> dict[str, Any]:
+        if settings.script_ai_enabled:
+            return repository.submit(str(request_id), body)
+        return repository.queue(str(request_id), body)
+
+    @router.post("/retry", status_code=201)
+    def retry(
+        request_id: UUID, body: RetryScript, repository: ScriptQueue = Depends(repo)
+    ) -> dict[str, Any]:
+        if settings.script_ai_enabled:
+            return repository.submit(str(request_id), body)
+        return repository.queue(str(request_id), body)
+
+    @router.post('/rewrite', status_code=201)
+    def rewrite(
+        request_id: UUID, body: RewriteScript, repository: ScriptQueue = Depends(repo)
     ) -> dict[str, Any]:
         if settings.script_ai_enabled:
             return repository.submit(str(request_id), body)

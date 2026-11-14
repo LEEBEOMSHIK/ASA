@@ -56,7 +56,7 @@ def work_id(conn: Any, workspace: UUID, request: UUID) -> str | None:
     }
     for subject in subjects:
         if subject in bindings:
-            return bindings[subject]
+            return str(bindings[subject])
     return str(uuid5(workspace, "library:" + root)) if root else None
 
 

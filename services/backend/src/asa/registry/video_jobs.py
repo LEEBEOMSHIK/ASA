@@ -123,11 +123,19 @@ def video_job_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
             row = conn.execute(
                 "SELECT v.answer,r.input FROM script_versions v JOIN customer_requests r "
                 "ON r.workspace_id=v.workspace_id AND r.id=v.request_id "
-                "WHERE v.workspace_id=%s AND v.request_id=%s AND v.version=%s",
+                "WHERE v.workspace_id=%s AND v.request_id=%s AND v.version=%s FOR UPDATE OF r",
                 (repo.workspace_id, request_id, version),
             ).fetchone()
             if not row:
                 raise RegistryError(404, "video_answer_missing")
+            stage = conn.execute(
+                "SELECT head_version,approved_version FROM script_stages "
+                "WHERE workspace_id=%s AND request_id=%s FOR SHARE",
+                (repo.workspace_id, request_id),
+            ).fetchone()
+            if (not stage or stage['head_version'] != version
+                    or stage['approved_version'] != version):
+                raise RegistryError(409, "video_plan_approval_required")
             try:
                 plan = VideoPreparation.model_validate(row["answer"])
             except ValidationError as exc:
@@ -157,9 +165,17 @@ def video_job_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
             source_images = {s["image_id"] for s in selection["scenes"]}
             if any(str(c.image_id) not in source_images for c in plan.clips):
                 raise RegistryError(422, "video_scene_reference_mismatch")
+            selected = set(body.clip_ids)
+            if selected - {c.clip_id for c in plan.clips}:
+                raise RegistryError(422, "video_plan_invalid")
+            from asa.video_plan_quality import require_ready
+
+            for clip in plan.clips:
+                if clip.clip_id in selected:
+                    require_ready(clip.quality)
             prepared = prepare(repo, settings, plan, selection,
                                audio_settings if audio_settings.delivery_mode == 'video' else None,
-                               visual_style)
+                               visual_style, selected)
             model = prepared["model_snapshot"]
             if not supported_model(model):
                 raise RegistryError(422, "video_model_unavailable")

@@ -13,3 +13,7 @@ export function parseWorkTab(value: string | null): WorkTab {
 export function workTabKey(scope: string, request: string): string | null {
   return scope && request ? `asa-work-tab:v1:${scope}:${request}` : null;
 }
+
+export function completedVideoAttempt(previous:{id:string;status:string}|null, next:{id:string;status:string}|undefined, video:boolean, dirty:boolean):boolean {
+  return !!previous && !!next && previous.id===next.id && ["queued","running"].includes(previous.status) && next.status==="succeeded" && video && !dirty;
+}

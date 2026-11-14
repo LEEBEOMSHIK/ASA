@@ -70,20 +70,45 @@ WITH images AS (
 
 def library(repo: Any, q: str = '', state: str = '', project: str = '',
             agent: str = '', offset: int = 0, kind: str = 'character',
-            confirmed_versions: bool = False) -> dict[str, Any]:
+            confirmed_versions: bool = False, work: str = "", user_id: str = "",
+            selected: list[UUID] | None = None) -> dict[str, Any]:
+    from asa.registry.library import index
+    from asa.registry.repository import RegistryRepository
+
+    catalog = index(RegistryRepository(repo.dsn, repo.workspace_id), user_id)
+    images = {i["id"].split(":", 1)[1]: i for i in catalog["items"]
+              if i["kind"] == "image"}
+    matching = [key for key, item in images.items()
+                if (not item.get("work_id") if work == "unassigned"
+                    else item.get("work_id") == work)]
     source = ('images WHERE confirmed AND state != \'excluded\' AND '
               if confirmed_versions and kind == 'character' else 'representatives WHERE ')
-    with repo._connect() as conn:
-        rows = conn.execute(BASE + 'SELECT * FROM ' + source + """
+    filtered = BASE + ', filtered AS (SELECT * FROM ' + source + """
  (%s='' OR position(lower(%s) in lower(character->>'name'||' '||project_name||' '||agent_name))>0)
  AND (%s='' OR state=%s) AND (%s='' OR project_id=%s) AND (%s='' OR agent_id=%s)
- ORDER BY created_at DESC,id LIMIT 25 OFFSET %s
- """, (kind, repo.workspace_id, repo.workspace_id, kind, kind, q, q, state, state,
-       project, project, agent, agent, offset)).fetchall()
-        facets = conn.execute(BASE + "SELECT DISTINCT project_id,project_name,agent_id,agent_name "
+ AND (%s='' OR id=ANY(%s))
+ )
+ """
+    params = (kind, repo.workspace_id, repo.workspace_id, kind, kind, q, q, state, state,
+              project, project, agent, agent, work, matching)
+    with repo._connect() as conn:
+        conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ')
+        rows = conn.execute(filtered + 'SELECT * FROM filtered '
+                            'ORDER BY created_at DESC,id LIMIT 25 OFFSET %s',
+                            (*params, offset)).fetchall()
+        counts = conn.execute(filtered + 'SELECT count(*) AS total, '
+                              'count(*) FILTER (WHERE id=ANY(%s)) AS selected_matching '
+                              'FROM filtered',
+                              (*params, [str(i) for i in selected or []])).fetchone()
+        facets = conn.execute(BASE + "SELECT DISTINCT id,project_id,project_name,"
+                             "agent_id,agent_name "
                              "FROM representatives ORDER BY project_name,project_id",
                              (kind, repo.workspace_id, repo.workspace_id, kind, kind)).fetchall()
-    return {'items': rows[:24], 'has_more': len(rows) > 24, 'facets': facets}
+    for item in [*rows, *facets]:
+        linked = images.get(item['id'], {})
+        item.update(work_id=linked.get('work_id'), work_name=linked.get('work_name'))
+    return {'items': rows[:24], 'has_more': len(rows) > 24, 'facets': facets,
+            'total': counts['total'], 'selected_matching': counts['selected_matching']}
 
 
 def versions(repo: Any, image_id: UUID, kind: str = 'character') -> list[dict[str, Any]]:

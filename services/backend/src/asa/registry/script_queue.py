@@ -14,7 +14,13 @@ from asa.models import AgentAnswer, Script
 from asa.providers import make_agent_generator
 from asa.registry.model_catalog import effective_settings
 from asa.registry.schemas import RegistryError
-from asa.registry.script_stage import GenerateScript, ScriptRepository, execute_attempt
+from asa.registry.script_stage import (
+    GenerateScript,
+    RetryScript,
+    RewriteScript,
+    ScriptRepository,
+    execute_attempt,
+)
 from asa.telemetry import trace_call
 from asa.worker_control import accepting_work
 
@@ -24,7 +30,8 @@ class ScriptQueue(ScriptRepository):
         super().__init__(settings.database_url, settings.workspace_id)
         self.settings = settings
 
-    def submit(self, request_id: str, body: GenerateScript | None = None) -> dict[str, Any]:
+    def submit(self, request_id: str,
+               body: GenerateScript | RetryScript | RewriteScript | None = None) -> dict[str, Any]:
         if not self.settings.script_ai_enabled:
             raise RegistryError(409, "script_execution_disabled")
         config = effective_settings(self.settings)

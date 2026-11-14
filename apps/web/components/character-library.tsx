@@ -7,8 +7,8 @@ import "./character-library.css";
 
 type Character = {id:string;name:string;appearance:string;facts:string;proposed:string;image_prompt:string;image_id?:string;image_version?:number;project_id?:string;source_request_id?:string};
 export type ImageCard = {created_at:string;source_deleted?:boolean;id:string;project_id:string;request_id:string;source_version:number;character_id:string;character:Character;version:number;project_name:string;agent_id:string;agent_name:string;state:string;confirmed:boolean;is_default:boolean;model:string};
-type Facet = Pick<ImageCard,"project_id"|"project_name"|"agent_id"|"agent_name">;
-type Listing = {items:ImageCard[];has_more:boolean;facets:Facet[]};
+type Facet = Pick<ImageCard,"project_id"|"project_name"|"agent_id"|"agent_name"> & {work_id:string|null;work_name:string|null};
+type Listing = {items:ImageCard[];has_more:boolean;facets:Facet[];total:number;selected_matching:number};
 type Selection = {format:string;characters:Character[]};
 const labels:Record<string,string> = {approved:"확정",review:"검토 필요",excluded:"사용 안 함",running:"새 이미지 생성 중",queued:"새 이미지 대기",failed:"생성 실패 확인",unknown:"상태 확인 필요"};
 const asset = (id:string) => `/api/v1/characters/images/${id}/asset`;
@@ -43,30 +43,39 @@ function ImageDetails({item,scene,onClose}:{item:ImageCard;scene:boolean;onClose
 
 export function ImageBrowser({selection,onToggle,scene=false,onSelectAll,onClearSelection,selectionBusy=false}:{selection?:string[];onToggle?:(item:ImageCard)=>void;scene?:boolean;onSelectAll?:(ids:string[])=>void;onClearSelection?:()=>void;selectionBusy?:boolean}) {
   const [q,setQ]=useState(""); const [state,setState]=useState(selection&&scene?"approved":"");
-  const [project,setProject]=useState("");const [agent,setAgent]=useState("");
-  const [data,setData]=useState<Listing>({items:[],has_more:false,facets:[]});
+  const [work,setWork]=useState("");const [project,setProject]=useState("");const [agent,setAgent]=useState("");
+  const [data,setData]=useState<Listing>({items:[],has_more:false,facets:[],total:0,selected_matching:0});
   const [offset,setOffset]=useState(0);const [loading,setLoading]=useState(true);const [error,setError]=useState("");const [refresh,setRefresh]=useState(0);
   const [detail,setDetail]=useState<ImageCard|null>(null);const searchId=useId();
+  const selectionKey=JSON.stringify(selection||[]);
+  const [countSelection,setCountSelection]=useState("");
+  const requestKey=JSON.stringify([q,state,work,project,agent,offset,refresh,scene,!!selection]);
+  const lastRequestKey=useRef("");
   useEffect(()=>{
-    let alive=true;setLoading(true);setError("");
-    const timer=setTimeout(()=>{const params=new URLSearchParams({q,state,project,agent,kind:scene?"scene":"character",offset:String(offset)});if(selection&&!scene)params.set("confirmed_versions","true");
-      api<Listing>(`/characters/${scene&&selection?"scene-library":"library"}?${params}`).then(result=>{if(alive)setData(result);}).catch(e=>{if(alive)setError(message(e));}).finally(()=>{if(alive)setLoading(false);});},200);
+    let alive=true;if(lastRequestKey.current!==requestKey)setLoading(true);lastRequestKey.current=requestKey;setError("");
+    const timer=setTimeout(()=>{const params=new URLSearchParams({q,state,work,project,agent,kind:scene?"scene":"character",offset:String(offset)});if(selection&&!scene)params.set("confirmed_versions","true");
+      for(const id of JSON.parse(selectionKey) as string[])params.append("selected",id);
+      api<Listing>(`/characters/${scene&&selection?"scene-library":"library"}?${params}`).then(result=>{if(alive){setData(result);setCountSelection(selectionKey);}}).catch(e=>{if(alive)setError(message(e));}).finally(()=>{if(alive)setLoading(false);});},200);
     return()=>{alive=false;clearTimeout(timer);};
-  },[q,state,project,agent,offset,refresh,scene,!!selection]);
-  const projects=Array.from(new Map(data.facets.map(f=>[f.project_id,{id:f.project_id,label:f.project_name}])).values());
-  const agents=Array.from(new Map(data.facets.filter(f=>f.agent_id).map(f=>[f.agent_id,{id:f.agent_id,label:f.agent_name}])).values());
+  },[q,state,work,project,agent,offset,refresh,scene,!!selection,selectionKey,requestKey]);
+  const works=Array.from(new Map(data.facets.filter(f=>f.work_id).map(f=>[f.work_id!,{id:f.work_id!,label:f.work_name||"제목 없는 작품"}])).values());
+  const filteredFacets=data.facets.filter(f=>!work||(work==="unassigned"?!f.work_id:f.work_id===work));
+  const projects=Array.from(new Map(filteredFacets.map(f=>[f.project_id,{id:f.project_id,label:f.project_name}])).values());
+  const agents=Array.from(new Map(filteredFacets.filter(f=>f.agent_id).map(f=>[f.agent_id,{id:f.agent_id,label:f.agent_name}])).values());
   const limit=scene?32:12;
   const mergedIds=[...new Set([...(selection||[]),...data.items.map(item=>item.id)])];
   const allShownSelected=data.items.length>0&&data.items.every(item=>selection?.includes(item.id));
   return <div className="image-library-browser">
     <div className="image-library-filters">
       <div className="image-library-search"><label htmlFor={searchId}>검색</label><input id={searchId} type="search" placeholder={scene?"씬·작업·에이전트 이름":"캐릭터·작업·에이전트 이름"} maxLength={200} value={q} onChange={e=>{setQ(e.target.value);setOffset(0);}}/></div>
+      <SelectCombobox label="작품" value={work} options={[{id:"",label:"모든 작품"},...works,{id:"unassigned",label:"작품 미지정"}]} onChange={v=>{setWork(v);setProject("");setAgent("");setOffset(0);}} searchable={false}/>
       <SelectCombobox label="작업" value={project} options={[{id:"",label:"모든 작업"},...projects]} onChange={v=>{setProject(v);setOffset(0);}} searchable={false}/>
       <SelectCombobox label="에이전트" value={agent} options={[{id:"",label:"모든 에이전트"},...agents]} onChange={v=>{setAgent(v);setOffset(0);}} searchable={false}/>
       {!selection&&<SelectCombobox label="상태" value={state} options={[{id:"",label:"모든 상태"},...Object.entries(labels).map(([id,label])=>({id,label}))]} onChange={v=>{setState(v);setOffset(0);}} searchable={false}/>}
     </div>
     <div className="image-library-toolbar"><p className="muted">{scene&&!selection?"씬별로 확정 이미지 또는 최근 생성한 이미지를 표시합니다. 카드를 눌러 버전과 장면 내용을 확인하세요.":scene?"확정된 씬 이미지를 선택하세요. 장면 번호와 생성 당시 캐릭터 설정이 함께 연결됩니다. 최대 32장입니다.":selection?"확정 이미지와 사용자가 연결한 업로드 이미지를 선택할 수 있습니다. 최대 12장까지 함께 전달합니다.":"캐릭터별 확정 이미지 또는 최신 이미지를 표시합니다. 이전 버전은 카드를 눌러 확인하세요."}</p><Button variant="secondary" disabled={loading} onClick={()=>setRefresh(v=>v+1)}>새로고침</Button></div>
     {onSelectAll&&selection&&<div className="image-library-toolbar"><div className="button-row"><Button variant="secondary" disabled={loading||selectionBusy||!!error||!data.items.length||allShownSelected||mergedIds.length>limit} onClick={()=>onSelectAll(mergedIds)}>현재 목록 모두 선택</Button><Button variant="secondary" disabled={selectionBusy||!selection.length} onClick={onClearSelection}>전체 선택 해제</Button></div><p className="helper-text" role="status">{mergedIds.length>limit?`최대 ${limit}장까지 선택할 수 있습니다. 검색·필터로 범위를 줄이거나 기존 선택을 해제하세요.`:data.has_more||offset>0?"검색·필터가 적용된 현재 페이지의 이미지를 선택합니다. 다른 페이지의 선택은 유지됩니다.":"검색·필터가 적용된 현재 목록을 모두 선택합니다."}</p></div>}
+    <div className="image-library-counts" role="status" aria-live="polite"><strong>{loading?"검색 결과 확인 중…":error?"검색 결과 확인 실패":`검색 결과 ${data.total}장`}</strong>{selection&&!loading&&!error&&countSelection===selectionKey&&selection.length>data.selected_matching&&<span className="muted">필터 밖에서 선택한 이미지 {selection.length-data.selected_matching}장 · 선택 유지 중</span>}</div>
     {error&&<p role="alert">{error}</p>}
     {loading?<p role="status">이미지를 불러오는 중…</p>:!error&&!data.items.length?<div className="image-library-empty"><strong>표시할 이미지가 없습니다.</strong><p>{selection?"원래 작업에서 이미지를 확정하거나 검색·필터를 변경해 주세요.":"검색·필터를 변경해 보세요. 아직 생성하지 않은 이미지는 원래 작업에서 확인할 수 있습니다."}</p></div>:!error&&<div className="image-library-grid">{data.items.map(item=>{
       const selected=selection?.includes(item.id);const stateLabel=selection&&item.confirmed?(item.is_default?"기본 이미지":"확정"):!item.request_id?"사용자 업로드":labels[item.state]||item.state;return <button type="button" key={item.id} className="image-library-card" aria-pressed={selection?!!selected:undefined} aria-label={`${item.character.name} · ${stateLabel}${selection?" 선택":" 이미지 확인"}`} onClick={()=>onToggle?onToggle(item):setDetail(item)}>
@@ -148,7 +157,7 @@ export function CharacterImageInput({id,label,required,value,onChange}:{id:strin
    {!!selected?.characters.length&&<div className="image-reference-selected">{selected.characters.map(c=><div key={c.image_id} className="reference-selection-card"><img src={asset(c.image_id||"")} alt={`${c.name} 선택된 기준 이미지`}/><span><strong>{c.name}</strong><small>{c.source_request_id===""?"사용자 업로드":"보관함"} · v{c.image_version}</small></span><div className="reference-selection-actions">{c.source_request_id===""&&<Button variant="secondary" onClick={()=>setUpload(c)}>연결 수정</Button>}<Button variant="secondary" aria-label={`${c.name} 연결 해제`} onClick={()=>remove(c.image_id||"")}>연결 해제</Button></div></div>)}</div>}
    <div className="button-row"><Button variant="secondary" onClick={show}>{selected?.characters.length?`보관함 선택 변경 · ${selected.characters.length}장`:"보관함에서 선택"}</Button><Button variant="secondary" disabled={(selected?.characters.length||0)>=12} onClick={()=>setUpload(true)}>이미지 업로드</Button>{value&&<Button variant="secondary" onClick={()=>onChange("")}>전체 선택 해제</Button>}</div>
    {upload&&<UploadImage existing={upload===true?undefined:upload} onClose={()=>setUpload(null)} onApply={attach}/>}
-   {open&&<Modal title="전달할 캐릭터 이미지 선택" onClose={()=>{if(!busy)setOpen(false);}} footer={<><span role="status">{pending.length} / 12장 선택</span><Button variant="secondary" disabled={busy} onClick={()=>setOpen(false)}>취소</Button><Button disabled={busy||!pending.length} onClick={()=>void apply()}>{busy?"확인 중…":"선택한 이미지 연결"}</Button></>}>
+   {open&&<Modal title="전달할 캐릭터 이미지 선택" onClose={()=>{if(!busy)setOpen(false);}} footer={<><span role="status">{pending.length}장 선택 · 최대 12장</span><Button variant="secondary" disabled={busy} onClick={()=>setOpen(false)}>취소</Button><Button disabled={busy||!pending.length} onClick={()=>void apply()}>{busy?"확인 중…":"선택한 이미지 연결"}</Button></>}>
      <ImageBrowser selection={pending} selectionBusy={busy} onToggle={item=>void toggleVersion(item)}/>
      {pending.length===12&&<p className="muted">12장을 선택했습니다. 다른 이미지를 선택하려면 먼저 선택을 해제하세요.</p>}
      {error&&<p role="alert">{error}</p>}

@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {workTabKey,parseWorkTab,entryWorkTab,initialWorkTab} from './work-tabs.ts';
+import {completedVideoAttempt,workTabKey,parseWorkTab,entryWorkTab,initialWorkTab} from './work-tabs.ts';
 test('tab keys isolate work and user and reject missing scopes',()=>{
  assert.notEqual(workTabKey('ws:user','a'),workTabKey('ws:user','b'));
  assert.notEqual(workTabKey('ws:user','a'),workTabKey('ws:other','a'));
@@ -24,4 +24,12 @@ test('saved tab only takes precedence on reload, not a fresh entry',()=>{
  for(const saved of ['common','images','history'])assert.equal(initialWorkTab('images',saved,true),saved);
  assert.equal(initialWorkTab('history',null,true),'history');
  assert.equal(initialWorkTab('history','bad',true),'history');
+});
+
+test('video completion switches only after an observed active attempt',()=>{
+ const done={id:'a',status:'succeeded'};
+ assert.equal(completedVideoAttempt({id:'a',status:'running'},done,true,false),true);
+ for(const prev of [null,done,{id:'b',status:'running'},{id:'a',status:'failed'}]) assert.equal(completedVideoAttempt(prev,done,true,false),false);
+ assert.equal(completedVideoAttempt({id:'a',status:'queued'},done,false,false),false);
+ assert.equal(completedVideoAttempt({id:'a',status:'running'},done,true,true),false);
 });

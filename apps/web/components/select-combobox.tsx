@@ -17,7 +17,7 @@ export function SelectCombobox({options,value,onChange,loading=false,label,searc
   else if(bounds.bottom>viewport.bottom)container.scrollTop+=bounds.bottom-viewport.bottom;
  },[active]);
  function choose(model:SelectOption){onChange(model.id);setQuery("");setOpen(false);}
- return <div className="select-combobox" onBlur={e=>{if(e.currentTarget.closest("dialog")?.contains(e.relatedTarget))return;if(!e.currentTarget.contains(e.relatedTarget)){setOpen(false);setQuery("");}}}>
+ return <div className="select-combobox" onBlur={e=>{if(!e.currentTarget.contains(e.relatedTarget)){setOpen(false);setQuery("");}}}>
   <label htmlFor={id}>{label}</label>
   <div className="select-combobox-control"><input id={id} role="combobox" aria-autocomplete={searchable?"list":"none"} readOnly={!searchable} aria-expanded={open} aria-controls={`${id}-list`} aria-activedescendant={open&&filtered[active]?`${id}-option-${active}`:undefined} aria-describedby={hint?`${id}-hint`:undefined} autoComplete="off" disabled={loading} placeholder={loading?"목록 확인 중…":`${label} 또는 검색`} value={open&&searchable?query:(selected?.selectedLabel||selected?.label||"")} onClick={()=>{setOpen(searchable?true:!open);setQuery("");setActive(0);}} onFocus={()=>{if(searchable)setOpen(true);setQuery("");setActive(0);}} onChange={e=>{setQuery(e.target.value);setActive(0);setOpen(true);onChange("");}} onKeyDown={e=>{
    if(e.nativeEvent.isComposing)return;

@@ -37,6 +37,22 @@ class GenerateScript(BaseModel):
     request_input: Any = None
 
 
+class RetryScript(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: UUID
+    attempt_id: UUID
+    expected_revision: int = Field(ge=0, strict=True)
+    acknowledge_unknown: bool = False
+
+
+class RewriteScript(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    id: UUID
+    expected_revision: int = Field(ge=0, strict=True)
+    base_version: int = Field(gt=0, strict=True)
+    acknowledge_unknown: bool = False
+
+
 class ApproveScript(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_revision: int = Field(ge=0, strict=True)
@@ -133,7 +149,7 @@ class ScriptRepository(RegistryRepository):
             stage["attempts"] = conn.execute(
                 "SELECT id::text,base_version,instruction,status,result_version,provider,model,"
                 "created_at::text,started_at::text,finished_at::text,error_code,live_output,"
-                "agent_version "
+                "agent_version,prompt "
                 "FROM script_attempts "
                 "WHERE workspace_id=%s AND request_id=%s ORDER BY created_at DESC LIMIT 20",
                 (self.workspace_id, request_id),
@@ -154,6 +170,14 @@ class ScriptRepository(RegistryRepository):
                 answer['requires_approval'] = definition.get('requires_approval', False)
             for attempt in stage['attempts']:
                 attempt['agent_version'] = attempt['agent_version'] or request['version']
+                from asa.output_validation import output_issues
+
+                contract = json.loads(attempt.pop('prompt'))
+                attempt['error_details'] = []
+                if attempt.get('error_code') == 'ai_output_invalid':
+                    attempt['error_details'] = output_issues(
+                        (attempt.get('live_output') or {}).get('value'),
+                        contract.get('output_schema', {}))
             latest = self._latest_request(conn, request)
             stage['retry_agent_version'] = latest['version']
             stage['retry_input_schema'] = latest['definition']['input_schema']
@@ -299,7 +323,7 @@ class ScriptRepository(RegistryRepository):
     def queue(
         self,
         request_id: str,
-        body: GenerateScript,
+        body: GenerateScript | RetryScript | RewriteScript,
         *,
         provider: str | None = None,
         model: str | None = None,
@@ -319,6 +343,48 @@ class ScriptRepository(RegistryRepository):
                 "SELECT * FROM script_attempts WHERE workspace_id=%s AND request_id=%s AND id=%s",
                 (self.workspace_id, request_id, body.id),
             ).fetchone()
+            retry_of = None
+            rewrite_latest = isinstance(body, RewriteScript)
+            if isinstance(body, RewriteScript):
+                prior = existing or conn.execute(
+                    'SELECT prompt FROM script_attempts WHERE workspace_id=%s AND request_id=%s '
+                    'ORDER BY created_at DESC,id DESC LIMIT 1',
+                    (self.workspace_id, request_id)).fetchone()
+                stored = json.loads(prior['prompt']) if prior else {}
+                body = GenerateScript(
+                    id=body.id, expected_revision=body.expected_revision,
+                    base_version=body.base_version,
+                    acknowledge_unknown=body.acknowledge_unknown,
+                    instruction='기존 입력 자료와 원문을 유지하고 최신 저장 지침에 따라 '
+                                '답변을 다시 작성하세요. 같은 작업의 새 답변 버전으로 작성하세요.',
+                    request_input=stored.get('submitted_request',
+                                             stored.get('original_request', request['input'])),
+                )
+            if (existing and bool(json.loads(existing['prompt']).get('rewrite_latest'))
+                    != rewrite_latest):
+                raise RegistryError(409, 'work_conflict')
+            if isinstance(body, RetryScript):
+                retry_of = str(body.attempt_id)
+                source = conn.execute(
+                    "SELECT * FROM script_attempts WHERE workspace_id=%s AND request_id=%s "
+                    "AND id=%s", (self.workspace_id, request_id, body.attempt_id),
+                ).fetchone()
+                latest = conn.execute(
+                    "SELECT id FROM script_attempts WHERE workspace_id=%s AND request_id=%s "
+                    "ORDER BY created_at DESC,id DESC LIMIT 1", (self.workspace_id, request_id),
+                ).fetchone()
+                if (not source or source['status'] not in ('failed', 'unknown')
+                        or (not existing and (not latest or latest['id'] != source['id']))):
+                    raise RegistryError(409, "script_revision_conflict")
+                if existing and json.loads(existing['prompt']).get('retry_of') != retry_of:
+                    raise RegistryError(409, "work_conflict")
+                snapshot = json.loads(source['prompt'])
+                body = GenerateScript(
+                    id=body.id, expected_revision=body.expected_revision,
+                    base_version=source['base_version'], instruction=source['instruction'],
+                    acknowledge_unknown=body.acknowledge_unknown,
+                    request_input=snapshot.get('submitted_request', snapshot['original_request']),
+                )
             if existing:
                 if (
                     existing["base_version"] != body.base_version
@@ -416,12 +482,21 @@ class ScriptRepository(RegistryRepository):
 
                     # Extend the answer contract without appending legacy mute/TTS instructions.
                     request['definition']['output_schema'] = upgrade_definition(
-                        request['definition'])['output_schema']
+                        request['definition'], video_voice=True)['output_schema']
+                    from asa.video_plan_quality import upgrade_schema
+
+                    output = request['definition']['output_schema']
+                    clips = output.get('properties', {}).get('clips', {})
+                    if clips.get('items', {}).get('properties'):
+                        request['definition']['output_schema'] = upgrade_schema(output)
+                        voice_contract['video_quality_version'] = 1
                     voice_contract['video_voice_directions'] = snapshot(
                         conn, self.workspace_id, request['input'])
                 prompt = json.dumps(
                     {
                         **voice_contract,
+                        "retry_of": retry_of,
+                        "rewrite_latest": rewrite_latest,
                         "work_visual_style": visual_style,
                         "submitted_request": submitted_request,
                         "agent_instructions": request["definition"]["instructions"],
@@ -647,6 +722,15 @@ def execute_attempt(
                                    contract['video_voice_directions'])
                 except RegistryError as exc:
                     raise ValueError(exc.code) from exc
+            if contract.get('video_quality_version') == 1:
+                from pydantic import ValidationError
+
+                from asa.video_contracts import VideoPreparation
+
+                try:
+                    VideoPreparation.model_validate(result.value)
+                except ValidationError as exc:
+                    raise ValueError('invalid_agent_output') from exc
         elif not isinstance(result, Script):
             raise ValueError("invalid_agent_output")
         return {"script": result}
@@ -694,6 +778,9 @@ def output_error_code(error: BaseException) -> str:
     current: BaseException | None = error
     while current is not None and id(current) not in seen:
         seen.add(id(current))
+        if (isinstance(current, RegistryError)
+                and current.code == 'video_voice_description_required'):
+            return current.code
         if type(current).__name__ == "LengthFinishReasonError":
             return "ai_output_limit"
         if isinstance(current, ValueError) and str(current) == "invalid_agent_output":

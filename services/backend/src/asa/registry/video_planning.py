@@ -34,6 +34,7 @@ def prepare(
     source_selection: dict[str, Any] | None = None,
     voice_settings: Any = None,
     visual_style: dict[str, Any] | None = None,
+    selected_clip_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     model = profile(settings, body.model_key, body.model_revision)
     if voice_settings:
@@ -68,11 +69,18 @@ def prepare(
     images = {scene["image_id"]: scene for scene in selected["scenes"]}
     prepared = []
     for clip in body.clips:
+        from asa.video_plan_quality import event_prompt, require_ready
         from asa.voice_directions import clip_audio_prompt
+
+        if selected_clip_ids is not None and clip.clip_id not in selected_clip_ids:
+            continue
+        require_ready(clip.quality)
 
         voice_prompt = (clip_audio_prompt(voice_settings, clip.source_start_seconds,
                                          clip.source_end_seconds) if voice_settings else '')
-        if voice_prompt and not model.supports_audio:
+        sound_events = bool(clip.quality and any(
+            e.kind == 'sound_effect' for e in clip.quality.events))
+        if (voice_prompt or sound_events) and not model.supports_audio:
             raise RegistryError(422, 'video_audio_unsupported')
         image = images[str(clip.image_id)]
         if (clip.scene_id, clip.shot_id) != (image["scene_id"], image["shot_id"]):
@@ -88,6 +96,7 @@ def prepare(
                 f"시작 상태 / Start: {clip.continuity_in}" if clip.continuity_in else "",
                 f"종료 상태 / End: {clip.continuity_out}" if clip.continuity_out else "",
                 voice_prompt,
+                event_prompt(clip.quality),
             )
             if part
         )
@@ -114,7 +123,7 @@ def prepare(
                     "duration_seconds": clip.duration_seconds,
                     "aspect_ratio": body.aspect_ratio,
                     "resolution": model.resolution,
-                    "audio": bool(voice_prompt) or body.audio,
+                    "audio": bool(voice_prompt) or sound_events or body.audio,
                     "voice_direction_prompt": voice_prompt,
                     "work_visual_style": visual_style,
                     "start_image_id": str(clip.image_id),

@@ -1,6 +1,7 @@
 "use client";
 import { Modal } from "./character-library";
 import {WorkTabPart,useCharacterWorkTabs} from "./character-work-tabs";
+import {completedVideoAttempt} from "../lib/work-tabs";
 import {workHref,workRoute} from "../lib/work-route";
 import { useWorkDraft } from "../lib/work-draft";
 import { useEffect, useRef, useState } from "react";
@@ -20,14 +21,25 @@ import { WorkSpeechReview } from "./work-speech-review";
 
 function isSceneAnswer(value:unknown):boolean {return !!value && typeof value==="object" && "shots" in value && Array.isArray(value.shots) && value.shots.length>0;}
 
+function failureMessage(code?:string):string {
+ return ({video_voice_description_required:"AI가 자동 화자의 구체적인 목소리 특징을 작성하지 않았습니다. 기존 입력으로 다시 요청해 주세요.",ai_output_invalid:"AI 답변의 필수 항목 또는 형식이 출력 규칙과 맞지 않습니다.",ai_timeout:"AI 응답 시간이 초과됐습니다. 공급자 결과와 사용량을 확인해 주세요.",ai_output_limit:"답변 길이 한도에 도달해 작성을 완료하지 못했습니다.",ai_call_failed:"AI 호출 중 오류가 발생했습니다. 공급자 연결과 사용량을 확인해 주세요.",worker_interrupted:"처리 중 워커가 중단됐습니다. 공급자 결과와 사용량을 확인해 주세요."} as Record<string,string>)[code||""]||"답변 생성을 완료하지 못했습니다. 요청 이력과 관리자 실행 기록을 확인해 주세요.";
+}
+function friendlyFailure(value:string):string {
+ const labels:Record<string,string>={source_start_seconds:"원본 시작 시간(초)",source_end_seconds:"원본 종료 시간(초)",continuity_in:"시작 모습",continuity_out:"종료 모습"};
+ return value.replace(/답변\.clips\[(\d+)\]\.(\w+)/g,(_,n,key)=>`클립 ${n} · ${labels[key]||key}`);
+}
+
 type Version = { after_tasks?: Tool["after_tasks"]; agent_version: number; output_schema: SchemaNode; requires_approval: boolean; answer: unknown; version: number; title: string; narration: string; source: "manual" | "ai"; base_version: number | null; instruction: string; created_at: string };
 type LiveOutput = {understanding?: string; direction?: string; value?: unknown};
-type Attempt = { agent_version: number; live_output?: LiveOutput; id: string; status: "queued" | "running" | "succeeded" | "unknown" | "cancelled" | "failed"; base_version: number; instruction: string; result_version: number | null; created_at: string; started_at?: string; provider?: string; model?: string; error_code?: string };
+type Attempt = { agent_version: number; live_output?: LiveOutput; id: string; status: "queued" | "running" | "succeeded" | "unknown" | "cancelled" | "failed"; base_version: number; instruction: string; result_version: number | null; created_at: string; started_at?: string; provider?: string; model?: string; error_code?: string; error_details?: string[] };
 type Stage = { after_tasks?: Tool["after_tasks"]; retry_agent_version: number; retry_input_schema: SchemaNode; retry_input: unknown; retry_input_valid: boolean; requires_approval: boolean; output_schema: SchemaNode; revision: number; head_version: number; approved_version: number | null; versions: Version[]; attempts: Attempt[]; model_configured: boolean; tools_supported: boolean; execution_enabled: boolean; worker_online: boolean; queue_ahead: number; request_input: unknown; agent_instructions: string };
 const attemptLabels: Record<Attempt["status"], string> = { queued: "실행 대기", running: "작성 중", succeeded: "작성 완료", unknown: "결과 확인 필요", cancelled: "취소됨", failed: "실행하지 못함" };
 
-export function ScriptStage({ requestId, onDirtyChange, onNewWork, onLayout }: { requestId: string; onDirtyChange?: (dirty: boolean) => void; onNewWork?: () => void; onLayout?: (profile:Partial<Tool>)=>void }) {
+export function ScriptStage({ requestId, onDirtyChange, onNewWork, onLayout, errorRequest=0 }: { errorRequest?: number; requestId: string; onDirtyChange?: (dirty: boolean) => void; onNewWork?: () => void; onLayout?: (profile:Partial<Tool>)=>void }) {
   const workTabs=useCharacterWorkTabs();
+  const [showFailure,setShowFailure]=useState(false);
+  const seenErrorRequest=useRef(errorRequest);
+  useEffect(()=>{if(errorRequest!==seenErrorRequest.current){seenErrorRequest.current=errorRequest;setShowFailure(true);}},[errorRequest]);
   const [stage, setStage] = useState<Stage | null>(null);
   const [editing, setEditing] = useState(false);
   const [briefExpanded,setBriefExpanded]=useState(true);
@@ -41,6 +53,7 @@ export function ScriptStage({ requestId, onDirtyChange, onNewWork, onLayout }: {
   const [answer, setAnswer] = useState<unknown>(null);
   const [narration, setNarration] = useState("");
   const [instruction, setInstruction] = useState("");
+  const [requestMode,setRequestMode]=useState<"modify"|"rewrite">("modify");
   const [retryEdit, setRetryEdit] = useState<{version:number;values:Record<string,string>} | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -59,6 +72,16 @@ export function ScriptStage({ requestId, onDirtyChange, onNewWork, onLayout }: {
     if(saved.selected!==selected)return;
     setEditing(saved.editing);setTitle(saved.title);setAnswer(saved.answer);setNarration(saved.narration);setInstruction(saved.instruction);setRetryEdit(saved.retryEdit);pinnedVersion.current=selected;
   },Boolean(stage),dirty||Boolean(instruction)||retryEdit!==null);
+  const observedAttempt = useRef<{request:string;id:string;status:string}|null>(null);
+  useEffect(()=>{
+    if(!stage)return;
+    const next=stage.attempts[0], previous=observedAttempt.current;
+    const result=stage.versions.find(v=>v.version===next?.result_version);
+    if(completedVideoAttempt(previous?.request===requestId?previous:null,next,isVideoPlan(result?.answer),dirty)) {
+      pinnedVersion.current=null; choose(stage); workTabs?.select("images");
+    }
+    observedAttempt.current=next?{request:requestId,id:next.id,status:next.status}:null;
+  },[stage,requestId,dirty,workTabs]);
   const active = stage?.attempts.find(attempt => ["queued", "running"].includes(attempt.status));
   const unknown = stage?.attempts.some(attempt => attempt.status === "unknown");
   function choose(data: Stage, number = data.head_version) {
@@ -136,13 +159,26 @@ export function ScriptStage({ requestId, onDirtyChange, onNewWork, onLayout }: {
       const data = await api<Stage>(path); setStage(data); pinnedVersion.current=null; choose(data); operation.current = null;
       if (action === "/versions") {pendingDraft.clear();setEditing(false);}
       if (action === "/generate") {pendingDraft.clear();setRetryEdit(null);setInstruction("");}
-      setNotice(action === "/versions" ? "새 답변 버전으로 저장했습니다. 이전 버전은 그대로 남아 있습니다." : action === "/approve" ? "답변을 저장했습니다." : action === "/generate" ? "답변 생성 요청을 접수했습니다. 결과가 나오면 자동으로 표시됩니다." : "대기 요청을 취소했습니다. 기존 답변은 유지됩니다.");
-    } catch (e) { setError(message(e)); } finally { setBusy(false); }
+      setNotice(action === "/versions" ? "새 답변 버전으로 저장했습니다. 이전 버전은 그대로 남아 있습니다." : action === "/approve" ? (isVideoPlan(version?.answer)?"영상 계획을 확정했습니다. 생성할 클립을 선택해 주세요.":"답변을 저장했습니다.") : (action === "/generate" || action === "/retry" || action === "/rewrite") ? "답변 생성 요청을 접수했습니다. 결과가 나오면 자동으로 표시됩니다." : "대기 요청을 취소했습니다. 기존 답변은 유지됩니다.");
+      return true;
+    } catch (e) { setError(message(e)); return false; } finally { setBusy(false); }
+  }
+  async function retryFailed() {
+    if (!stage || busy || preparingRetry.current) return;
+    preparingRetry.current = true;
+    try {
+      if (await mutate("/retry", {expected_revision: stage.revision, attempt_id: stage.attempts[0].id, acknowledge_unknown: acknowledged}, true)) setShowFailure(false);
+    } finally { preparingRetry.current = false; }
   }
   async function regenerate() {
     if (!stage || busy || preparingRetry.current) return;
     preparingRetry.current = true;
     try {
+      if (requestMode === "rewrite" && selected > 0) {
+        await mutate("/rewrite", {expected_revision:stage.revision,base_version:selected,
+          acknowledge_unknown:acknowledged}, true);
+        return;
+      }
       let input = retryEdit ? retryPayload(retryEdit.values, stage.retry_input_schema) : undefined;
       if (retryEdit) {
         const payload = stage.retry_input_schema.type === "object" ? input as Record<string, unknown> : {value: input};
@@ -173,6 +209,15 @@ export function ScriptStage({ requestId, onDirtyChange, onNewWork, onLayout }: {
   const stateLabel = latestFailed ? (latest.error_code === "ai_timeout" ? "시간 초과 · 결과 확인 필요" : "최근 요청 실패 · 결과 확인 필요") : active ? attemptLabels[active.status] : stage.head_version ? "답변 완료" : "답변 없음";
   const previous = stage.versions.find(v => v.version < selected);
   return <section className="agent-response" aria-labelledby="agent-response-title">
+    {showFailure&&<Modal title="답변 생성 실패 원인" onClose={()=>setShowFailure(false)} footer={latestFailed?<div className="answer-failure-actions"><p className="helper-text">실패한 요청의 입력으로 다시 생성합니다. 추가 수정 내용은 필요하지 않으며, 새 AI 호출 비용이 발생할 수 있습니다.</p>
+        {unknown&&<label className="script-ack"><input type="checkbox" checked={acknowledged} onChange={e=>setAcknowledged(e.target.checked)}/>이전 호출에 비용이 발생했을 수 있으며 재시도 시 추가 비용이 발생함을 확인했습니다.</label>}
+        <Button disabled={busy||Boolean(active)||Boolean(unknown&&!acknowledged)} onClick={retryFailed}><ActionIcon kind="ai"/>{busy?"재시도 접수 중…":"기존 입력으로 재시도"}</Button>
+        {error&&<p role="alert">{error}</p>}</div>:undefined}><div className="answer-failure-content">
+      <p>{latestFailed?failureMessage(latest.error_code):"현재 실패 기록을 확인할 수 없습니다. 작업을 새로고침해 주세요."}</p>
+      {!!latest?.error_details?.length&&<section><h3>확인된 항목</h3><ul>{latest.error_details.map((item,index)=><li key={index}>{friendlyFailure(item)}</li>)}</ul></section>}
+      {latestFailed&&<><p className="muted">기존 자료는 유지됩니다. 오류 확인만으로 다시 실행하거나 영상을 생성하지 않습니다.</p><p className="helper-text">{latest.error_code==="ai_output_invalid"?"답변이 출력 규칙을 통과하지 못해 새 답변으로 저장되지 않았습니다. 기존 입력으로 다시 요청할 수 있습니다.":"요청 이력과 사용량을 확인한 뒤 다시 요청해 주세요."}</p><p className="helper-text">{new Date(latest.created_at).toLocaleString("ko-KR")} · {latest.model} · 오류 코드: {latest.error_code||"미확인"}</p></>}
+
+    </div></Modal>}
     {pendingDraft.notice&&<p role="status" className="preview-banner">{pendingDraft.notice}</p>}
     {error && <p role="alert" className="field-error">{error}</p>}{notice && <p role="status" className="preview-banner">{notice}</p>}
     <WorkTabPart tab="images" className="work-result-progress">{active && <Card><RequestProgress status={active.status} createdAt={active.created_at} queueAhead={stage.queue_ahead} online={stage.worker_online} instructions={stage.agent_instructions} model={active.model} receiving={Boolean(liveOutput?.understanding || liveOutput?.direction || liveOutput?.value !== undefined)} />
@@ -192,13 +237,13 @@ export function ScriptStage({ requestId, onDirtyChange, onNewWork, onLayout }: {
       </WorkTabPart>
 
       <WorkTabPart tab="images">{version&&!isCharacterAnswer(version.answer)&&!isSceneAnswer(version.answer)&&!isVideoPlan(version.answer)&&<div className="card-heading work-result-heading"><h2>작업 결과</h2><StatusBadge>답변 v{selected}</StatusBadge></div>}</WorkTabPart>
-      {(!editing || !!workTabs) && (version ? <><article className="agent-answer" hidden={!!workTabs&&workTabs.tab==="history"} aria-label="답변 내용">{isVideoPlan(version.answer) ? <VideoClipManager key={requestId+":"+selected} plan={version.answer} requestId={requestId} version={selected}/> : isCharacterAnswer(version.answer) ? <CharacterResults key={`${requestId}:${selected}`} requestId={requestId} version={selected}/> : isSceneAnswer(version.answer) ? <CharacterResults scene key={`${requestId}:${selected}`} requestId={requestId} version={selected}/> : <AnswerView value={generic ? version.answer : { "제목": version.title, "대본": version.narration }} schema={generic ? answerSchema : undefined} />}</article><WorkTabPart tab="history"><section hidden={editing} className={workTabs?"answer-management answer-management-compact":"answer-management"} aria-label="에이전트 답변 관리">{!workTabs&&<div><strong>답변으로 작업하기</strong><p className="muted">{isCharacterAnswer(version.answer) ? (workTabs?"AI에게 변경을 맡기거나 직접 내용을 편집할 수 있습니다. 새 작업은 기존 작업과 별도로 만들어집니다.":"등장인물 목록과 설정을 포함한 답변 전체를 수정하거나 텍스트로 복사합니다. 이미지 생성·수정·확정은 위 캐릭터 카드에서 진행하세요.") : "답변 내용을 직접 고쳐 새 버전으로 저장하거나 텍스트로 복사할 수 있습니다."}</p></div>}<div className="script-actions">{workTabs&&<DisclosureButton variant="secondary" aria-expanded={retryExpanded} disabled={busy || Boolean(active) || dirty} onClick={()=>setRetryExpanded(v=>!v)}><ActionIcon kind="ai"/>수정 요청</DisclosureButton>}{!workTabs&&<Button variant="secondary" disabled={busy || Boolean(active)} onClick={() => {setRetryExpanded(false);setEditing(true);}}>직접 편집</Button>}{workTabs&&onNewWork&&<Button variant="secondary" onClick={onNewWork} title="이전 입력을 불러와 별도 작업으로 시작합니다"><ActionIcon kind="add"/>새 작업</Button>}{!workTabs&&<Button variant="secondary" onClick={async () => { try { await navigator.clipboard.writeText(generic ? answerText(version.answer, answerSchema) : `${version.title}\n\n${version.narration}`); setNotice("답변을 복사했습니다."); } catch { setError("복사하지 못했습니다. 답변을 선택해 복사해 주세요."); } }}><ActionIcon kind="copy"/>답변 텍스트 복사</Button>}</div></section></WorkTabPart></> : <p className="result-placeholder">{active ? "에이전트가 답변하면 여기에 표시됩니다." : "아직 답변이 없습니다. 아래에서 에이전트에 요청해 주세요."}</p>)}
+      {(!editing || !!workTabs) && (version ? <><article className={`agent-answer${isVideoPlan(version.answer)?" agent-answer--workspace":""}`} hidden={!!workTabs&&workTabs.tab==="history"} aria-label="답변 내용">{isVideoPlan(version.answer) ? <VideoClipManager key={requestId+":"+selected} plan={version.answer} requestId={requestId} version={selected} approved={stage.approved_version===selected&&stage.head_version===selected} approvalDisabled={busy||Boolean(active)||dirty||editing||selected!==stage.head_version} onApprove={()=>void mutate("/approve",{expected_revision:stage.revision,version:selected})}/> : isCharacterAnswer(version.answer) ? <CharacterResults key={`${requestId}:${selected}`} requestId={requestId} version={selected}/> : isSceneAnswer(version.answer) ? <CharacterResults scene key={`${requestId}:${selected}`} requestId={requestId} version={selected}/> : <AnswerView value={generic ? version.answer : { "제목": version.title, "대본": version.narration }} schema={generic ? answerSchema : undefined} />}</article><WorkTabPart tab="history"><section hidden={editing} className={workTabs?"answer-management answer-management-compact":"answer-management"} aria-label="에이전트 답변 관리">{!workTabs&&<div><strong>답변으로 작업하기</strong><p className="muted">{isCharacterAnswer(version.answer) ? (workTabs?"AI에게 변경을 맡기거나 직접 내용을 편집할 수 있습니다. 새 작업은 기존 작업과 별도로 만들어집니다.":"등장인물 목록과 설정을 포함한 답변 전체를 수정하거나 텍스트로 복사합니다. 이미지 생성·수정·확정은 위 캐릭터 카드에서 진행하세요.") : "답변 내용을 직접 고쳐 새 버전으로 저장하거나 텍스트로 복사할 수 있습니다."}</p></div>}<div className="script-actions">{workTabs&&<DisclosureButton variant="secondary" aria-expanded={retryExpanded} disabled={busy || Boolean(active) || dirty} onClick={()=>setRetryExpanded(v=>!v)}><ActionIcon kind="ai"/>수정 요청</DisclosureButton>}{!workTabs&&<Button variant="secondary" disabled={busy || Boolean(active)} onClick={() => {setRetryExpanded(false);setEditing(true);}}>직접 편집</Button>}{workTabs&&onNewWork&&<Button variant="secondary" onClick={onNewWork} title="이전 입력을 불러와 별도 작업으로 시작합니다"><ActionIcon kind="add"/>새 작업</Button>}{!workTabs&&<Button variant="secondary" onClick={async () => { try { await navigator.clipboard.writeText(generic ? answerText(version.answer, answerSchema) : `${version.title}\n\n${version.narration}`); setNotice("답변을 복사했습니다."); } catch { setError("복사하지 못했습니다. 답변을 선택해 복사해 주세요."); } }}><ActionIcon kind="copy"/>답변 텍스트 복사</Button>}</div></section></WorkTabPart></> : <p className="result-placeholder">{active ? "에이전트가 답변하면 여기에 표시됩니다." : "아직 답변이 없습니다. 아래에서 에이전트에 요청해 주세요."}</p>)}
       <WorkTabPart tab="history">{editing && <><p className="helper-text">AI를 호출하지 않고 답변을 직접 편집합니다. 저장하면 이 작업에 새 답변 버전이 추가됩니다. 수정한 설정은 해당 버전의 후속 작업 기준이 됩니다. 이미 생성한 이미지·영상과 에이전트 공통 지침은 바뀌지 않습니다.</p><form onSubmit={e => { e.preventDefault(); void mutate("/versions", { expected_revision: stage.revision, base_version: selected, ...(generic ? { answer } : { title, narration }) }, true); }}><fieldset className="request-fields" disabled={busy || Boolean(active)}>
         {generic ? <AnswerEditor value={answer} schema={answerSchema!} onChange={setAnswer} /> : <><Field id="script-title" label="영상 제목">{props => <input {...props} required maxLength={120} value={title} onChange={e => setTitle(e.target.value)} placeholder="영상의 제목을 작성하세요" />}</Field>
         <Field id="script-narration" label="답변" hint="도입·본문·마무리를 자연스럽게 작성하세요. 최대 6,000자.">{props => <textarea {...props} required maxLength={6000} rows={12} value={narration} onChange={e => setNarration(e.target.value)} placeholder="답변을 수정하세요." />}</Field></>}
         <div className="script-actions"><Button type="submit" disabled={!dirty || (!generic && (!title.trim() || !narration.trim()))}>새 버전으로 저장</Button><Button variant="secondary" onClick={() => { pendingDraft.clear();choose(stage, selected); setEditing(false); }}>수정 취소</Button></div>
       </fieldset></form></>}
-      </WorkTabPart><WorkTabPart tab="images">      {version?.requires_approval && version && !isCharacterAnswer(version.answer) && !isSceneAnswer(version.answer) && <div className="answer-approval"><div className="card-heading"><h3>사용자 확인</h3><StatusBadge tone={stage.approved_version===selected?"success":"warning"}>{stage.approved_version===selected?"답변 확정됨":"검토 필요"}</StatusBadge></div><p className="muted">내용을 확인한 뒤 확정하세요. 수정하거나 다시 생성하면 새 답변을 다시 확인해야 합니다.</p><Button disabled={busy || Boolean(active) || dirty || editing || selected!==stage.head_version || stage.approved_version===selected} onClick={()=>void mutate("/approve",{expected_revision:stage.revision,version:selected})}><ActionIcon kind="confirm"/>이 답변 확정</Button>{selected!==stage.head_version && <p className="helper-text">최신 답변을 선택한 뒤 확정할 수 있습니다.</p>}</div>}
+      </WorkTabPart><WorkTabPart tab="images">      {version?.requires_approval && version && !isVideoPlan(version.answer) && !isCharacterAnswer(version.answer) && !isSceneAnswer(version.answer) && <div className="answer-approval"><div className="card-heading"><h3>사용자 확인</h3><StatusBadge tone={stage.approved_version===selected?"success":"warning"}>{stage.approved_version===selected?"답변 확정됨":"검토 필요"}</StatusBadge></div><p className="muted">내용을 확인한 뒤 확정하세요. 수정하거나 다시 생성하면 새 답변을 다시 확인해야 합니다.</p><Button disabled={busy || Boolean(active) || dirty || editing || selected!==stage.head_version || stage.approved_version===selected} onClick={()=>void mutate("/approve",{expected_revision:stage.revision,version:selected})}><ActionIcon kind="confirm"/>이 답변 확정</Button>{selected!==stage.head_version && <p className="helper-text">최신 답변을 선택한 뒤 확정할 수 있습니다.</p>}</div>}
       {dirty && <p className="helper-text">저장하지 않은 수정이 있습니다. 저장한 뒤 다른 작업으로 이동하세요.</p>}
       {version && <WorkSpeechReview key={`${requestId}:${selected}`} requestId={requestId} version={selected} disabled={busy || dirty || editing || Boolean(active)}/>}
       </WorkTabPart><WorkTabPart tab="history">
@@ -206,18 +251,25 @@ export function ScriptStage({ requestId, onDirtyChange, onNewWork, onLayout }: {
       {version && <p className="helper-text">{new Date(version.created_at).toLocaleString("ko-KR")} · {version.source === "ai" ? "AI가 작성한 답변" : "사용자가 수정한 답변"} · 답변 v{version.version} · 지침 v{version.agent_version}</p>}
       {previous && <><DisclosureButton variant="secondary" onClick={() => setCompare(value => !value)} aria-expanded={compare}>이전 답변과 비교</DisclosureButton>{compare && <div className="notice"><h4>이전 v{previous.version}</h4><AnswerView value={previous.answer ?? { "제목": previous.title, "대본": previous.narration }} schema={previous.answer != null ? previous.output_schema : undefined} /><h4>선택한 v{selected}</h4><AnswerView value={version?.answer ?? { "제목": version?.title, "대본": version?.narration }} schema={generic ? answerSchema : undefined} /></div>}</>}
       </div>
-    </WorkTabPart><WorkTabPart tab="history"><details className="work-revision-details" hidden={!!workTabs&&!retryExpanded&&stage.head_version>0} open={workTabs?(retryExpanded||stage.head_version===0):(retryExpanded||stage.head_version===0||Boolean(instruction)||retryEdit!==null)} onToggle={e=>{if(!workTabs)setRetryExpanded(e.currentTarget.open);}}>{workTabs?<summary className="work-inline-summary">AI에게 수정 요청</summary>:<DisclosureSummary>{stage.head_version ? "이 작업에서 AI에게 수정 요청" : "에이전트에 답변 요청"}</DisclosureSummary>}<p className="muted">{selected ? `답변 v${selected}에서 바꿀 내용을 적어 주세요. 결과는 이 작업의 새 답변 버전으로 추가되며, 이전 답변은 유지됩니다.` : "원래 요청을 바탕으로 원하는 길이와 분위기를 적어 주세요."}</p>
+    </WorkTabPart><WorkTabPart tab="history"><details className="work-revision-details" hidden={!!workTabs&&!retryExpanded&&stage.head_version>0} open={workTabs?(retryExpanded||stage.head_version===0):(retryExpanded||stage.head_version===0||Boolean(instruction)||retryEdit!==null)} onToggle={e=>{if(!workTabs)setRetryExpanded(e.currentTarget.open);}}>{workTabs?<summary className="work-inline-summary">AI에게 수정 요청</summary>:<DisclosureSummary>{stage.head_version ? "이 작업에서 AI에게 수정 요청" : "에이전트에 답변 요청"}</DisclosureSummary>}<p className="muted">{selected ? `답변 v${selected}을 기준으로 요청합니다. 결과는 같은 작업의 새 답변 버전으로 추가되며, 기존 입력과 자료는 유지됩니다.` : "원래 요청을 바탕으로 원하는 길이와 분위기를 적어 주세요."}</p>
       <form onSubmit={e => { e.preventDefault(); void regenerate(); }}><fieldset className="request-fields" disabled={busy || Boolean(active) || !stage.tools_supported || !stage.model_configured || !stage.execution_enabled}>
-        <Field id="script-revision-request" label="어떻게 작성하거나 고칠까요?" hint="예: 핵심 내용은 유지하고, 구체적인 예시를 더해 주세요.">{props => <textarea {...props} required maxLength={2000} rows={5} value={instruction} onChange={e => setInstruction(e.target.value)} />}</Field>
+        {selected>0&&<fieldset className="input-radio-group"><legend>요청 방식</legend><div className="input-radio-options script-request-modes">
+          <label className="input-radio-option"><input type="radio" name={`request-mode-${requestId}`} checked={requestMode==="modify"} onChange={()=>setRequestMode("modify")}/><span>수정 내용 입력</span></label>
+          <label className="input-radio-option"><input type="radio" name={`request-mode-${requestId}`} checked={requestMode==="rewrite"} onChange={()=>setRequestMode("rewrite")}/><span>최신 지침으로 다시 작성</span></label>
+        </div></fieldset>}
+        {requestMode==="modify"||!selected?<Field id="script-revision-request" label="어떻게 작성하거나 고칠까요?" hint="예: 핵심 내용은 유지하고, 구체적인 예시를 더해 주세요.">{props => <textarea {...props} required maxLength={2000} rows={5} value={instruction} onChange={e => setInstruction(e.target.value)} />}</Field>:<p className="helper-text">수정 내용 없이 저장된 입력과 연결 자료로 다시 작성합니다. 작성 중인 수정 내용·입력 초안은 이번 요청에 포함하지 않습니다.</p>}
         <p className="helper-text">최신 저장 지침 v{stage.retry_agent_version}으로 새 답변을 만듭니다. 접수한 뒤에는 해당 설정이 유지되며, 원래 입력과 이전 답변은 보존됩니다.</p>
+        {requestMode==="rewrite"&&!stage.retry_input_valid&&<p role="alert" className="notice">최신 지침에 필요한 입력이 달라졌습니다. ‘수정 내용 입력’에서 재요청 입력을 보완해 주세요.</p>}
+        {(requestMode==="modify"||!selected)&&<>
         {(!stage.retry_input_valid || retryEdit) && <p role="status" className="notice">최신 설정의 입력 항목을 확인해 주세요. 보완한 내용은 이번 요청에만 적용됩니다.</p>}
         <DisclosureButton variant="secondary" aria-expanded={retryEdit!==null} onClick={() => setRetryEdit(retryEdit ? null : {version:stage.retry_agent_version,values:retryValues(stage.retry_input,stage.retry_input_schema)})}>{retryEdit ? "입력 수정 취소" : "재요청 입력 확인·수정"}</DisclosureButton>
         {retryEdit && <section className="request-fields" aria-label="재요청 입력">
           {retryEdit.version !== stage.retry_agent_version && <p role="alert">에이전트 설정이 변경됐습니다. 입력 수정 취소 후 다시 열어 확인하세요.</p>}
           {inputEntries(stage.retry_input_schema).filter(([,node])=>isInputVisible(node,retryEdit.values)).map(([key,node])=><AgentInput onDetailChange={v=>setRetryEdit(current=>current?{...current,values:{...current.values,video_art_style:v}}:current)} inputs={retryEdit.values} key={key} node={node} id={`retry-input-${key}`} label={node.description || key} required={isInputRequired(stage.retry_input_schema,key,retryEdit.values)} value={retryEdit.values[key] ?? ""} videoStyle={retryEdit.values.video_style ?? ""} onChange={value=>setRetryEdit(current=>current?{...current,values:{...current.values,[key]:value}}:current)}/>)}
         </section>}
+        </>}
         {unknown && <label className="script-ack"><input type="checkbox" checked={acknowledged} onChange={e => setAcknowledged(e.target.checked)} />이전 호출 결과·사용량을 확인했으며 새 요청에서 중복 비용이 발생할 수 있음을 확인했습니다.</label>}
-        <Button type="submit" disabled={dirty || !instruction.trim() || (!stage.retry_input_valid && !retryEdit) || Boolean(retryEdit && retryEdit.version !== stage.retry_agent_version) || Boolean(unknown && !acknowledged)}><ActionIcon kind="ai"/>{selected ? "AI에게 수정 요청 보내기" : "답변 요청 보내기"}</Button>
+        <Button type="submit" disabled={dirty || (requestMode==="rewrite"&&selected>0 ? !stage.retry_input_valid : !instruction.trim() || (!stage.retry_input_valid && !retryEdit) || Boolean(retryEdit && retryEdit.version !== stage.retry_agent_version)) || Boolean(unknown && !acknowledged)}><ActionIcon kind="ai"/>{busy?"요청 접수 중…":requestMode==="rewrite"&&selected>0?"최신 지침으로 다시 작성":selected ? "AI에게 수정 요청 보내기" : "답변 요청 보내기"}</Button>
       </fieldset></form>
       {!stage.tools_supported && <p className="field-error">이 에이전트에는 연결된 도구가 있습니다. 도구 실행은 아직 지원하지 않으므로 답변은 직접 작성하거나 도구가 없는 에이전트를 사용하세요.</p>}
       <p className="helper-text">{stage.model_configured ? "모델 설정이 준비되어 있습니다." : "AI 모델 설정이 아직 준비되지 않았습니다."} 실행하면 공급자 비용이 발생합니다. 토큰과 예상 비용은 관리자 모니터링에 기록됩니다.</p>

@@ -20,7 +20,7 @@ export function SceneImageInput({id,label,required,value,onChange}:{id:string;la
  {!open&&error&&<p role="alert">{error}</p>}
  <div className="button-row"><Button variant="secondary" onClick={show}>{selected?.scenes.length?`선택 변경 · ${selected.scenes.length}장`:"확정 씬 이미지 선택"}</Button>{value&&<Button variant="secondary" onClick={()=>onChange("")}>선택 해제</Button>}</div>
  <p className="helper-text">대본·장면 구성과 같은 작업의 이미지를 선택하세요. 캐릭터 설정은 생성 당시 기록을 가져오며 다시 입력하지 않아도 됩니다. 선택하지 않은 씬은 이미지 대조 대상에서 제외됩니다.</p>
- {open&&<Modal title="확정 씬 이미지 가져오기" onClose={()=>{if(!busy)setOpen(false);}} footer={<><span role="status">{pending.length} / 32장 선택</span><Button variant="secondary" disabled={busy} onClick={()=>setOpen(false)}>취소</Button><Button disabled={busy||!pending.length} onClick={()=>void apply()}>{busy?"연결 확인 중…":"선택한 씬 연결"}</Button></>}>
+ {open&&<Modal title="확정 씬 이미지 가져오기" onClose={()=>{if(!busy)setOpen(false);}} footer={<><span role="status">{pending.length}장 선택 · 최대 32장</span><Button variant="secondary" disabled={busy} onClick={()=>setOpen(false)}>취소</Button><Button disabled={busy||!pending.length} onClick={()=>void apply()}>{busy?"연결 확인 중…":"선택한 씬 연결"}</Button></>}>
  <ImageBrowser scene selection={pending} selectionBusy={busy} onSelectAll={setPending} onClearSelection={()=>setPending([])} onToggle={item=>{if(!busy)setPending(old=>old.includes(item.id)?old.filter(x=>x!==item.id):old.length<32?[...old,item.id]:old);}}/>
  {pending.length===32&&<p className="muted">32장까지 선택할 수 있습니다. 더 많은 장면은 나누어 요청하세요.</p>}{error&&<p role="alert">{error}</p>}
  </Modal>}

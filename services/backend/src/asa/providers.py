@@ -120,10 +120,24 @@ def make_agent_generator(
             messages.insert(1, ('system', INSTRUCTIONS))
         if video_constraints:
             messages.insert(1, ("system", video_constraints))
+            messages.insert(2, ('system',
+                '모든 클립에 source_start_seconds와 source_end_seconds를 숫자로 출력하세요. '
+                '원본 타임라인의 시작·종료 초이며 duration_seconds(생성 길이)와 구분합니다. '
+                '첫 시작은 0, 각 종료는 시작보다 커야 하고 다음 시작은 앞 종료와 같아야 합니다. '
+                '시간을 edit_notes에만 적거나 필수 필드를 생략하지 마세요. '
+                '모든 문자열은 아래 스키마의 maxLength 이내로 작성하세요. '
+                'continuity_in/out에는 짧은 시작/종료 상태만 적고 상세 검토는 허용된 '
+                'edit_notes 등에 해당 길이 제한 안에서 적으세요. '
+                '반환 직전 required와 maxLength를 확인하세요. 출력 계약: '
+                + json.dumps(schema, ensure_ascii=False)))
         if 'video_voice_directions' in contract:
             from asa.voice_directions import INSTRUCTIONS
 
             messages.insert(2, ('system', INSTRUCTIONS))
+        if contract.get('video_quality_version') == 1:
+            from asa.video_plan_quality import INSTRUCTIONS as QUALITY_INSTRUCTIONS
+
+            messages.insert(2, ('system', QUALITY_INSTRUCTIONS))
         if scene_plan:
             messages.insert(1, ("system",
                 "이 실행은 씬 분석 단계입니다. 완성된 shots는 씬별 이미지 생성·검수·수정·확정 "
@@ -140,8 +154,15 @@ def make_agent_generator(
                 "참고용 인물을 장면에 추가하지 말고 참고 목적을 image_prompt에 명시하세요. "
                 "대본·장면에서 소품을 가져가거나 돌려주는 것은 동일 소품의 이동이며 "
                 "소유자가 달라졌다는 이유로 충돌로 판단하지 마세요. 원문은 변경하지 마세요."))
+        if video_constraints and settings.ai_provider == 'openai':
+            from asa.output_validation import strict_output_schema
+
+            structured = model.with_structured_output(
+                strict_output_schema(envelope), method='json_schema', strict=True)
+        else:
+            structured = model.with_structured_output(envelope)
         if on_progress is None:
-            result = model.with_structured_output(envelope).invoke(messages, **call_config())
+            result = structured.invoke(messages, **call_config())
         else:
             messages.insert(1, ("system",
                                "응답 필드는 understanding, direction, value 순서로 작성하세요. "
@@ -149,7 +170,7 @@ def make_agent_generator(
                                "내부 사고 과정은 공개하지 마세요. "
                                "최종 value는 에이전트 지침과 요청한 답변 형식을 그대로 따르세요."))
             result = {}
-            for partial in model.with_structured_output(envelope).stream(messages, **call_config()):
+            for partial in structured.stream(messages, **call_config()):
                 if isinstance(partial, dict):
                     result = partial
                     on_progress(partial)

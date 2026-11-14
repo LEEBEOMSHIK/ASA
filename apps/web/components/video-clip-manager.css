@@ -1,0 +1,20 @@
+.video-clip-manager { display:grid; gap:var(--space-4); min-width:0; }
+.video-clip-overview { display:grid; gap:var(--space-4); padding:var(--space-4); border:1px solid var(--border); border-radius:var(--radius-md); background:var(--surface); }
+.video-clip-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:var(--space-3); }
+.video-clip-heading .script-actions { margin:0; }
+.video-clip-manager h3,.agent-answer .video-clip-manager h3 { margin:0; font-size:var(--font-lg); line-height:1.5; }
+.video-clip-manager h4,.video-clip-manager p { margin:0; }
+.video-clip-manager .scene-status-summary { grid-row:auto; }
+.video-clip-content { display:grid; gap:var(--space-4); min-width:0; overflow-wrap:anywhere; }
+.video-clip-content>div:not(.card-heading) { display:grid; gap:var(--space-2); }
+.video-clip-notes { border:1px solid var(--border); border-radius:var(--radius-md); padding:var(--space-4); background:var(--surface); }
+.video-clip-notes .voice-directions { display:grid; gap:var(--space-4); padding-top:var(--space-4); }
+.video-clip-manager .character-picker button strong { min-height:0; }
+.video-clip-manager .character-picker button { grid-template-rows:auto auto auto; gap:var(--space-2); }
+@media(max-width:600px) { .video-clip-heading { align-items:stretch; flex-direction:column; } .video-clip-heading .script-actions { display:flex; } .video-clip-heading .button { flex:1; } }
+.video-clip-manager .character-picker { grid-template-columns:repeat(auto-fit,minmax(min(100%,10rem),1fr)); }
+
+.video-plan-approval { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:var(--space-4); padding:var(--space-4); border:1px solid var(--border); border-radius:var(--radius-md); background:var(--surface); }
+.video-plan-approval>div:first-child { flex:1; min-width:min(100%,16rem); display:grid; gap:var(--space-2); }
+.video-plan-approval .script-actions { margin:0; }
+@media(max-width:600px) { .video-plan-approval .script-actions { width:100%; justify-content:space-between; } }

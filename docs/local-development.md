@@ -368,3 +368,7 @@ DB를 사용하는 API 테스트는 `with TestClient(create_app(...)) as client:
 - 비활성화는 enqueue와 submitting 예약에 같은 workspace advisory lock을 사용한다. 예약이 먼저 끝난 외부 호출은 진행할 수 있으며 이를 취소/환불로 표시하지 않는다. 이미 running인 작업은 비활성화에서도 같은 공급자 task ID로 조회·회수한다.
 - 영상 워커는 기존 run_worker 제어에 통합한다. 시작은 명시 동작이며 대기 요청을 처리할 수 있다. 워커 중지는 현재 통신 이후 polling도 멈추며 공급자 취소가 아니다. 다시 시작하면 running 작업 조회를 재개한다. submitting 중 비정상 종료는 unknown으로 보존하고 자동 재전송하지 않는다.
 - API/워커 실행 전 migration 적용. 예전 영상 워커는 기존 프로세스를 종료하고 새 lifecycle로 재시작해야 제어 가능하다.
+
+### 최신 지침 재작성 확인
+- 답변이 있는 작업의 AI 답변·수정 요청 탭 → 수정 요청 → 최신 지침으로 다시 작성. 수정 문구 없이 저장된 입력으로 같은 작업의 다음 답변 버전을 요청한다.
+- 실제 요청은 공급자 비용이 발생하므로 UI 검증에서는 전송하지 않는다. 테스트 DB의 test_script_rewrite.py는 모의 AgentAnswer로 입력 보존·최신 지침·새 버전·멱등·입력 주입 거부를 검증한다.

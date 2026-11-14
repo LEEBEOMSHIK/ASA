@@ -18,6 +18,7 @@ export function WorkHistory({ initialId, onRepeat, onSelect, onDirtyChange }: { 
   const tabPrefix=useId();
   const [id, setId] = useState(initialId || "");
   const [dirty, setDirty] = useState(false);
+  const [errorRequest,setErrorRequest]=useState(0);
   const handleDirty = useCallback((value: boolean) => { setDirty(value); onDirtyChange?.(value); }, [onDirtyChange]);
   function canLeave() { return !dirty || window.confirm("저장하지 않은 답변 수정이 있습니다. 변경을 버리고 이동할까요?"); }
   function navigate(value: string) { if (!canLeave()) return; setId(value); onSelect?.(value); }
@@ -49,7 +50,7 @@ export function WorkHistory({ initialId, onRepeat, onSelect, onDirtyChange }: { 
   const nextStep=workNextStep(detail?.status || "",detail?.work_progress);
   return <CharacterWorkTabsContext.Provider value={tabState}><section className="agent-task-layout">
     {loading ? <p role="status">작업을 불러오는 중입니다…</p> : error ? <p role="alert">{error}</p> : detail ? <div className="tool-detail-stack history-detail">
-      {<header className="work-task-summary" aria-label="현재 작업"><div className="work-task-identity"><h1>{detail.agent.name}</h1><p className="muted">{detail.display_title||detail.custom_name||detail.name||"제목 없는 작업"}</p></div><Button variant="secondary" className={`work-status-action work-status-action--${nextStep!.tone}`} disabled={dirty} aria-label={`${nextStep!.label} · 작업 영역으로 이동`} title={dirty?"답변 수정을 저장하거나 취소한 뒤 이동하세요.":"작업 영역으로 이동"} onClick={()=>{tabState.select(nextStep!.tab);if(nextStep!.tab==="images"&&detail.work_progress){window.dispatchEvent(new CustomEvent("asa-resume-work",{detail:{requestId:id,version:detail.work_progress!.source_version,anchor:detail.work_progress!.resume_anchor}}));}else{requestAnimationFrame(()=>{const panel=document.getElementById(`${tabPrefix}-panel`);if(panel){panel.style.scrollMarginTop=`${(document.querySelector('[aria-label="워커 상태 및 제어"]')?.getBoundingClientRect().height||0)+24}px`;panel.focus({preventScroll:true});panel.scrollIntoView({block:"start",behavior:window.matchMedia("(prefers-reduced-motion: reduce)").matches?"instant":"smooth"});}});}}}><span>{nextStep!.label}</span><DisclosureIcon/></Button></header>}
+      {<header className="work-task-summary" aria-label="현재 작업"><div className="work-task-identity"><h1>{detail.agent.name}</h1><p className="muted">{detail.display_title||detail.custom_name||detail.name||"제목 없는 작업"}</p></div><Button variant="secondary" className={`work-status-action work-status-action--${nextStep!.tone}`} disabled={dirty} aria-label={`${nextStep!.label} · ${detail.status==="failed"?"실패 원인 보기":"작업 영역으로 이동"}`} title={dirty?"답변 수정을 저장하거나 취소한 뒤 이동하세요.":detail.status==="failed"?"실패 원인 보기":"작업 영역으로 이동"} onClick={()=>{if(detail.status==="failed"){setErrorRequest(n=>n+1);return;}tabState.select(nextStep!.tab);if(nextStep!.tab==="images"&&detail.work_progress){window.dispatchEvent(new CustomEvent("asa-resume-work",{detail:{requestId:id,version:detail.work_progress!.source_version,anchor:detail.work_progress!.resume_anchor}}));}else{requestAnimationFrame(()=>{const panel=document.getElementById(`${tabPrefix}-panel`);if(panel){panel.style.scrollMarginTop=`${(document.querySelector('[aria-label="워커 상태 및 제어"]')?.getBoundingClientRect().height||0)+24}px`;panel.focus({preventScroll:true});panel.scrollIntoView({block:"start",behavior:window.matchMedia("(prefers-reduced-motion: reduce)").matches?"instant":"smooth"});}});}}}><span>{nextStep!.label}</span><DisclosureIcon/></Button></header>}
       {detail.status === "running" && <p role="status" className="preview-banner">워커가 요청을 처리하고 있습니다. 모델 응답이 도착하면 작성 방향과 답변을 표시합니다.</p>}
       {<WorkTabBar prefix={tabPrefix} items={items}/>}
       {tabState.warning&&<p role="status">{tabState.warning}</p>}
@@ -63,7 +64,7 @@ export function WorkHistory({ initialId, onRepeat, onSelect, onDirtyChange }: { 
       </Card>}
       </WorkTabPart>
       {detail.error && <p role="alert">{detail.error}</p>}
-      <ScriptStage key={id} requestId={id} onLayout={handleLayout} onDirtyChange={handleDirty} onNewWork={()=>{if(canLeave())onRepeat(detail);}} />
+      <ScriptStage key={id} requestId={id} errorRequest={errorRequest} onLayout={handleLayout} onDirtyChange={handleDirty} onNewWork={()=>{if(canLeave())onRepeat(detail);}} />
       </div>
     </div> : null}
   </section></CharacterWorkTabsContext.Provider>;
