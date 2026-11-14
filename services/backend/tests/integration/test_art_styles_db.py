@@ -143,7 +143,7 @@ def test_work_category_selects_same_specialist_even_with_legacy_manual_config(me
         'enabled': True, 'editor_managed': True, 'mode': 'manual',
         'profile_id': 'live_action', 'style_instructions': {
             'animation_2d': '2D_ONLY', 'animation_3d': '3D_ONLY', 'live_action': 'LIVE_ONLY'}}}
-    inputs = art_styles.video_inputs(definition, {'video_style': 'live_action'},
+    inputs = art_styles.video_inputs(definition, {},
                                      {'media_type': media})
     assert inputs['video_style'] == media
     bundle = build_prompt_bundle(definition, inputs, work_media_type=media)
@@ -152,7 +152,35 @@ def test_work_category_selects_same_specialist_even_with_legacy_manual_config(me
     assert bundle['selection_source'] == 'work'
 
 
-def test_queue_freezes_work_category_and_does_not_rewrite_original(client, db, monkeypatch):
+@pytest.mark.parametrize('selected', ['auto', 'animation_2d', 'animation_3d', 'live_action'])
+def test_video_override_is_local_and_survives_common_style_changes(selected):
+    from asa.video_prompt_modules import build_prompt_bundle
+
+    common = {'work_id': 'work', 'media_type': 'live_action', 'prompt': 'photo', 'revision': 1}
+    definition = {'instructions': 'COMMON', 'input_schema': {'properties': {
+        'model': {'x-video-model': True}}}}
+    inputs = {'video_style': selected}
+    assert art_styles.video_inputs(definition, inputs, common) == inputs
+    frozen = art_styles.video_style(inputs, common)
+    assert frozen['scope'] == 'video'
+    assert common['media_type'] == 'live_action' and common['prompt'] == 'photo'
+    assert frozen['prompt'] == ''
+    bundle = build_prompt_bundle(definition, inputs,
+                                 work_media_type=frozen['media_type'],
+                                 work_style_auto=selected == 'auto')
+    assert bundle['media_type'] == (None if selected == 'auto' else selected)
+    prompt = art_styles.apply_style('original scene', frozen)
+    assert ('AUTOMATIC VISUAL STYLE' if selected == 'auto' else selected) in prompt
+    art_styles.check_plan_style(frozen, {**common, 'media_type': 'animation_3d'})
+    with pytest.raises(RegistryError):
+        art_styles.check_plan_style(frozen, {**common, 'work_id': 'other'})
+
+
+@pytest.mark.parametrize("automatic", [False, True])
+@pytest.mark.parametrize('override', [None, 'animation_2d', 'auto'])
+def test_queue_freezes_work_category_and_does_not_rewrite_original(
+    client, db, monkeypatch, automatic, override
+):
     from asa.registry.script_stage import GenerateScript, ScriptRepository
 
     _, work, _ = script_work(client)
@@ -160,7 +188,8 @@ def test_queue_freezes_work_category_and_does_not_rewrite_original(client, db, m
     with psycopg.connect(db[0], row_factory=dict_row) as conn:
         style = art_styles.load(conn, db[1], rid)
         saved = art_styles.save(conn, db[1], rid, art_styles.StyleEdit.model_validate(
-            {**style, 'media_type': 'animation_3d', 'prompt': 'clay texture'}))
+            {**style, 'media_type': None if automatic else 'animation_3d',
+             'prompt': '' if automatic else 'clay texture'}))
         row = conn.execute('SELECT definition FROM registry_versions WHERE workspace_id=%s',
                            (db[1],)).fetchone()
         definition = row['definition']
@@ -174,14 +203,26 @@ def test_queue_freezes_work_category_and_does_not_rewrite_original(client, db, m
                         lambda self, conn, request: {**request, 'definition': definition})
     repo = ScriptRepository(*db)
     command = GenerateScript(id=uuid4(), expected_revision=0, base_version=0,
-                             instruction='generate')
+                             instruction='generate',
+                             **({'request_input': {'topic': '고양이', 'video_style': override,
+                                                  'video_art_style': 'soft watercolor'}}
+                                if override else {}))
     repo.queue(str(rid), command)
     with psycopg.connect(db[0], row_factory=dict_row) as conn:
         frozen = json.loads(conn.execute('SELECT prompt FROM script_attempts WHERE id=%s',
                                          (command.id,)).fetchone()['prompt'])
-        assert frozen['work_visual_style'] == saved
-        assert frozen['original_request']['video_style'] == 'animation_3d'
-        assert frozen['video_prompt_bundle']['media_type'] == 'animation_3d'
+        expected = art_styles.generation_style(saved)
+        if override:
+            expected = art_styles.video_style({'video_style': override,
+                                               'video_art_style': 'soft watercolor'}, expected)
+        assert frozen['work_visual_style'] == expected
+        assert frozen['original_request']['video_style'] == (
+            override or ('auto' if automatic else 'animation_3d'))
+        assert frozen['video_prompt_bundle']['media_type'] == (
+            expected['media_type'])
+        if expected.get('mode') == 'auto':
+            assert frozen['video_prompt_bundle']['selection_source'] == 'work_auto'
+            assert 'AUTOMATIC VISUAL STYLE' in frozen['video_prompt_bundle']['instructions']
         assert conn.execute('SELECT input FROM customer_requests WHERE id=%s',
                             (rid,)).fetchone()['input'] == {'topic': '고양이'}
         art_styles.save(conn, db[1], rid, art_styles.StyleEdit.model_validate(

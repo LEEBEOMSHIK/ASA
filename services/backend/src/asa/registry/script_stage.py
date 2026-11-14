@@ -145,6 +145,7 @@ class ScriptRepository(RegistryRepository):
                 answer['agent_version'] = answer['agent_version'] or request['version']
                 definition = definitions[answer['agent_version']]
                 answer['output_schema'] = definition['output_schema']
+                answer['after_tasks'] = definition.get('after_tasks', {})
                 from asa.voice_directions import answer_contract
 
                 contract = answer_contract(conn, self.workspace_id, request_id, answer['version'])
@@ -171,6 +172,7 @@ class ScriptRepository(RegistryRepository):
             )
             display = definitions[active['agent_version']] if active else request['definition']
             stage["output_schema"] = display["output_schema"]
+            stage["after_tasks"] = display.get("after_tasks", {})
             stage["requires_approval"] = request["definition"].get("requires_approval", False)
             stage["tools_supported"] = not latest["definition"]["tools"]
             return stage
@@ -350,6 +352,9 @@ class ScriptRepository(RegistryRepository):
                     if is_video else None)
                 request['input'] = art_styles.video_inputs(request['definition'], request['input'],
                                                          visual_style)
+                if (is_video and isinstance(submitted_request, dict)
+                        and submitted_request.get('video_style')):
+                    visual_style = art_styles.video_style(submitted_request, visual_style)
                 if not valid_input(request['input'], request['definition']['input_schema']):
                     raise RegistryError(422, 'retry_input_required')
                 if execution_settings is not None:
@@ -426,6 +431,8 @@ class ScriptRepository(RegistryRepository):
                             'scene_timing', False),
                         "video_prompt_bundle": build_prompt_bundle(
                             request["definition"], request["input"],
+                            work_style_auto=bool(
+                                visual_style and visual_style.get('mode') == 'auto'),
                             work_media_type=(visual_style.get('media_type')
                                              if visual_style else None),
                         ),

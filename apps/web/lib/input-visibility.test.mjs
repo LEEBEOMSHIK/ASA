@@ -25,3 +25,14 @@ test('custom subject appears next to its choice and hidden text is excluded from
   assert.equal(isInputRequired(schema,'custom',{subject:'직접 입력'}),true);
   assert.equal(isInputRequired(schema,'custom',{subject:'유령'}),false);
 });
+
+
+test('video detail survives retry values and payload without leaking into other agents',()=>{
+ const schema={type:'object',properties:{video_style:{type:'string'},video_model:{type:'string','x-video-model':true}}};
+ const input={video_style:'animation_2d',video_model:'wan3',video_art_style:'수채화 질감'};
+ assert.deepEqual(retryPayload(retryValues(input,schema),schema),input);
+ assert.equal(retryPayload({...input,video_style:'auto'},schema).video_art_style,undefined);
+ const other={type:'object',properties:{video_style:{type:'string'}}};
+ assert.equal(retryValues(input,other).video_art_style,undefined);
+ assert.equal(retryPayload(input,other).video_art_style,undefined);
+});

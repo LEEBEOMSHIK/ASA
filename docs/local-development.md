@@ -360,3 +360,11 @@ DB를 사용하는 API 테스트는 `with TestClient(create_app(...)) as client:
 - `scripts/check.ps1`는 pytest `-vv --durations=10 -o faulthandler_timeout=60`으로 실행한다. 각 테스트의 이름·완료 결과와 오래 걸린 테스트를 표시하고, 한 테스트가 60초 이상 걸리면 스택을 출력한다. 이 값은 강제 종료나 테스트 통과 기준 완화가 아니다.
 - `-q` 출력을 파일로 리다이렉트하면 줄 단위 진행률이 오래 갱신되지 않을 수 있다. 마지막 출력이 14%라는 사실만으로 교착으로 판단하지 않는다. 동일 테스트의 장기 대기와 스택을 확인하고, 종료 코드 및 최종 passed/failed 요약까지 확인한다.
 - 전체 테스트는 하나씩 실행한다. DB 접근이 제한된 환경의 오류 실행과 재실행을 겹치지 않게 하고, 사용자 운영 데이터 대신 기존 테스트용 DB/격리 schema fixture를 사용한다.
+
+
+## 화면에서 영상 생성 관리
+- `/video-management`는 현재 로컬 workspace owner/admin만 변경한다. DB revision으로 동시 변경을 거절하고 workspace별 생성 허용·공급자 사용 허용을 저장한다. 미설정 시 ASA_VIDEO_AI_ENABLED를 초기값으로 사용한다. API 키는 기존 서버 설정을 사용하며 응답에 포함하지 않는다. WAN의 설정 존재는 인증·잔액 확인과 다르다.
+- 활성화·공급자 허용은 생성/워커 시작을 하지 않는다. 허용 변경 시 영향받는 기존 queued 작업을 paused로 보존한다. 재활성화도 보류를 해제하지 않으며 관리 화면의 비용 안내가 있는 재개 동작이 필요하다.
+- 비활성화는 enqueue와 submitting 예약에 같은 workspace advisory lock을 사용한다. 예약이 먼저 끝난 외부 호출은 진행할 수 있으며 이를 취소/환불로 표시하지 않는다. 이미 running인 작업은 비활성화에서도 같은 공급자 task ID로 조회·회수한다.
+- 영상 워커는 기존 run_worker 제어에 통합한다. 시작은 명시 동작이며 대기 요청을 처리할 수 있다. 워커 중지는 현재 통신 이후 polling도 멈추며 공급자 취소가 아니다. 다시 시작하면 running 작업 조회를 재개한다. submitting 중 비정상 종료는 unknown으로 보존하고 자동 재전송하지 않는다.
+- API/워커 실행 전 migration 적용. 예전 영상 워커는 기존 프로세스를 종료하고 새 lifecycle로 재시작해야 제어 가능하다.

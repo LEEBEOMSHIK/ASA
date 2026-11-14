@@ -39,6 +39,16 @@ def valid_input(value: Any, schema: dict[str, Any]) -> bool:
     kind = schema["type"]
     if kind == "object":
         properties = schema.get("properties", {})
+        if any(p.get('x-video-model') is True for p in properties.values()):
+            properties = {**properties, 'video_art_style': {'type': 'string', 'maxLength': 2000}}
+        # Compatibility for saved video-agent contracts: auto is an execution policy,
+        # not a new concrete media type or a rewrite of the registered schema.
+        if (any(p.get("x-video-model") is True for p in properties.values())
+                and properties.get("video_style", {}).get("enum")
+                == ["animation_2d", "animation_3d", "live_action"]):
+            properties = {**properties, "video_style": {
+                **properties["video_style"],
+                "enum": [*properties["video_style"]["enum"], "auto"]}}
         return (
             isinstance(value, dict)
             and requirements_met(schema, value)
@@ -79,6 +89,8 @@ class HistoryRepository(RegistryRepository):
                 "name": definition["name"], "description": definition["description"],
                 "icon": definition.get("icon", "bot"),
                 "input_schema": definition["input_schema"], "available": True,
+                "output_schema": definition["output_schema"],
+                "after_tasks": definition.get("after_tasks", {}),
                 "execution_available": False, "unavailable_reason": "실행 연결 준비 중",
             }
             attach_progress(conn, self.workspace_id, [row])

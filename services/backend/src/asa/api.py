@@ -30,6 +30,7 @@ from asa.registry.video_jobs import video_job_router
 from asa.registry.video_planning import video_planning_router
 from asa.registry.work_management import management_router
 from asa.registry.worker_routes import worker_router
+from asa.video_management import video_management_router
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -61,6 +62,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(catalog_router(settings, sessions))
     app.include_router(video_planning_router(settings, sessions))
     app.include_router(video_job_router(settings, sessions))
+    app.include_router(video_management_router(settings, sessions))
     app.include_router(audio_router(settings, sessions))
     app.include_router(library_router(settings, sessions))
 

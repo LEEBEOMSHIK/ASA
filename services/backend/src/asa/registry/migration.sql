@@ -444,7 +444,7 @@ CREATE TRIGGER asa_change AFTER INSERT OR UPDATE OR DELETE ON user_work_names
 
 ALTER TABLE local_worker_controls DROP CONSTRAINT IF EXISTS local_worker_controls_kind_check;
 ALTER TABLE local_worker_controls ADD CONSTRAINT local_worker_controls_kind_check
- CHECK (kind IN ('script','image','audio'));
+ CHECK (kind IN ('script','image','audio','video'));
 
 CREATE TABLE IF NOT EXISTS audio_settings (
  workspace_id uuid NOT NULL, request_id uuid NOT NULL, answer_version integer NOT NULL,
@@ -533,3 +533,9 @@ CREATE TABLE IF NOT EXISTS library_assignments (
  PRIMARY KEY(workspace_id,subject),
  FOREIGN KEY(workspace_id,work_id) REFERENCES library_works(workspace_id,id)
 );
+
+CREATE TABLE IF NOT EXISTS video_generation_controls (
+ workspace_id uuid PRIMARY KEY REFERENCES registry_workspaces(id),
+ enabled boolean NOT NULL, providers jsonb NOT NULL, revision integer NOT NULL
+);
+ALTER TABLE video_clip_jobs ADD COLUMN IF NOT EXISTS paused boolean NOT NULL DEFAULT false;

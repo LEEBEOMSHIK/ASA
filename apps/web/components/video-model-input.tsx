@@ -17,10 +17,23 @@ export function VideoModelInput({node,id,label,required,value,onChange,videoStyl
   const [results,setResults] = useState<Record<string,string>>({});
   const [busy,setBusy] = useState(false);
   const [failed,setFailed] = useState(false);
-  useEffect(()=>{let live=true;
-    api<Catalog>("/video-planning/models").then(v=>{if(live)setData(v);})
-      .catch(()=>{if(live)setFailed(true);});
-    return ()=>{live=false;};
+  useEffect(()=>{
+    let live=true, pending=false;
+    async function refresh() {
+      if(pending || document.hidden)return;
+      pending=true;
+      try {
+        const next=await api<Catalog>("/video-planning/models");
+        if(live){setData(next);setFailed(false);}
+      } catch {if(live)setFailed(true);}
+      finally {pending=false;}
+    }
+    void refresh();
+    const timer=setInterval(()=>void refresh(),3000);
+    const onVisible=()=>{void refresh();};
+    window.addEventListener("focus",onVisible);
+    document.addEventListener("visibilitychange",onVisible);
+    return ()=>{live=false;clearInterval(timer);window.removeEventListener("focus",onVisible);document.removeEventListener("visibilitychange",onVisible);};
   },[]);
   function supportsCheck(catalog: Catalog | null, key: string) {
     return catalog?.models.some(m=>m.key===key && m.generation_supported);
@@ -30,10 +43,11 @@ export function VideoModelInput({node,id,label,required,value,onChange,videoStyl
     if (!data) return "상태 조회 중";
     if (!supportsCheck(data,key)) return "생성 연결 없음";
     const model=data.models.find(m=>m.key===key);
+    if (model?.connection_state==="disabled") return "공급자 사용 비활성";
     if (model?.connection_state==="missing_workspace") return "공급자 작업 공간 미설정";
     if (model?.connection_state!=="configured") return "API 키 미설정";
-    if (!data.enabled) return "영상 생성 꺼짐";
-    return data.worker_online ? "생성 설정 준비됨" : "워커 연결 대기";
+    if (!data.enabled) return "영상 생성 비활성";
+    return data.worker_online ? "생성 가능" : "영상 처리 연결 대기";
   }
   async function verify() {
     setBusy(true);
@@ -79,8 +93,10 @@ export function VideoModelInput({node,id,label,required,value,onChange,videoStyl
         </svg>
       </Button>}</div>}</Field>
     {(busy || (value && results[value])) && <span role="status" className="helper-text">{busy ? actionLabel+"…" : selectedLabel+" · "+results[value]}</span>}
-    <section className="video-model-guidance" aria-label="영상 스타일별 모델 안내" aria-live="polite">
-      {!styleName ? <p className="helper-text">영상 스타일을 먼저 선택하면 모델 활용 안내를 볼 수 있습니다.</p>
+    {value&&data&&!data.enabled&&<p className="helper-text">영상 생성이 중지되어 있습니다. 관리자에게 문의해 주세요. 프롬프트 작성은 가능합니다.</p>}
+    {videoStyle!=="auto"&&<section className="video-model-guidance" aria-label="영상 스타일별 모델 안내" aria-live="polite">
+      {videoStyle==="auto" ? <p className="helper-text">이번 영상은 기준 이미지의 화풍을 따릅니다. 기준 이미지가 없으면 대본·씬 구성으로 판단합니다.</p>
+        : !styleName ? <p className="helper-text">영상 스타일을 먼저 선택하면 모델 활용 안내를 볼 수 있습니다.</p>
         : !value ? <p className="helper-text">{styleName}에 사용할 모델을 선택하면 공식 자료와 활용 안내를 보여드립니다.</p>
         : !data && !failed ? <p className="helper-text">모델 안내를 불러오는 중입니다.</p>
         : !guidance ? <p className="helper-text">{selectedLabel} · {styleName}: 공식 자료 기반 안내가 아직 확인되지 않았습니다. 스타일 적합성은 직접 확인해 주세요.</p>
@@ -95,6 +111,6 @@ export function VideoModelInput({node,id,label,required,value,onChange,videoStyl
             <p className="helper-text">공식 자료 확인 · {guidance.checkedOn}</p>
           </div></details>
         </>}
-    </section>
+    </section>}
   </div>;
 }

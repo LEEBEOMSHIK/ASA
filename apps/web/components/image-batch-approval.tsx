@@ -9,8 +9,8 @@ import { GraphIcon } from "./graph-icon";
 
 type Job = {id:string;character_id:string;version:number;status:string};
 type Candidate = {job:Job;name:string;expected:string|null;latest:number};
-type Props = {renderPicker?:(candidates:Candidate[],selected:string[],toggle:(id:string)=>void,busy:boolean)=>ReactNode;controlledOpen?:boolean;onToggle?:()=>void;characters:{id:string;name:string}[];jobs:Job[];approved:Record<string,string>;excluded:string[];progress:WorkProgress;reviews:AssetReview[];refresh:()=>Promise<void>};
-export function ImageBatchApproval({characters,jobs,approved,excluded,progress,reviews,refresh,controlledOpen,onToggle,renderPicker}:Props) {
+type Props = {renderPicker?:(candidates:Candidate[],selected:string[],toggle:(id:string)=>void,busy:boolean)=>ReactNode;controlledOpen?:boolean;onToggle?:()=>void;onComplete?:()=>void;characters:{id:string;name:string}[];jobs:Job[];approved:Record<string,string>;excluded:string[];progress:WorkProgress;reviews:AssetReview[];refresh:()=>Promise<void>};
+export function ImageBatchApproval({characters,jobs,approved,excluded,progress,reviews,refresh,controlledOpen,onToggle,onComplete,renderPicker}:Props) {
   const [localOpen,setOpen]=useState(false),[candidates,setCandidates]=useState<Candidate[]>([]);
   const [selected,setSelected]=useState<string[]>([]),[busy,setBusy]=useState(false),[feedback,setFeedback]=useState("");
   const submitting=useRef(false);
@@ -31,7 +31,8 @@ export function ImageBatchApproval({characters,jobs,approved,excluded,progress,r
       try {await api(`/characters/images/${c.job.id}/approve`,"POST",{expected:c.expected,expected_latest_version:c.latest});done.push(c.job.id);}
       catch(e){failures.push(`${c.name}: ${message(e)}`);}
     }
-    setCandidates(v=>v.filter(c=>!done.includes(c.job.id)));setSelected([]);
+    setCandidates(v=>v.filter(c=>!done.includes(c.job.id)));setSelected(v=>v.filter(id=>!done.includes(id)));
+    if(done.length && !failures.length){setOpen(false);onComplete?.();}
     setFeedback(`${done.length}개 이미지를 확정했습니다.${failures.length?` ${failures.length}개는 확정하지 못했습니다. 목록을 닫았다 다시 열어 최신 상태를 확인하세요. ${failures.join(" / ")}`:""}`);
     try {await refresh();}catch{setFeedback(v=>`${v} 최신 상태를 불러오지 못했습니다. 새로고침해 주세요.`);}
     submitting.current=false;setBusy(false);

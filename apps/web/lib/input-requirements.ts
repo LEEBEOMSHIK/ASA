@@ -53,10 +53,12 @@ export function inputConditionHint(schema: SchemaNode, key: string): string | un
 export function retryValues(input: unknown, schema: SchemaNode): Record<string, string> {
   const source = schema.type === "object" && input && typeof input === "object"
     ? input as Record<string, unknown> : { value: input };
-  return Object.fromEntries(inputEntries(schema).map(([key]) => {
+  const values = Object.fromEntries(inputEntries(schema).map(([key]) => {
     const value = source[key];
     return [key, value == null ? "" : typeof value === "string" ? value : JSON.stringify(value)];
   }));
+  if (Object.values(schema.properties||{}).some(n=>n["x-video-model"]) && typeof source.video_art_style==="string") values.video_art_style=source.video_art_style;
+  return values;
 }
 
 export function retryPayload(values: Record<string, string>, schema: SchemaNode): unknown {
@@ -68,5 +70,6 @@ export function retryPayload(values: Record<string, string>, schema: SchemaNode)
     result[key] = node.type === "string" ? value
       : ["integer", "number"].includes(node.type) ? Number(value) : JSON.parse(value);
   }
+  if (Object.values(schema.properties||{}).some(n=>n["x-video-model"]) && values.video_style!=="auto" && values.video_art_style) result.video_art_style=values.video_art_style;
   return schema.type === "object" ? result : result.value ?? null;
 }

@@ -1,5 +1,6 @@
 """Local video worker. Submit once, persist task ID, then poll that task only."""
 
+import argparse
 import re
 import subprocess
 from io import BytesIO
@@ -14,7 +15,9 @@ from psycopg.rows import dict_row
 
 from asa.config import Settings
 from asa.video_continuity import last_frame, source_video
+from asa.video_management import allowed, lock_policy, policy
 from asa.video_providers import generation_request, provider_connection, task_result
+from asa.worker_control import accepting_work, run_worker
 
 MAX_VIDEO_BYTES = 64 * 1024 * 1024
 
@@ -38,7 +41,8 @@ def fetch_video(url: str) -> bytes:
 def process(conn: Any, client: httpx.Client, workspace: UUID, settings: Settings) -> bool:
     row = conn.execute(
         "SELECT * FROM video_clip_jobs WHERE workspace_id=%s AND status IN ('queued','running') "
-        "AND next_poll<=now() ORDER BY next_poll,id LIMIT 1",
+        "AND (status='running' OR NOT paused) AND next_poll<=now() "
+        "ORDER BY (status='running') DESC,next_poll,id LIMIT 1",
         (workspace,),
     ).fetchone()
     if not row:
@@ -110,11 +114,23 @@ def process(conn: Any, client: httpx.Client, workspace: UUID, settings: Settings
                 key,
             )
             return True
-        conn.execute(
-            "UPDATE video_clip_jobs SET status='submitting',updated_at=now() "
-            "WHERE workspace_id=%s AND id=%s",
-            key,
-        )
+        # Serialize the final reservation with disable/stop, without holding a DB
+        # transaction during the external request. Reserved submissions may finish.
+        with conn.transaction():
+            lock_policy(conn, workspace)
+            if not allowed(policy(conn, settings, workspace), model["provider"]):
+                conn.execute("UPDATE video_clip_jobs SET paused=true WHERE workspace_id=%s "
+                             "AND id=%s AND status='queued'", key)
+                return False
+            if not accepting_work(conn, workspace, "video"):
+                return False
+            claimed = conn.execute(
+                "UPDATE video_clip_jobs SET status='submitting',updated_at=now() "
+                "WHERE workspace_id=%s AND id=%s AND status='queued' AND NOT paused",
+                key,
+            )
+            if not claimed.rowcount:
+                return False
         try:
             response = client.post(url, headers=headers, json=body)
             response.raise_for_status()
@@ -196,9 +212,12 @@ def process(conn: Any, client: httpx.Client, workspace: UUID, settings: Settings
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--control-token", type=UUID)
+    args = parser.parse_args()
     settings = Settings()
-    if not settings.video_ai_enabled or not settings.database_url:
-        raise SystemExit("ASA_DATABASE_URL and ASA_VIDEO_AI_ENABLED required")
+    if not settings.database_url:
+        raise SystemExit("ASA_DATABASE_URL required")
     workspace = settings.workspace_id
     with psycopg.connect(
         settings.database_url,
@@ -219,14 +238,8 @@ def main() -> None:
             (workspace,),
         )
         with httpx.Client(timeout=60) as client:
-            while True:
-                if not process(conn, client, workspace, settings):
-                    pending = conn.execute(
-                        "SELECT 1 FROM video_clip_jobs WHERE workspace_id=%s "
-                        "AND status='running' LIMIT 1",
-                        (workspace,),
-                    ).fetchone()
-                    next(conn.notifies(timeout=5 if pending else 60, stop_after=1), None)
+            run_worker(settings, "video", lambda: process(conn, client, workspace, settings),
+                       args.control_token)
 
 
 if __name__ == "__main__":

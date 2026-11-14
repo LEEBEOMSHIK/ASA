@@ -5,12 +5,22 @@ import type {ArtCatalog,ArtPreset} from "../lib/art-style-catalog";
 import {videoStyles} from "../lib/video-prompt-settings";
 import {api,ApiError,message} from "../lib/registry";
 import {useWorkDraft} from "../lib/work-draft";
-import {Button,DisclosureButton,Field,SelectCombobox,StatusBadge} from "./ui";
+import {ActionIcon,Button,DisclosureButton,Field,SelectCombobox,StatusBadge} from "./ui";
+import {Modal} from "./character-library";
 
-type Style={work_id:string|null;prompt:string;revision:number;media_type:string|null};
-export function WorkArtStyle({projectId}:{projectId:string}){
+export type Style={work_id:string|null;prompt:string;revision:number;media_type?:string|null;mode?:string};
+export function styleDescription(style?:Style|null){
+  const category=videoStyles.find(s=>s.id===style?.media_type)?.name||style?.media_type;
+  return category||style?.prompt ? (category||"영상 유형 미설정")+" · "+(style?.prompt||"유형에 맞는 기본 화풍") : "자동 · 기준 이미지에 맞춤";
+}
+export function SceneArtStyle({projectId}:{projectId:string}){
+  const [style,setStyle]=useState<Style|null>(null),[open,setOpen]=useState(false),[error,setError]=useState("");
+  useEffect(()=>{let alive=true;function load(){api<Style>("/characters/projects/"+projectId+"/art-style").then(v=>{if(alive){setStyle(v);setError("");}}).catch(e=>{if(alive)setError(message(e));});}load();window.addEventListener("focus",load);return()=>{alive=false;window.removeEventListener("focus",load);};},[projectId,open]);
+  return <section className="scene-common-style" aria-label="현재 작품 공통 설정"><div><strong>영상 유형·화풍 · 현재 작품 공통 설정</strong><p>{error?"설정을 불러오지 못했습니다.":style?styleDescription(style):"설정 불러오는 중…"}</p><p className="helper-text">새 이미지 생성에 적용됩니다. 기존 이미지의 적용 설정은 이미지 정보에서 확인하세요.</p>{error&&<p role="alert">{error}</p>}</div><Button variant="secondary" onClick={()=>setOpen(true)}><ActionIcon kind="edit"/>공통 설정 열기</Button>{open&&<Modal title="작품 공통 · 영상 유형과 화풍" onClose={()=>setOpen(false)}><div className="scene-common-style-editor"><p>캐릭터 설정과 같은 작품 공통 설정입니다. 캐릭터·씬 이미지와 비디오 프롬프트에 함께 적용됩니다.</p><WorkArtStyle projectId={projectId} initiallyOpen/></div></Modal>}</section>;
+}
+export function WorkArtStyle({projectId,initiallyOpen=false}:{projectId:string;initiallyOpen?:boolean}){
   const id=useId(),[saved,setSaved]=useState<Style|null>(null),[text,setText]=useState("");
-  const [open,setOpen]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState("");
+  const [open,setOpen]=useState(initiallyOpen),[busy,setBusy]=useState(false),[error,setError]=useState("");
   const [notice,setNotice]=useState("");
   const [custom,setCustom]=useState(false);
   const [media,setMedia]=useState("");
@@ -37,18 +47,19 @@ export function WorkArtStyle({projectId}:{projectId:string}){
     finally{setBusy(false);}}
   return <section className="voice-directions work-art-style" aria-label="작품 공통 · 화풍">
     <div className="voice-direction-heading"><div><h3>작품 공통 · 영상 유형과 화풍</h3>
-      <p className="muted">{saved?`${videoStyles.find(s=>s.id===media)?.name||"영상 유형 미설정"} · ${choice==="custom"?"직접 입력":catalog.find(s=>s.id===choice)?.label||"기본 화풍"}`:"불러오는 중…"}</p>
+      <p className="muted">{saved?(!media&&!text?"자동 · 기준 이미지에 맞춤":`${videoStyles.find(s=>s.id===media)?.name||"영상 유형 자동"} · ${choice==="custom"?"직접 입력":catalog.find(s=>s.id===choice)?.label||"기본 화풍"}`):"불러오는 중…"}</p>
       {dirty&&<StatusBadge>저장 전 변경</StatusBadge>}</div>
       <DisclosureButton variant="secondary" aria-expanded={open} aria-controls={id} onClick={()=>setOpen(!open)}>{open?"화풍 접기":"화풍 설정"}</DisclosureButton></div>
     <div id={id} hidden={!open} className="voice-direction-panel">
       {saved&&!saved.work_id?<p role="status">작품 연결을 확인할 수 없습니다. 보관함에서 작품을 연결한 뒤 다시 불러와 주세요.</p>:<>
-      <SelectCombobox label="영상 유형" value={media} loading={busy||!saved||!catalogReady} searchable={false} showId={false}
-        options={videoStyles.map(s=>({id:s.id,label:s.name}))} onChange={value=>{
-          setMedia(value);setNotice("");
+      <SelectCombobox label="영상 유형" value={media||"auto"} loading={busy||!saved||!catalogReady} searchable={false} showId={false}
+        options={[{id:"auto",label:"자동 · 기준 이미지에 맞춤"},...videoStyles.map(s=>({id:s.id,label:s.name}))]} onChange={value=>{
+          setMedia(value==="auto"?"":value);setNotice("");
+          if(value==="auto"){setText("");setCustom(false);return;}
           if(catalog.some(s=>s.id===choice&&s.media_type!==value)){setText("");setCustom(false);}
         }}/>
-      {!media&&<p className="muted">영상 유형을 먼저 선택하세요. 기존 화풍은 보존됩니다.</p>}
-      {media&&<>
+      {!media&&<p className="muted">확정된 캐릭터 이미지의 화풍을 우선 따릅니다. 기준 이미지가 없으면 대본·씬 구성으로 AI가 판단합니다.</p>}
+      {(media||text)&&<>
       <SelectCombobox label="화풍 선택" value={choice} loading={busy||!saved||!catalogReady} searchable={false} showId={false}
         options={[{id:"existing",label:"유형에 맞는 기본 화풍"},...examples.map(({id,label})=>({id,label})),{id:"custom",label:"직접 입력"}]}
         onChange={choose}/>
@@ -60,7 +71,7 @@ export function WorkArtStyle({projectId}:{projectId:string}){
           </button>)}
         </div>}</>}
       {draft.notice&&/못|실패|복원/.test(draft.notice)&&<p role="status">{draft.notice}</p>}
-      <div className="voice-direction-actions art-style-actions">{dirty&&saved&&<Button variant="secondary" disabled={busy} onClick={()=>{draft.clear();accept(saved);setNotice("");}}>변경 취소</Button>}<Button disabled={busy||!dirty||!saved||!media} onClick={()=>void save()}>{busy?"저장 중…":"공통 설정 저장"}</Button></div></>}
+      <div className="voice-direction-actions art-style-actions">{dirty&&saved&&<Button variant="secondary" disabled={busy} onClick={()=>{draft.clear();accept(saved);setNotice("");}}><ActionIcon kind="undo"/>변경 취소</Button>}<Button disabled={busy||!dirty||!saved} onClick={()=>void save()}><ActionIcon kind="save"/>{busy?"저장 중…":"공통 설정 저장"}</Button></div></>}
     </div>
     {notice&&<p role="status">{notice}</p>}{error&&<p role="alert">{error}</p>}
     {(error||(saved&&!saved.work_id))&&<Button variant="secondary" disabled={busy} onClick={()=>void Promise.all([api<Style>(path),api<ArtCatalog>("/art-style-catalog")]).then(([v,c])=>{draft.clear();accept(v);setCatalog(c.items.filter(p=>p.enabled));setCatalogReady(true);setError("");}).catch(e=>setError(message(e)))}>최신 설정 다시 불러오기</Button>}

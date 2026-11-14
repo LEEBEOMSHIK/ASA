@@ -7,6 +7,7 @@ import { isVideoReference } from "./video-input";
 import { AgentIcon, Button, DraftNotice, Card, StatusBadge } from "./ui";
 
 import { inputEntries as entries, isInputRequired, inputConditionHint, isInputVisible } from "../lib/input-requirements";
+import {isVideoStyleField} from "../lib/video-prompt-settings";
 import { AgentInput } from "./agent-input";
 
 export function AgentRunPreview({ definition, onBack, customer = false, initialInput, onSave, draftKey }: {
@@ -48,7 +49,7 @@ export function AgentRunPreview({ definition, onBack, customer = false, initialI
         } catch(e) { setError(e instanceof SyntaxError ? "영상 자료를 다시 선택해 주세요." : e instanceof Error ? e.message : "영상 자료를 확인해 주세요."); return; }
       }
       if (required && !values[key]?.trim()) { setError(`${node.description || key}: 값을 입력하거나 선택해 주세요.`); return; }
-      if (values[key] && node.enum && !node.enum.some(v => String(v) === values[key])) { setError(`${node.description || key}: 선택지에서 골라 주세요.`); return; }
+      if (values[key] && node.enum && !(key==="video_style" && values[key]==="auto" && isVideoStyleField(node) && input.some(([,n])=>n["x-video-model"])) && !node.enum.some(v => String(v) === values[key])) { setError(`${node.description || key}: 선택지에서 골라 주세요.`); return; }
       if (values[key] && ["number", "integer"].includes(node.type)) {
         const n = Number(values[key]);
         if (!Number.isFinite(n) || (node.type === "integer" && !Number.isInteger(n)) || n < (node.minimum ?? -Infinity) || n > (node.maximum ?? Infinity)) { setError(`${node.description || key}: 설정된 숫자 범위에 맞춰 입력해 주세요.`); return; }
@@ -70,6 +71,7 @@ export function AgentRunPreview({ definition, onBack, customer = false, initialI
         if (value === undefined || value === "") continue;
         payload[key] = node.type === "string" ? value : ["integer", "number"].includes(node.type) ? Number(value) : JSON.parse(value);
       }
+      if (input.some(([,n])=>n["x-video-model"]) && values.video_style!=="auto" && values.video_art_style) payload.video_art_style=values.video_art_style;
       savingRef.current = true; setSaving(true);
       try {
         for (const [key, node] of input) {
@@ -104,7 +106,7 @@ export function AgentRunPreview({ definition, onBack, customer = false, initialI
           const conditionHint = inputConditionHint(definition.input_schema, key);
           return <div className="run-field-section" key={key}>
             {conditionHint && <p className="input-condition-hint" role="status">{conditionHint} {required ? "현재 필수 입력입니다." : "현재 선택 입력입니다."}</p>}
-            <AgentInput inputs={values} node={node} id={`run-input-${key}`} label={label} required={required} value={values[key] ?? ""} videoStyle={values.video_style ?? ""} onChange={v => { setValues(current => ({ ...current, [key]: v })); setChecked(false); setError(""); }} />
+            <AgentInput defaultsReady={draft.loaded} onDetailChange={v=>{setValues(current=>({...current,video_art_style:v}));setChecked(false);}} inputs={values} node={node} id={`run-input-${key}`} label={label} required={required} value={values[key] ?? ""} videoStyle={values.video_style ?? ""} onChange={v => { setValues(current => ({ ...current, [key]: v })); setChecked(false); setError(""); }} />
           </div>;
         })}
         {input.length === 0 && <p>입력 없이 실행하도록 설정된 에이전트입니다.</p>}

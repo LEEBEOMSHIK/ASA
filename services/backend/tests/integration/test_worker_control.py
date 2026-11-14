@@ -10,7 +10,7 @@ from asa.worker_control import WorkerControl, run_worker
 db = database_fixture
 
 
-@pytest.mark.parametrize("kind", ["script", "image", "audio"])
+@pytest.mark.parametrize("kind", ["script", "image", "audio", "video"])
 def test_stop_finishes_current_job_and_does_not_take_next(db, monkeypatch, kind):
     settings = Settings(
         _env_file=None,
@@ -149,7 +149,7 @@ def test_failed_spawn_can_retry_and_stale_child_cannot_stop_new_instance(db, mon
     assert control.status("script")["state"] == "starting"
 
 
-@pytest.mark.parametrize("kind", ["script", "image", "audio"])
+@pytest.mark.parametrize("kind", ["script", "image", "audio", "video"])
 def test_real_empty_worker_process_start_and_stop(db, kind):
     import time
 

@@ -122,9 +122,15 @@ def build_prompt_bundle(
     root: Path = MODULE_ROOT,
     catalog: dict[str, Any] | None = None,
     work_media_type: MediaType | None = None,
+    work_style_auto: bool = False,
 ) -> dict[str, Any]:
     """Freeze composition at enqueue time, so retries never read newer module bodies."""
     config = VideoPromptModules.model_validate(definition.get("video_prompt_modules") or {})
+    if work_style_auto:
+        config = config.model_copy(update={
+            "enabled": True, "selection_required": False, "mode": "auto", "profile_id": None,
+            "user_style_field": None, "confirmed_style_field": None,
+            "reference_style_field": None, "metadata_style_field": None})
     if work_media_type:
         config = config.model_copy(update={"enabled": True, "mode": "auto", "profile_id": None})
     # Agent schemas may accept scalar or array roots, which have no mapped fields.
@@ -186,11 +192,15 @@ def build_prompt_bundle(
     instructions = "\n\n".join(
         bodies if selected and common_from_agent else [*bodies, definition["instructions"]]
     )
+    if work_style_auto:
+        from asa.registry.art_styles import AUTO_STYLE_POLICY
+        instructions = AUTO_STYLE_POLICY + "\n\n" + instructions
     snapshot: dict[str, Any] = {
         "schema_version": 1,
         "enabled": config.enabled,
         "media_type": chosen,
-        "selection_source": candidates[0][0] if candidates else None,
+        "selection_source": ("work_auto" if work_style_auto
+                             else candidates[0][0] if candidates else None),
         "selection_mode": config.mode,
         "style_profile_ids": [item["profile_id"] for item in selected],
         "modules": selected,

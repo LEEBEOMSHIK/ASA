@@ -36,6 +36,7 @@ export type Definition = {
 export type Version = { version: number; source_revision: number; definition: Definition; digest: string };
 export type Agent = { id: string; revision: number; draft: Definition; versions?: Version[] };
 export type Tool = {
+  after_tasks?: {scene_timing?: boolean};
   icon?: AgentIconId;
   id: string; name: string; version: number; kind: "asa" | "agent"; agent_id?: string;
   description: string; available: boolean; execution_available: boolean; unavailable_reason: string;

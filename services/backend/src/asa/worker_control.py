@@ -16,9 +16,10 @@ from asa.config import Settings
 from asa.database import connection
 from asa.registry.schemas import RegistryError
 
-WorkerKind = Literal["script", "image", "audio"]
+WorkerKind = Literal["script", "image", "audio", "video"]
 MODULES = {
-    "script": "asa.script_queue_worker", "image": "asa.image_worker", "audio": "asa.audio_worker"
+    "script": "asa.script_queue_worker", "image": "asa.image_worker", "audio": "asa.audio_worker",
+    "video": "asa.video_worker"
 }
 
 
@@ -46,7 +47,13 @@ class WorkerControl:
                 "FROM local_worker_controls WHERE workspace_id=%s AND kind=%s",
                 (self.settings.workspace_id, kind),
             ).fetchone()
-        enabled = (True if kind == "audio" else self.settings.script_ai_enabled if kind == "script"
+            external_video = kind == "video" and conn.execute(
+                "SELECT 1 FROM pg_stat_activity WHERE datname=current_database() "
+                "AND application_name=%s LIMIT 1",
+                (f"asa-video-{self.settings.workspace_id}",),
+            ).fetchone() is not None
+        enabled = (True if kind in {"audio", "video"} else
+                   self.settings.script_ai_enabled if kind == "script"
                    else self.settings.image_ai_enabled)
         state = "stopped"
         if row:
@@ -54,6 +61,8 @@ class WorkerControl:
             if state not in {"stopped", "failed"} and not row["fresh"]:
                 if not (state in {"starting", "stopping"} and row["starting"]):
                     state = "offline"
+        if external_video and state in {"stopped", "failed", "offline"}:
+            state = "external"
         return {"kind": kind, "state": state, "enabled": enabled,
                 "busy": bool(row and row["busy"] and state in {"running", "stopping"})}
 
@@ -97,7 +106,8 @@ class WorkerControl:
                    ASA_WORKSPACE_ID=str(self.settings.workspace_id),
                    ASA_SCRIPT_AI_ENABLED=str(self.settings.script_ai_enabled).lower(),
                    ASA_IMAGE_AI_ENABLED=str(self.settings.image_ai_enabled).lower(),
-                   ASA_AUDIO_AI_ENABLED=str(self.settings.audio_ai_enabled).lower())
+                   ASA_AUDIO_AI_ENABLED=str(self.settings.audio_ai_enabled).lower(),
+                   ASA_VIDEO_AI_ENABLED=str(self.settings.video_ai_enabled).lower())
         command = [sys.executable, "-m", MODULES[kind], "--control-token", str(token)]
         if kind == "script":
             command.append("--allow-paid-call")
@@ -127,7 +137,7 @@ class WorkerControl:
                 "WHERE workspace_id=%s AND kind=%s AND token=%s",
                 ("failed" if failed else "stopped", self.settings.workspace_id, kind, token),
             ).rowcount
-            if not updated or kind == "audio":
+            if not updated or kind in {"audio", "video"}:
                 return
             # A clean exit must not look online for the legacy heartbeat timeout.
             table = "script_worker_status" if kind == "script" else "image_worker_status"

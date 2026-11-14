@@ -10,14 +10,14 @@ import type { SchemaNode } from "../lib/registry";
 import { Button, Field, InputRequirement } from "./ui";
 import { CharacterImageInput, isCharacterReference } from "./character-library";
 
-export function AgentInput({ node, id, label, required, value, onChange, videoStyle = "", inputs }: { node: SchemaNode; id: string; label: string; required: boolean; value: string; onChange: (v: string) => void; videoStyle?:string;inputs?:Record<string,string> }) {
+export function AgentInput({ node, id, label, required, value, onChange, videoStyle = "", inputs, onDetailChange, defaultsReady=true }: { node: SchemaNode; id: string; label: string; required: boolean; value: string; onChange: (v: string) => void; videoStyle?:string;inputs?:Record<string,string>;onDetailChange?:(v:string)=>void;defaultsReady?:boolean }) {
   if (node["x-video-model"]) return <VideoModelInput {...{node,id,label,required,value,onChange,videoStyle}} />;
   if (isVideoReference(node)) return <VideoInput multiple={node.type === "array"} id={id} label={label} required={required} value={value} onChange={onChange}/>;
   if (isSceneReference(node)) return <SceneImageInput id={id} label={label} required={required} value={value} onChange={onChange}/>;
   if (isCharacterReference(node)) return <CharacterImageInput id={id} label={label} required={required} value={value} onChange={onChange}/>;
   const widget = node["x-widget"];
   if (node.type === "string" && JSON.stringify(node.enum) === JSON.stringify(videoStyles.map(s=>s.id))) {
-    return <WorkVideoStyleInput {...{id,label,required,value,onChange,inputs}}/>;
+    return <WorkVideoStyleInput {...{id,label,required,value,onChange,inputs,onDetailChange,defaultsReady}}/>;
   }
   const ratioLabels: Record<string, string> = {
     "9:16": "9:16 · 세로형 — 쇼츠·릴스",

@@ -128,7 +128,30 @@ CATEGORY_RENDERING = {
 }
 
 
+AUTO_STYLE_POLICY = (
+    "AUTOMATIC VISUAL STYLE: No explicit work-wide rendering category is selected. "
+    "Follow the actual visual medium, linework, texture, palette and proportions of the "
+    "approved character reference images first, then the approved scene reference images. "
+    "These visual references take precedence over conflicting legacy style descriptions "
+    "in prompts, scripts, scene plans and base images. Never turn a drawn character into "
+    "a photograph merely because a prompt says cinematic or realistic lighting. "
+    "Only when no visual reference is supplied, infer a coherent visual style from the "
+    "script, scene composition and story atmosphere. Preserve story facts and identities. "
+    "Keep the same visual style across all scenes and output video clip prompts; describe "
+    "that style explicitly in each clip prompt instead of choosing a new style per clip. "
+)
+
+
+def generation_style(style: dict[str, Any]) -> dict[str, Any]:
+    """Freeze automatic policy on new jobs; do not reinterpret old queued snapshots."""
+    if style.get("media_type") or style.get("prompt", "").strip():
+        return style
+    return {**style, "mode": "auto"}
+
+
 def apply_style(prompt: str, style: dict[str, Any] | None) -> str:
+    if style and style.get("mode") == "auto":
+        return AUTO_STYLE_POLICY + "\n\n" + prompt
     if not style or not (style.get("prompt", "").strip() or style.get("media_type")):
         return prompt
     return (
@@ -208,24 +231,53 @@ def resolve(
         requests = {request}
     styles = [load(conn, workspace, rid) for rid in requests]
     configured = [s for s in styles if s["media_type"] or s["prompt"]]
-    if not configured:
-        return None
     # Reject mixed works even when one has not yet chosen its visual category.
-    if len({s["work_id"] for s in styles}) != 1:
+    if len({s["work_id"] for s in styles}) > 1:
         raise RegistryError(409, "work_visual_sources_conflict")
-    return configured[0]
+    return configured[0] if configured else generation_style(
+        styles[0] if styles else {"work_id": None, "revision": 0, "media_type": None, "prompt": ""}
+    )
+
+
+def video_style(inputs: Any, style: dict[str, Any] | None) -> dict[str, Any] | None:
+    """An explicit video selection is scoped to this request, never saved to the work."""
+    selected = inputs.get('video_style') if isinstance(inputs, dict) else None
+    if not isinstance(selected, str) or selected not in {'auto', *CATEGORY_RENDERING}:
+        return style
+    detail = inputs.get('video_art_style', '')
+    if not isinstance(detail, str) or len(detail) > 2000:
+        raise RegistryError(422, 'invalid_work_input')
+    return {
+        **(style or {}), 'scope': 'video',
+        'media_type': None if selected == 'auto' else selected,
+        'mode': 'auto' if selected == 'auto' else 'explicit',
+        'prompt': detail.strip() if selected != 'auto' else '',
+    }
 
 
 def video_inputs(definition: dict[str, Any], inputs: Any, style: dict[str, Any] | None) -> Any:
-    if not style or not style.get("media_type") or not isinstance(inputs, dict):
+    if not style or not isinstance(inputs, dict):
         return inputs
     props = definition.get("input_schema", {}).get("properties", {})
     if any(v.get("x-video-model") for v in props.values()):
-        return {**inputs, "video_style": style["media_type"]}
+        selected = inputs.get('video_style')
+        if isinstance(selected, str) and selected in {'auto', *CATEGORY_RENDERING}:
+            return inputs
+        if style.get("media_type"):
+            return {**inputs, "video_style": style["media_type"]}
+        if style.get("mode") == "auto":
+            return {**inputs, "video_style": "auto"}
     return inputs
 
 
 def check_plan_style(snapshot: dict[str, Any] | None, current: dict[str, Any] | None) -> None:
+    if snapshot and snapshot.get('scope') == 'video':
+        # Work settings may change independently of an already frozen video request.
+        if snapshot.get('work_id') != (current or {}).get('work_id'):
+            raise RegistryError(409, 'work_visual_plan_changed')
+        return
+    if snapshot is None and current and current.get("mode") == "auto":
+        return  # Legacy unconfigured plan: no explicit work setting has changed.
     keys = ("work_id", "media_type", "prompt")
     if current and any((snapshot or {}).get(k) != current.get(k) for k in keys):
         raise RegistryError(409, "work_visual_plan_changed")

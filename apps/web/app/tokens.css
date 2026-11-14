@@ -55,3 +55,9 @@
 }
 
 :root { --sidebar-recent-min-height: 180px; }
+
+:root {
+  --choice-size:20px;
+  --switch-width:40px; --switch-height:24px; --switch-thumb:18px;
+  --control-motion:140ms;
+}

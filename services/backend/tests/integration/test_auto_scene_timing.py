@@ -28,6 +28,9 @@ def test_new_and_retry_queue_separate_timing_tracks_and_keep_gaps(
     rid = uuid4()
     HistoryRepository(*db).save(WorkRequest(
         id=rid, agent_id=agent['id'], version=1, input={'topic': 'sample'}))
+    detail = HistoryRepository(*db).detail(rid)
+    assert detail['agent']['after_tasks']['scene_timing'] is True
+    assert detail['agent']['output_schema']['properties']['script']['type'] == 'string'
     queue = ScriptQueue(config)
     plan = {'duration': 10, 'planned_duration': planned,
             'speakers': [{'id': 'n', 'name': '나레이션', 'role': 'narrator'}],
@@ -38,6 +41,7 @@ def test_new_and_retry_queue_separate_timing_tracks_and_keep_gaps(
         return AgentAnswer(value={'script': 'unchanged'}, timing_plan=plan)
     queue.submit(str(rid))
     assert execute_attempt(queue, str(rid), str(rid), generate)
+    assert queue.get(str(rid))['versions'][0]['after_tasks']['scene_timing'] is True
     calls = []
     def speak(key, spec):
         assert key == 'test-only'  # Reuses the existing OpenAI key.

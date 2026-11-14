@@ -33,6 +33,7 @@ def worker_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
             if item["state"] == "stopped" and alive:
                 item["state"] = "external"
         items.append(control.status("audio"))
+        items.append(control.status("video"))
         return {"online": online, "image_online": image_online,
                 "can_manage": can_manage(p), "workers": items}
 

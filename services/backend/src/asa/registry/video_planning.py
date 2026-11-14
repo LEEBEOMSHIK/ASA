@@ -14,6 +14,7 @@ from asa.registry.repository import RegistryRepository
 from asa.registry.scene_selection import selected_scenes
 from asa.registry.schemas import RegistryError
 from asa.video_contracts import VideoModelProfile, VideoPreparation, duration_plan
+from asa.video_management import policy
 from asa.video_providers import connection_state, supported_model
 
 
@@ -182,6 +183,7 @@ def video_planning_router(settings: Settings, sessions: OwnerSessions) -> APIRou
     def models(principal: Principal = Depends(sessions.principal)) -> dict[str, Any]:
         repo = RegistryRepository(settings.database_url, principal.workspace_id)
         with repo._connect() as conn:
+            controls = policy(conn, settings, repo.workspace_id)
             online = (
                 conn.execute(
                     "SELECT 1 FROM pg_stat_activity WHERE datname=current_database() "
@@ -193,16 +195,20 @@ def video_planning_router(settings: Settings, sessions: OwnerSessions) -> APIRou
         return {
             "models": [
                 {"key": key, **model.model_dump(),
-                 "connection_state": connection_state(settings, model.provider),
+                 "connection_state": (connection_state(settings, model.provider)
+                                      if controls["providers"].get(model.provider, False)
+                                      else "disabled"),
                  "generation_supported": supported_model(model.model_dump())}
                 for key, model in settings.video_model_profiles.items()
                 if model.enabled
             ],
             "worker_online": online,
             "key_configured": bool(settings.runway_api_key.get_secret_value()),
-            "enabled": settings.video_ai_enabled,
-            "generation_available": settings.video_ai_enabled
-            and bool(settings.runway_api_key.get_secret_value()),
+            "enabled": controls["enabled"],
+            "generation_available": controls["enabled"] and any(
+                controls["providers"].get(m.provider, False) and
+                connection_state(settings, m.provider) == "configured"
+                for m in settings.video_model_profiles.values() if m.enabled),
         }
 
     @router.post("/runway-connection")

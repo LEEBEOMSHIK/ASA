@@ -13,7 +13,7 @@ type Clip = {
   connection_type?: "cut" | "continue"; previous_clip_id?: string | null;
 };
 type Plan = {model_key: string; model_revision: string; aspect_ratio: string; clips: Clip[]};
-type Job = {id: string; clip_id: string; status: string; reference_valid?: boolean; error_code?: string; estimate: string | number | null; created_at:string; updated_at:string;voice_direction_prompt?:string};
+type Job = {paused?:boolean; id: string; clip_id: string; status: string; reference_valid?: boolean; error_code?: string; estimate: string | number | null; created_at:string; updated_at:string;voice_direction_prompt?:string};
 type Jobs = {enabled: boolean; available_models:string[]; worker_online:boolean; jobs: Job[]; rates:Record<string,number|null>;voice_delivery?:{mode:string;supports_audio?:boolean;error:string|null;clips:{clip_id:string;prompt:string}[];speakers:{id:string;name:string;role:string;enabled:boolean;instructions:string;language:string;speed:number}[]}};
 const labels: Record<string,string> = {queued:"실행 대기",submitting:"요청 전송 중",running:"영상 생성 중",
   review:"검토 필요",approved:"확정",unknown:"공급자 결과 확인 필요",failed:"생성 실패"};
@@ -91,7 +91,7 @@ export function VideoClipManager({plan, requestId, version}: {plan:Plan; request
       <button key={c.clip_id} type="button" disabled={busy || (!!mode && !eligible.includes(c))}
         aria-pressed={mode ? selected.includes(c.clip_id) : current===c.clip_id}
         onClick={()=>{setCurrent(c.clip_id); if(mode) setSelected(ids=>ids.includes(c.clip_id)?ids.filter(x=>x!==c.clip_id):[...ids,c.clip_id]);}}>
-        <strong>장면 {c.scene_id} · 클립 {i+1}</strong><span>{c.duration_seconds}초 · {labels[byClip.get(c.clip_id)?.status ?? ""] ?? (ready(c) ? "미생성" : "앞 영상 확정 대기")}</span>
+        <strong>장면 {c.scene_id} · 클립 {i+1}</strong><span>{c.duration_seconds}초 · {byClip.get(c.clip_id)?.paused ? "보류" : labels[byClip.get(c.clip_id)?.status ?? ""] ?? (ready(c) ? "미생성" : "앞 영상 확정 대기")}</span>
         <span>{c.connection_type === "continue" ? "연속 동작" : "컷 전환"}</span>
       </button>)}</nav>
     {mode === "generate" && <p className="helper-text">선택한 클립 {seconds}초 · {rate == null ? "예상 비용 미확인" : `예상 비용 $${(rate*seconds).toFixed(2)}`}</p>}
@@ -99,7 +99,7 @@ export function VideoClipManager({plan, requestId, version}: {plan:Plan; request
       <Button variant="secondary" disabled={busy} onClick={()=>enter(null)}>취소</Button>
       <Button disabled={busy || !selected.length || (mode==="generate" && !available)} onClick={submit}>{selected.length}개 {mode==="approve"?"검토한 영상 확정":"유료 영상 생성 요청"}</Button></div>}
     <Card><div className="stack"><div className="card-heading"><h3>장면 {clip.scene_id} · 컷 {clip.shot_id}</h3>
-      <StatusBadge>{labels[job?.status ?? ""] ?? "미생성"}</StatusBadge></div>
+      <StatusBadge>{job?.paused&&job.status==="queued"?"보류 · 영상 생성 관리에서 재개":labels[job?.status ?? ""] ?? "미생성"}</StatusBadge></div>
       {job?.error_code && <p className="notice" role="status">{errors[job.error_code] ?? "공급자 결과와 연결 설정을 확인해 주세요."}</p>}
       <p>{clip.source_start_seconds}–{clip.source_end_seconds}초 · 생성 {clip.duration_seconds}초 · {plan.aspect_ratio}</p>
       <p>{clip.connection_type === "continue" ? `연속 동작 · 앞 클립 ${clip.previous_clip_id}의 확정 영상 마지막 프레임에서 시작` : "컷 전환 · 확정 씬 이미지에서 독립적으로 시작"}</p>

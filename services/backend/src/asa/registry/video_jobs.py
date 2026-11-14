@@ -15,6 +15,7 @@ from asa.registry.schemas import RegistryError
 from asa.registry.video_planning import prepare
 from asa.video_continuity import approved_source, last_frame, reference_valid, source_video
 from asa.video_contracts import VideoPreparation
+from asa.video_management import allowed, lock_policy, policy
 from asa.video_providers import connection_state, endpoint, supported_model, validate_input
 
 
@@ -35,6 +36,7 @@ def video_job_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
             from asa.registry.audio_service import load as load_audio
             from asa.voice_directions import clip_audio_prompt, validate_timeline
 
+            controls = policy(conn, settings, repo.workspace_id)
             current_audio = load_audio(conn, repo.workspace_id, request_id, version)
             voice_settings = current_audio['settings']
             delivery: dict[str, Any] = {'mode': voice_settings.delivery_mode, 'clips': [],
@@ -62,7 +64,7 @@ def video_job_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
                     except RegistryError as exc:
                         delivery['error'] = exc.code
             rows = conn.execute(
-                "SELECT id,clip_id,status,error_code,created_at,updated_at, "
+                "SELECT id,clip_id,status,paused,error_code,created_at,updated_at, "
                 "request_id,answer_version,generation_input, "
                 "encode(sha256(video),'hex') AS video_sha256, "
                 "(model_snapshot->>'usd_per_second')::numeric * "
@@ -95,12 +97,13 @@ def video_job_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
                 for key, model in settings.video_model_profiles.items()
                 if model.enabled
             },
-            "enabled": settings.video_ai_enabled
-            and any(connection_state(settings, m.provider) == "configured"
+            "enabled": controls["enabled"]
+            and any(allowed(controls, m.provider) and
+                    connection_state(settings, m.provider) == "configured"
                     for m in settings.video_model_profiles.values() if m.enabled),
             "available_models": [key for key, m in settings.video_model_profiles.items()
                                  if m.enabled and supported_model(m.model_dump())
-                                 and settings.video_ai_enabled
+                                 and allowed(controls, m.provider)
                                  and connection_state(settings, m.provider) == "configured"],
         }
 
@@ -111,10 +114,12 @@ def video_job_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
         body: ClipSelection,
         principal: Principal = Depends(sessions.principal),
     ) -> dict[str, int]:
-        if not settings.video_ai_enabled:
-            raise RegistryError(409, "video_generation_disabled")
         repo = RegistryRepository(settings.database_url, principal.workspace_id)
         with repo._connect() as conn:
+            lock_policy(conn, repo.workspace_id)
+            controls = policy(conn, settings, repo.workspace_id)
+            if not controls["enabled"]:
+                raise RegistryError(409, "video_generation_disabled")
             row = conn.execute(
                 "SELECT v.answer,r.input FROM script_versions v JOIN customer_requests r "
                 "ON r.workspace_id=v.workspace_id AND r.id=v.request_id "
@@ -158,7 +163,8 @@ def video_job_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
             model = prepared["model_snapshot"]
             if not supported_model(model):
                 raise RegistryError(422, "video_model_unavailable")
-            if connection_state(settings, model["provider"]) != "configured":
+            if (not allowed(controls, model["provider"]) or
+                    connection_state(settings, model["provider"]) != "configured"):
                 raise RegistryError(409, "video_generation_disabled")
             model["provider_endpoint"] = endpoint(settings, model["provider"])
             for clip in prepared["clips"]:

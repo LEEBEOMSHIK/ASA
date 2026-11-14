@@ -387,7 +387,8 @@ class CharacterRepository(RegistryRepository):
                 (self.workspace_id, project_id, body.character.id),
             ).fetchone()
             assert version
-            art_style = art_styles.load(conn, self.workspace_id, project['request_id'])
+            art_style = art_styles.generation_style(
+                art_styles.load(conn, self.workspace_id, project['request_id']))
             row = conn.execute(
                 "INSERT INTO character_image_jobs(workspace_id,id,project_id,character_id,"
                 "version,model,character,change,base_id,scene_context,art_style) "

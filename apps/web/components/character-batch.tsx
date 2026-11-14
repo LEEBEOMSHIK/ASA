@@ -8,12 +8,12 @@ import { ImageModelSelect } from "./image-model-select";
 type Character = {id:string;name:string;facts:string;appearance:string;proposed:string;scene_ids:string;image_prompt:string};
 type Props = {
   renderPicker?:(eligible:string[],selected:string[],toggle:(id:string)=>void,busy:boolean)=>ReactNode;
-  controlledOpen?:boolean; onToggle?:()=>void; unit?:string; blocked?:Record<string,string[]>; projectId:string; characters:Character[]; excluded:string[];
+  controlledOpen?:boolean; onToggle?:()=>void; onComplete?:()=>void; unit?:string; blocked?:Record<string,string[]>; projectId:string; characters:Character[]; excluded:string[];
   jobs:{character_id:string;status:string}[]; models:string[]; enabled:boolean;
   getReferenceOverrides?:(character:Character)=>Record<string,string>;
   getDraft:(character:Character)=>Character; refresh:()=>Promise<void>;
 };
-export function CharacterBatch({projectId,characters,excluded,jobs,models,enabled,getDraft,getReferenceOverrides,refresh,unit="캐릭터",blocked={},controlledOpen,onToggle,renderPicker}:Props) {
+export function CharacterBatch({projectId,characters,excluded,jobs,models,enabled,getDraft,getReferenceOverrides,refresh,unit="캐릭터",blocked={},controlledOpen,onToggle,onComplete,renderPicker}:Props) {
   const [localOpen,setOpen]=useState(false);
   const open=controlledOpen ?? localOpen;
   const [selected,setSelected]=useState<string[]>([]);
@@ -34,7 +34,8 @@ export function CharacterBatch({projectId,characters,excluded,jobs,models,enable
     try {
       await api(`/characters/projects/${projectId}/images/batch`,"POST",{items:payload.map((item,i)=>({...item,id:dispatch.current!.ids[i]}))});
       dispatch.current=null;setSelected([]);setFeedback(`${payload.length}개의 이미지 요청을 접수했습니다. 대기 중인 요청은 각 항목에서 취소할 수 있습니다.`);
-      await refresh();
+      setOpen(false);onComplete?.();
+      await refresh().catch(()=>setFeedback(v=>v+" 최신 상태를 불러오지 못했습니다. 새로고침해 주세요."));
     } catch(e){setFeedback(message(e));await refresh().catch(()=>{});} finally{setBusy(false);}
   }
   return <section className="character-batch" aria-label={`여러 ${unit} 이미지 생성`}>
