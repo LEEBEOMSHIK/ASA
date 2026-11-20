@@ -204,7 +204,12 @@ def clip_audio_prompt(settings: AudioSettings, start: float, end: float) -> str:
 
 
 INSTRUCTIONS = '''[영상 모델 음성 연출]
-이번 실행은 별도 TTS 샘플 선택/무음 영상 지시를 대체한다. 전달된 video_voice_directions의
+기존 계획 수정에서는 사용자가 음성 변경을 명시하지 않는 한 previous_answer.audio_plan의
+음성 방식·화자별 목소리·대사·시간표·감정을 그대로 유지한다. 이미 결정한 자동 화자의
+목소리를 다시 선택하지 않는다. 아래 자동 결정 지시는 기존 값이 없는 신규 계획에만 적용한다.
+기존 별도 음성 방식은 영상 내 음성으로 자동 이관하지 않는다.
+신규 영상 내 음성 실행에서는 별도 TTS 샘플 선택/무음 영상 지시를 대체한다.
+전달된 video_voice_directions의
 화자 ID와 이름을 유지하고 목소리 특징·언어·속도를 해당 화자에게 적용한다.
 audio_plan은 enabled=false로 두고 speakers와 cues를 출력한다. cues에는 원문 대사와
 나레이션, 전체 타임라인의 start/end, emotion을 빠짐없이 기록한다. 하나의 발화가 클립

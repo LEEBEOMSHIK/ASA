@@ -2,7 +2,7 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from asa.audio_contracts import AudioModel
@@ -74,12 +74,41 @@ class Settings(BaseSettings):
             verified_on="2026-11-06",
         ),
     })
+    @field_validator("video_model_profiles", mode="after")
+    @classmethod
+    def include_higgsfield(
+        cls, profiles: dict[str, VideoModelProfile],
+    ) -> dict[str, VideoModelProfile]:
+        profiles.setdefault("hf-wan3", VideoModelProfile(
+            provider="higgsfield", model="alibaba/wan-3.0", label="WAN 3.0 - Higgsfield",
+            revision="1", enabled=True, durations=list(range(2, 31)),
+            aspect_ratios=["9:16", "16:9"], resolution="720p", max_prompt_chars=20000,
+            supports_audio=True, usd_per_second=0.075, usd_per_second_with_video=0.1493,
+            documentation_url="https://open.higgsfield.ai/models/alibaba/wan-3.0/reference-to-video/api-reference",
+            verified_on="2026-11-20",
+        ))
+        from asa.higgsfield_models import profiles as extra_profiles
+        for key, profile in extra_profiles().items():
+            profiles.setdefault(key, profile)
+        from asa.higgsfield_models import resolution_profiles
+        for key, profile in resolution_profiles(profiles).items():
+            profiles.setdefault(key, profile)
+        return profiles
+
+    higgsfield_api_key: SecretStr = SecretStr("")
     runway_api_key: SecretStr = SecretStr("")
     wan_api_key: SecretStr = SecretStr("")
+    wan_singapore_api_key: SecretStr = SecretStr("")
+    wan_singapore_workspace_id: str = Field(default="", pattern=r"^[a-zA-Z0-9-]{0,100}$")
+    wan_tokyo_api_key: SecretStr = SecretStr("")
+    wan_tokyo_workspace_id: str = Field(default="", pattern=r"^[a-zA-Z0-9-]{0,100}$")
     wan_workspace_id: str = Field(default="", pattern=r"^[a-zA-Z0-9-]{0,100}$")
     wan_region: Literal["ap-southeast-1", "cn-beijing", "us-east-1", "ap-northeast-1",
                         "eu-central-1", "cn-hongkong"] = "ap-southeast-1"
     video_ai_enabled: bool = False
+    video_reference_public_origin: str = ""
+    video_reference_signing_key: SecretStr = SecretStr("")
+    video_reference_url_ttl_seconds: int = Field(default=900, ge=60, le=3600)
     image_ai_enabled: bool = False
     image_models: list[str] = ['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare']
     image_timeout_seconds: float = Field(default=240, ge=30, le=600)

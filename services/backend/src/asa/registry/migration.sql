@@ -538,4 +538,93 @@ CREATE TABLE IF NOT EXISTS video_generation_controls (
  workspace_id uuid PRIMARY KEY REFERENCES registry_workspaces(id),
  enabled boolean NOT NULL, providers jsonb NOT NULL, revision integer NOT NULL
 );
+ALTER TABLE video_generation_controls ADD COLUMN IF NOT EXISTS
+ user_details_enabled boolean NOT NULL DEFAULT false;
+ALTER TABLE video_generation_controls ADD COLUMN IF NOT EXISTS
+ model_defaults jsonb NOT NULL DEFAULT '{}';
 ALTER TABLE video_clip_jobs ADD COLUMN IF NOT EXISTS paused boolean NOT NULL DEFAULT false;
+
+-- Preserve only approvals that existed when clip-level approval was introduced.
+CREATE TABLE IF NOT EXISTS video_review_annotations (
+    workspace_id uuid NOT NULL, request_id uuid NOT NULL, answer_version integer NOT NULL,
+    annotations jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY(workspace_id,request_id,answer_version),
+    FOREIGN KEY(workspace_id,request_id,answer_version)
+        REFERENCES script_versions(workspace_id,request_id,version) ON DELETE CASCADE
+);
+ALTER TABLE video_review_annotations ADD COLUMN IF NOT EXISTS validation jsonb;
+
+DO $$ BEGIN
+    IF to_regclass('video_clip_plan_approvals') IS NULL THEN
+        CREATE TABLE video_clip_plan_approvals (
+            workspace_id uuid NOT NULL, request_id uuid NOT NULL, answer_version integer NOT NULL,
+            clip_id text NOT NULL, fingerprint text, approved_by text NOT NULL,
+            approved_at timestamptz NOT NULL DEFAULT now(),
+            PRIMARY KEY(workspace_id,request_id,answer_version,clip_id),
+            FOREIGN KEY(workspace_id,request_id,answer_version)
+                REFERENCES script_versions(workspace_id,request_id,version) ON DELETE CASCADE
+        );
+        INSERT INTO video_clip_plan_approvals
+            (workspace_id,request_id,answer_version,clip_id,approved_by)
+        SELECT v.workspace_id,v.request_id,v.version,c->>'clip_id','legacy-plan'
+        FROM script_stages s JOIN script_versions v
+            ON v.workspace_id=s.workspace_id AND v.request_id=s.request_id
+            AND v.version=s.approved_version
+        CROSS JOIN LATERAL jsonb_array_elements(
+            CASE WHEN jsonb_typeof(v.answer->'clips')='array' THEN v.answer->'clips' ELSE '[]'::jsonb END
+        ) c WHERE c->>'clip_id' IS NOT NULL;
+    END IF;
+END $$;
+
+ALTER TABLE video_clip_plan_approvals ADD COLUMN IF NOT EXISTS approved boolean NOT NULL DEFAULT true;
+
+-- AI observations remain separate from generation and human video approval.
+CREATE TABLE IF NOT EXISTS video_asset_reviews (
+ workspace_id uuid NOT NULL, id uuid NOT NULL, job_id uuid NOT NULL,
+ agent_ref text NOT NULL, definition jsonb NOT NULL, generation_input jsonb NOT NULL,
+ video_sha256 text NOT NULL, reference_image bytea, source_video bytea,
+ status text NOT NULL DEFAULT 'queued'
+ CHECK(status IN ('queued','running','succeeded','failed','unknown')),
+ result jsonb, error_code text, created_at timestamptz NOT NULL DEFAULT now(),
+ started_at timestamptz, finished_at timestamptz,
+ PRIMARY KEY(workspace_id,id),
+ FOREIGN KEY(workspace_id,job_id) REFERENCES video_clip_jobs(workspace_id,id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS video_asset_reviews_active
+ ON video_asset_reviews(workspace_id,job_id) WHERE status IN ('queued','running');
+
+-- Safe machine diagnostics; never raw response bodies or credentials.
+ALTER TABLE video_clip_jobs ADD COLUMN IF NOT EXISTS progress_stage text;
+ALTER TABLE video_clip_jobs ADD COLUMN IF NOT EXISTS provider_status text;
+ALTER TABLE video_clip_jobs ADD COLUMN IF NOT EXISTS diagnostics jsonb NOT NULL DEFAULT '{}';
+
+-- Independent revision: permission changes must never reset region selection.
+CREATE TABLE IF NOT EXISTS wan_region_controls (
+ workspace_id uuid PRIMARY KEY,
+ active_region text NOT NULL CHECK(active_region IN ('ap-southeast-1','ap-northeast-1')),
+ revision integer NOT NULL CHECK(revision > 0)
+);
+
+-- Keep immutable attempts and assets; only the current attempt occupies a clip slot.
+ALTER TABLE video_clip_jobs ADD COLUMN IF NOT EXISTS superseded_by uuid;
+DO $$ DECLARE constraint_name text; BEGIN
+    SELECT c.conname INTO constraint_name FROM pg_constraint c
+    WHERE c.conrelid='video_clip_jobs'::regclass AND c.contype='u'
+    AND pg_get_constraintdef(c.oid) = 'UNIQUE (workspace_id, request_id, answer_version, clip_id)';
+    IF constraint_name IS NOT NULL THEN
+        EXECUTE format('ALTER TABLE video_clip_jobs DROP CONSTRAINT %I', constraint_name);
+    END IF;
+END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS video_clip_current_slot
+    ON video_clip_jobs(workspace_id,request_id,answer_version,clip_id)
+    WHERE superseded_by IS NULL;
+CREATE TABLE IF NOT EXISTS video_retry_confirmations (
+    workspace_id uuid NOT NULL, id uuid NOT NULL, original_job_id uuid NOT NULL,
+    confirmed_by text NOT NULL, evidence text NOT NULL, target_fingerprint text NOT NULL,
+    confirmed_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY(workspace_id,id),
+    FOREIGN KEY(workspace_id,original_job_id) REFERENCES video_clip_jobs(workspace_id,id)
+        ON DELETE CASCADE
+);
+
+ALTER TABLE video_retry_confirmations ADD COLUMN IF NOT EXISTS target_fingerprint text;

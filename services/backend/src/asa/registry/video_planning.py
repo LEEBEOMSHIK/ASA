@@ -10,12 +10,16 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from asa.auth.session import OwnerSessions, Principal
 from asa.config import Settings
+from asa.higgsfield_models import reference_support, validate_spec
 from asa.registry.repository import RegistryRepository
 from asa.registry.scene_selection import selected_scenes
 from asa.registry.schemas import RegistryError
-from asa.video_contracts import VideoModelProfile, VideoPreparation, duration_plan
+from asa.video_connection import check as check_connection
+from asa.video_connection import current as current_connection
+from asa.video_contracts import VideoClip, VideoModelProfile, VideoPreparation, duration_plan
 from asa.video_management import policy
 from asa.video_providers import connection_state, supported_model
+from asa.wan_regions import active_settings
 
 
 def profile(settings: Settings, key: str, revision: str) -> VideoModelProfile:
@@ -25,6 +29,47 @@ def profile(settings: Settings, key: str, revision: str) -> VideoModelProfile:
     if model.revision != revision:
         raise RegistryError(409, "video_model_changed")
     return model
+
+
+def generation_input(body: VideoPreparation, clip: VideoClip, resolution: str,
+                     voice_settings: Any = None,
+                     visual_style: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Pure snapshot shared by generation and unchanged-video comparison."""
+    from asa.video_plan_quality import event_prompt
+    from asa.voice_directions import clip_audio_prompt
+    voice_prompt = (clip_audio_prompt(voice_settings, clip.source_start_seconds,
+                                     clip.source_end_seconds) if voice_settings else '')
+    sound_events = bool(clip.quality and any(
+        e.kind == 'sound_effect' for e in clip.quality.events))
+    prompt = "\n\n".join(
+        part
+        for part in (
+            clip.prompt.strip(),
+            f"시작 상태 / Start: {clip.continuity_in}" if clip.continuity_in else "",
+            f"종료 상태 / End: {clip.continuity_out}" if clip.continuity_out else "",
+            voice_prompt,
+            event_prompt(clip.quality),
+        )
+        if part
+    )
+    from asa.registry.art_styles import apply_style
+
+    prompt = apply_style(prompt, visual_style)
+    return {
+        "prompt": prompt,
+        "duration_seconds": clip.duration_seconds,
+        "aspect_ratio": body.aspect_ratio,
+        "resolution": resolution,
+        "audio": (bool(voice_prompt) or sound_events or body.audio
+                  or bool(clip.reference_inputs and clip.reference_inputs[0].audio)),
+        "voice_direction_prompt": voice_prompt,
+        "work_visual_style": visual_style,
+        "start_image_id": str(clip.image_id),
+        "connection_type": clip.connection_type,
+        "previous_clip_id": clip.previous_clip_id,
+        **({'reference_inputs': clip.reference_inputs[0].model_dump(mode='json')}
+           if clip.reference_inputs else {}),
+    }
 
 
 def prepare(
@@ -37,6 +82,11 @@ def prepare(
     selected_clip_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     model = profile(settings, body.model_key, body.model_revision)
+    if any(c.reference_inputs for c in body.clips) and (
+        model.provider not in {'alibaba', 'higgsfield'} or
+        (model.provider == 'alibaba' and model.model != 'wan3.0-video')
+    ):
+        raise RegistryError(422, 'video_reference_mode_unsupported')
     if voice_settings:
         from asa.voice_directions import validate_timeline
 
@@ -69,7 +119,7 @@ def prepare(
     images = {scene["image_id"]: scene for scene in selected["scenes"]}
     prepared = []
     for clip in body.clips:
-        from asa.video_plan_quality import event_prompt, require_ready
+        from asa.video_plan_quality import require_ready
         from asa.voice_directions import clip_audio_prompt
 
         if selected_clip_ids is not None and clip.clip_id not in selected_clip_ids:
@@ -80,7 +130,9 @@ def prepare(
                                          clip.source_end_seconds) if voice_settings else '')
         sound_events = bool(clip.quality and any(
             e.kind == 'sound_effect' for e in clip.quality.events))
-        if (voice_prompt or sound_events) and not model.supports_audio:
+        if (voice_prompt or sound_events or
+                (clip.reference_inputs and clip.reference_inputs[0].audio)
+                ) and not model.supports_audio:
             raise RegistryError(422, 'video_audio_unsupported')
         image = images[str(clip.image_id)]
         if (clip.scene_id, clip.shot_id) != (image["scene_id"], image["shot_id"]):
@@ -89,20 +141,13 @@ def prepare(
             raise RegistryError(422, "video_duration_unsupported")
         if not clip.prompt.strip():
             raise RegistryError(422, "video_prompt_limit")
-        prompt = "\n\n".join(
-            part
-            for part in (
-                clip.prompt.strip(),
-                f"시작 상태 / Start: {clip.continuity_in}" if clip.continuity_in else "",
-                f"종료 상태 / End: {clip.continuity_out}" if clip.continuity_out else "",
-                voice_prompt,
-                event_prompt(clip.quality),
-            )
-            if part
-        )
-        from asa.registry.art_styles import apply_style
-
-        prompt = apply_style(prompt, visual_style)
+        spec = generation_input(body, clip, model.resolution, voice_settings, visual_style)
+        if model.provider == 'higgsfield':
+            try:
+                validate_spec(model.model_dump(), spec)
+            except ValueError as exc:
+                raise RegistryError(422, str(exc)) from exc
+        prompt = spec['prompt']
         if not prompt or len(prompt) > model.max_prompt_chars:
             raise RegistryError(422, "video_prompt_limit")
         prepared.append(
@@ -118,18 +163,7 @@ def prepare(
                 "split_reason": clip.split_reason,
                 # This is an internal snapshot, never sent wholesale to the provider.
                 "reference_snapshot": image,
-                "generation_input": {
-                    "prompt": prompt,
-                    "duration_seconds": clip.duration_seconds,
-                    "aspect_ratio": body.aspect_ratio,
-                    "resolution": model.resolution,
-                    "audio": bool(voice_prompt) or sound_events or body.audio,
-                    "voice_direction_prompt": voice_prompt,
-                    "work_visual_style": visual_style,
-                    "start_image_id": str(clip.image_id),
-                    "connection_type": clip.connection_type,
-                    "previous_clip_id": clip.previous_clip_id,
-                },
+                "generation_input": spec,
             }
         )
     return {
@@ -155,9 +189,31 @@ def planner_constraints(settings: Settings, contract: dict[str, Any]) -> str | N
     model = settings.video_model_profiles.get(key) if isinstance(key, str) else None
     if model is None or not model.enabled:
         raise RegistryError(422, "video_model_unavailable")
+    model_instruction = ("선택한 영상 모델의 서버 검증 설정입니다: "
+                         + json.dumps({"model_key": key, **model.model_dump(),
+                                       "reference_support": reference_support(model.model_dump())},
+                                      ensure_ascii=False))
+    model_instruction += ("\n참조 지원은 reference_support를 따르세요. "
+                          "지원하지 않는 음성/영상 참조나 "
+                          "오디오 생성을 요청하지 마세요. 기존 음성·참조 자료를 임의로 삭제하거나 "
+                          "변경해서 제약을 우회하지 말고 모델 변경이 필요한 충돌로 안내하세요. "
+                          "클립 길이는 대본과 씬의 시간을 근거로 허용 길이 안에서 판단하며 "
+                          "관리 화면의 요금 계산 예시 길이는 생성 지시가 아닙니다.")
+    execution = contract.get('video_execution_settings', {})
+    if execution:
+        seconds = execution['duration_seconds']
+        model_instruction += (
+            f"\n접수 시 확정된 설정 출처: {execution['source']}. 모델 키와 리비전은 "
+            "위 값을 그대로 출력하세요. 다른 관리자 설정이나 이전 요청으로 덮어쓰지 마세요. "
+            + (f"각 클립의 생성 길이 duration_seconds는 반드시 {seconds}초입니다. "
+               "대본·대사를 생략하지 말고 필요한 클립 수로 분할하세요. 사용 구간과 "
+               "생성 길이의 차이는 trim으로 구분하세요."
+               if seconds else "클립 길이는 모델 지원 범위 안에서 대본·씬에 맞춰 자동 판단하세요.")
+        )
+    if contract.get("revision_clip_id"):
+        return model_instruction
     return (
-        "선택한 영상 모델의 서버 검증 설정입니다: "
-        + json.dumps({"model_key": key, **model.model_dump()}, ensure_ascii=False)
+        model_instruction
         + "\n이 설정의 허용 길이로 클립을 계획하세요. 전체 대본·장면을 분석하되 원문을 "
         "줄이거나 장면을 생략하지 마세요. 원본 장면/컷/확정 이미지 ID와 분할 이유, "
         "시작·종료 상태를 보존하세요. 클립별 영상 프롬프트에는 해당 클립의 동작·카메라·"
@@ -185,14 +241,40 @@ class DurationRequest(BaseModel):
     seconds: int = Field(ge=1, le=3600)
 
 
+class EstimateRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    model_key: str = Field(min_length=1, max_length=100)
+    model_revision: str = Field(min_length=1, max_length=80)
+    duration_seconds: int = Field(ge=1, le=120)
+    reference_video: bool = False
+
+
+def catalog_estimate(model: VideoModelProfile, seconds: int,
+                     reference_video: bool = False) -> dict[str, Any]:
+    rate = model.usd_per_second_with_video if reference_video else model.usd_per_second
+    return {'amount_usd': round(rate * seconds, 6) if rate is not None else None,
+            'currency': 'USD', 'source': 'catalog' if rate is not None else 'unknown',
+            'estimated': True}
+
+
 def video_planning_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
     router = APIRouter(prefix="/api/v1/video-planning")
+
+    @router.post('/estimate')
+    def estimate(body: EstimateRequest,
+                 principal: Principal = Depends(sessions.principal)) -> dict[str, Any]:
+        model = profile(settings, body.model_key, body.model_revision)
+        if body.duration_seconds not in model.durations:
+            raise RegistryError(422, 'video_duration_unsupported')
+        # No uploads, asset reads or external calls during cost preview.
+        return catalog_estimate(model, body.duration_seconds, body.reference_video)
 
     @router.get("/models")
     def models(principal: Principal = Depends(sessions.principal)) -> dict[str, Any]:
         repo = RegistryRepository(settings.database_url, principal.workspace_id)
         with repo._connect() as conn:
             controls = policy(conn, settings, repo.workspace_id)
+            resolved = active_settings(conn, settings, repo.workspace_id)
             online = (
                 conn.execute(
                     "SELECT 1 FROM pg_stat_activity WHERE datname=current_database() "
@@ -204,9 +286,12 @@ def video_planning_router(settings: Settings, sessions: OwnerSessions) -> APIRou
         return {
             "models": [
                 {"key": key, **model.model_dump(),
-                 "connection_state": (connection_state(settings, model.provider)
+                 "reference_support": reference_support(model.model_dump()),
+                 "connection_state": (connection_state(resolved, model.provider)
                                       if controls["providers"].get(model.provider, False)
                                       else "disabled"),
+                 "connection_check": current_connection(resolved, principal.workspace_id,
+                                                        model.provider),
                  "generation_supported": supported_model(model.model_dump())}
                 for key, model in settings.video_model_profiles.items()
                 if model.enabled
@@ -214,11 +299,26 @@ def video_planning_router(settings: Settings, sessions: OwnerSessions) -> APIRou
             "worker_online": online,
             "key_configured": bool(settings.runway_api_key.get_secret_value()),
             "enabled": controls["enabled"],
+            "user_details_enabled": controls['user_details_enabled'],
+            "model_defaults": controls['model_defaults'],
             "generation_available": controls["enabled"] and any(
                 controls["providers"].get(m.provider, False) and
-                connection_state(settings, m.provider) == "configured"
+                connection_state(resolved, m.provider) == "configured"
                 for m in settings.video_model_profiles.values() if m.enabled),
         }
+
+    @router.post("/provider-connection/{provider}")
+    def provider_connection_check(
+        provider: str, principal: Principal = Depends(sessions.principal)
+    ) -> dict[str, Any]:
+        if principal.workspace_id != settings.workspace_id:
+            raise RegistryError(403, "workspace_forbidden")
+        if provider not in {"alibaba", "runway", "higgsfield"}:
+            raise RegistryError(422, "video_model_unavailable")
+        repo = RegistryRepository(settings.database_url, principal.workspace_id)
+        with repo._connect() as conn:
+            resolved = active_settings(conn, settings, principal.workspace_id)
+        return check_connection(resolved, principal.workspace_id, provider)
 
     @router.post("/runway-connection")
     def runway_connection(principal: Principal = Depends(sessions.principal)) -> dict[str, str]:

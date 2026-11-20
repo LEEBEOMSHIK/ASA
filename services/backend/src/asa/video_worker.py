@@ -12,14 +12,53 @@ import httpx
 import psycopg
 from PIL import Image
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 from asa.config import Settings
+from asa.registry.schemas import RegistryError
+from asa.registry.video_asset_reviews import process_review, recover_reviews
 from asa.video_continuity import last_frame, source_video
 from asa.video_management import allowed, lock_policy, policy
-from asa.video_providers import generation_request, provider_connection, task_result
+from asa.video_providers import generation_request, provider_connection, task_result, validate_input
 from asa.worker_control import accepting_work, run_worker
 
 MAX_VIDEO_BYTES = 64 * 1024 * 1024
+
+
+def safe_diagnostics(stage: str, exc: Exception | None = None,
+                     response: httpx.Response | None = None) -> dict[str, Any]:
+    """Store machine identifiers only, never exception text or response messages."""
+    category = "provider_failure"
+    if isinstance(exc, httpx.HTTPStatusError):
+        category, response = "http_status", exc.response
+    elif isinstance(exc, httpx.TimeoutException):
+        category = "timeout"
+    elif isinstance(exc, httpx.TransportError):
+        category = "transport"
+    elif exc is not None:
+        category = "invalid_response"
+    result: dict[str, Any] = {"stage": stage, "category": category}
+    if response is None:
+        return result
+    result["http_status"] = response.status_code
+    try:
+        data = response.json()
+    except ValueError:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    output = data.get("output")
+    output = output if isinstance(output, dict) else {}
+    candidates = {
+        "provider_code": output.get("code") or data.get("code") or data.get("failureCode"),
+        "request_id": data.get("request_id") or response.headers.get("x-request-id")
+        or response.headers.get("x-dashscope-request-id"),
+    }
+    for name, value in candidates.items():
+        if (isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", value)
+                and not value.lower().startswith(("sk-", "bearer", "api_key", "apikey"))):
+            result[name] = value
+    return result
 
 
 def fetch_video(url: str) -> bytes:
@@ -40,13 +79,14 @@ def fetch_video(url: str) -> bytes:
 
 def process(conn: Any, client: httpx.Client, workspace: UUID, settings: Settings) -> bool:
     row = conn.execute(
-        "SELECT * FROM video_clip_jobs WHERE workspace_id=%s AND status IN ('queued','running') "
+        "SELECT * FROM video_clip_jobs WHERE superseded_by IS NULL AND workspace_id=%s "
+        "AND status IN ('queued','running') "
         "AND (status='running' OR NOT paused) AND next_poll<=now() "
         "ORDER BY (status='running') DESC,next_poll,id LIMIT 1",
         (workspace,),
     ).fetchone()
     if not row:
-        return False
+        return process_review(conn, workspace, settings)
     key = (workspace, row["id"])
     model = row["model_snapshot"]
     try:
@@ -86,7 +126,8 @@ def process(conn: Any, client: httpx.Client, workspace: UUID, settings: Settings
                     "updated_at=now() WHERE workspace_id=%s AND id=%s", (code, *key),
                 )
                 return True
-        max_image_bytes = 20_000_000 if model["provider"] == "alibaba" else 3_700_000
+        max_image_bytes = (20_000_000 if model["provider"] in {'alibaba', 'higgsfield'}
+                           else 3_700_000)
         if not asset or not asset["image"] or len(asset["image"]) > max_image_bytes:
             conn.execute(
                 "UPDATE video_clip_jobs SET status='failed',error_code='reference_size',"
@@ -95,6 +136,21 @@ def process(conn: Any, client: httpx.Client, workspace: UUID, settings: Settings
             )
             return True
         try:
+            reference_media = None
+            upload_media_inputs: list[tuple[str, bytes, str]] = []
+            if model['provider'] == 'higgsfield':
+                from asa.video_references import resolve_upload_media
+
+                validate_input(model, spec)
+                resolved_image, upload_media_inputs = resolve_upload_media(
+                    conn, settings, workspace, row)
+                if spec.get('connection_type') != 'continue':
+                    asset = {'image': resolved_image}
+            elif spec.get('reference_inputs') is not None:
+                from asa.video_references import resolve_media
+
+                resolved_image, reference_media = resolve_media(conn, settings, workspace, row)
+                asset = {'image': resolved_image}
             if model["provider"] == "alibaba":
                 with Image.open(BytesIO(bytes(asset["image"]))) as reference:
                     if reference.format != "PNG" or not all(
@@ -106,8 +162,10 @@ def process(conn: Any, client: httpx.Client, workspace: UUID, settings: Settings
                     if "A" in reference.getbands() or "transparency" in reference.info:
                         if reference.convert("RGBA").getchannel("A").getextrema() != (255, 255):
                             raise ValueError("transparent_reference")
-            url, headers, body = generation_request(settings, model, spec, bytes(asset["image"]))
-        except (KeyError, TypeError, ValueError, OSError):
+            if model['provider'] != 'higgsfield':
+                url, headers, body = generation_request(
+                    settings, model, spec, bytes(asset['image']), reference_media)
+        except (KeyError, TypeError, ValueError, OSError, RegistryError, subprocess.TimeoutExpired):
             conn.execute(
                 "UPDATE video_clip_jobs SET status='failed',error_code='input_invalid',"
                 "updated_at=now() WHERE workspace_id=%s AND id=%s",
@@ -125,35 +183,55 @@ def process(conn: Any, client: httpx.Client, workspace: UUID, settings: Settings
             if not accepting_work(conn, workspace, "video"):
                 return False
             claimed = conn.execute(
-                "UPDATE video_clip_jobs SET status='submitting',updated_at=now() "
+                "UPDATE video_clip_jobs SET status='submitting',progress_stage='submitting',"
+                "updated_at=now() "
                 "WHERE workspace_id=%s AND id=%s AND status='queued' AND NOT paused",
                 key,
             )
             if not claimed.rowcount:
                 return False
+        response = None
+        submission_started = False
         try:
+            if model['provider'] == 'higgsfield':
+                from asa.higgsfield_provider import upload_media
+
+                image_url = upload_media(settings, model, bytes(asset['image']), 'image/png')
+                reference_media = [{'type': kind, 'url': upload_media(settings, model, data, mime)}
+                                   for kind, data, mime in upload_media_inputs]
+                url, headers, body = generation_request(
+                    settings, model, spec, bytes(asset['image']), reference_media,
+                    start_image_url=image_url)
+                headers['Idempotency-Key'] = str(row['id'])
+            submission_started = True
             response = client.post(url, headers=headers, json=body)
             response.raise_for_status()
             data = response.json()
-            task = data["output"]["task_id"] if model["provider"] == "alibaba" else data["id"]
+            task = (data['output']['task_id'] if model['provider'] == 'alibaba' else
+                    data['request_id'] if model['provider'] == 'higgsfield' else data['id'])
             if not isinstance(task, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,200}", task):
                 raise ValueError("invalid_task_id")
-        except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
+        except (httpx.HTTPError, KeyError, TypeError, ValueError, OSError) as exc:
             rejected = isinstance(exc, httpx.HTTPStatusError) and (
                 400 <= exc.response.status_code < 500 and exc.response.status_code != 408
             )
             conn.execute(
-                "UPDATE video_clip_jobs SET status=%s,error_code=%s,updated_at=now() "
+                "UPDATE video_clip_jobs SET status=%s,error_code=%s,diagnostics=%s,"
+                "updated_at=now() "
                 "WHERE workspace_id=%s AND id=%s",
                 (
-                    "failed" if rejected else "unknown",
-                    "provider_rejected" if rejected else "submission_uncertain",
+                    "failed" if rejected or not submission_started else "unknown",
+                    ('reference_upload_failed' if not submission_started else
+                     'provider_rejected' if rejected else 'submission_uncertain'),
+                    Jsonb(safe_diagnostics('submitting' if submission_started else 'uploading',
+                                          exc, response)),
                     *key,
                 ),
             )
             return True
         conn.execute(
             "UPDATE video_clip_jobs SET status='running',provider_task=%s,error_code=NULL,"
+            "diagnostics='{}',progress_stage='provider_pending',"
             "next_poll=now()+interval '5 seconds',updated_at=now() "
             "WHERE workspace_id=%s AND id=%s",
             (task, *key),
@@ -164,49 +242,70 @@ def process(conn: Any, client: httpx.Client, workspace: UUID, settings: Settings
         "WHERE workspace_id=%s AND id=%s",
         key,
     )
+    response = None
+    phase = "polling"
     try:
         task_id = str(row["provider_task"])
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,200}", task_id):
             raise ValueError("invalid_task_id")
         if model["provider"] == "runway":
             headers["X-Runway-Version"] = "2024-11-06"
-        response = client.get(f"{base}/tasks/{task_id}", headers=headers)
+        poll_url = (f'{base}/requests/{task_id}/status' if model['provider'] == 'higgsfield'
+                    else f'{base}/tasks/{task_id}')
+        response = client.get(poll_url, headers=headers)
         if response.status_code == 404:
             conn.execute(
                 "UPDATE video_clip_jobs SET status='unknown',error_code='task_missing',"
-                "updated_at=now() WHERE workspace_id=%s AND id=%s",
-                key,
+                "diagnostics=%s,updated_at=now() WHERE workspace_id=%s AND id=%s",
+                (Jsonb(safe_diagnostics("polling", response=response)), *key),
             )
             return True
         response.raise_for_status()
         status, video_url = task_result(model["provider"], response.json())
+        conn.execute(
+            "UPDATE video_clip_jobs SET provider_status=%s,progress_stage=%s,"
+            "error_code=NULL,diagnostics='{}',updated_at=now() WHERE workspace_id=%s AND id=%s",
+            (status, "provider_running" if status == "RUNNING" else "provider_pending", *key),
+        )
         if status == "UNKNOWN":
             conn.execute(
                 "UPDATE video_clip_jobs SET status='unknown',error_code='task_missing',"
-                "updated_at=now() WHERE workspace_id=%s AND id=%s",
-                key,
+                "diagnostics=%s,updated_at=now() WHERE workspace_id=%s AND id=%s",
+                (Jsonb(safe_diagnostics("polling", response=response)), *key),
             )
         elif status in ("FAILED", "CANCELED", "CANCELLED"):
             conn.execute(
                 "UPDATE video_clip_jobs SET status='failed',error_code='provider_failed',"
-                "updated_at=now() WHERE workspace_id=%s AND id=%s",
-                key,
+                "diagnostics=%s,updated_at=now() WHERE workspace_id=%s AND id=%s",
+                (Jsonb(safe_diagnostics("provider_running", response=response)), *key),
             )
         elif status == "SUCCEEDED" and video_url:
+            phase = "downloading"
+            conn.execute(
+                "UPDATE video_clip_jobs SET progress_stage='downloading',updated_at=now() "
+                "WHERE workspace_id=%s AND id=%s", key,
+            )
+            response = None
             video = fetch_video(video_url)
             conn.execute(
-                "UPDATE video_clip_jobs SET status='review',video=%s,updated_at=now() "
+                "UPDATE video_clip_jobs SET status='review',progress_stage='review',"
+                "video=%s,updated_at=now() "
                 "WHERE workspace_id=%s AND id=%s",
                 (video, *key),
             )
-    except httpx.HTTPError:
-        # Reconcile the same provider task after a transient failure.
-        pass
-    except (KeyError, IndexError, ValueError, TypeError):
+    except httpx.HTTPError as exc:
+        # Reconcile the same task only: never repeat the paid submission.
+        conn.execute(
+            "UPDATE video_clip_jobs SET error_code=%s,diagnostics=%s,updated_at=now() "
+            "WHERE workspace_id=%s AND id=%s",
+            ("download_failed" if phase == "downloading" else "poll_failed",
+             Jsonb(safe_diagnostics(phase, exc, response)), *key),
+        )
+    except (KeyError, IndexError, ValueError, TypeError) as exc:
         conn.execute(
             "UPDATE video_clip_jobs SET status='unknown',error_code='output_invalid',"
-            "updated_at=now() WHERE workspace_id=%s AND id=%s",
-            key,
+            "diagnostics=%s,updated_at=now() WHERE workspace_id=%s AND id=%s",
+            (Jsonb(safe_diagnostics(phase, exc, response)), *key),
         )
     return True
 
@@ -232,6 +331,7 @@ def main() -> None:
         if not locked or not locked["acquired"]:
             raise SystemExit("A video worker already owns this workspace")
         conn.execute("LISTEN asa_video_jobs")
+        recover_reviews(conn, workspace)
         conn.execute(
             "UPDATE video_clip_jobs SET status='unknown',error_code='worker_interrupted',"
             "updated_at=now() WHERE workspace_id=%s AND status='submitting'",

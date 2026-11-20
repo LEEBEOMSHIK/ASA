@@ -1,0 +1,12 @@
+.video-source-panel { display: grid; gap: var(--space-3); min-width: 0; border-top: 1px solid var(--border); padding-top: var(--space-4); }
+.video-source-panel h4, .video-source-panel p, .video-source-panel figure { margin: 0; }
+.video-source-panel details { min-width: 0; }
+.video-source-panel details > :not(summary) { margin-top: var(--space-3); }
+.video-source-panel pre { margin: 0; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 24rem; overflow-y: auto; }
+.video-source-panel .video-source-text { display: grid; gap: var(--space-2); }
+.video-source-images { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: var(--space-3); }
+.video-source-images figure { display: grid; align-content: start; gap: var(--space-2); min-width: 0; }
+.video-source-images figure:only-child { grid-column: 1 / -1; width: min(100%, 20rem); }
+.video-source-images img { width: 100%; max-height: 16rem; object-fit: contain; border-radius: var(--radius-sm); background: var(--surface-subtle); }
+.video-source-images figcaption { overflow-wrap: anywhere; }
+@media (max-width: 600px) { .video-source-images { grid-template-columns: repeat(2,minmax(0,1fr)); } }

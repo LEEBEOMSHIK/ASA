@@ -17,6 +17,7 @@ from asa.registry.schemas import RegistryError
 from asa.registry.script_stage import (
     GenerateScript,
     RetryScript,
+    ReviseClip,
     RewriteScript,
     ScriptRepository,
     execute_attempt,
@@ -31,7 +32,8 @@ class ScriptQueue(ScriptRepository):
         self.settings = settings
 
     def submit(self, request_id: str,
-               body: GenerateScript | RetryScript | RewriteScript | None = None) -> dict[str, Any]:
+               body: GenerateScript | RetryScript | ReviseClip | RewriteScript | None = None,
+               ) -> dict[str, Any]:
         if not self.settings.script_ai_enabled:
             raise RegistryError(409, "script_execution_disabled")
         config = effective_settings(self.settings)

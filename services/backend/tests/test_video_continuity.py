@@ -48,7 +48,8 @@ class Connection:
         self.params = None
 
     def execute(self, query, params):
-        assert "status='approved'" in query
+        assert "status=%s" in query
+        assert params[-1] == "approved"
         assert "workspace_id=%s AND request_id=%s" in query
         self.params = params
         return self
@@ -57,11 +58,17 @@ class Connection:
         return self.row
 
 
-def test_source_requires_approval_and_pins_content_and_scope():
+def test_source_requires_approval_and_pins_content_and_scope(monkeypatch):
+    from asa.registry import video_inheritance
+    selected = {'id': 'parent', 'status': 'approved'}
+    def select(conn, workspace, request, version, clip_id):
+        assert (workspace, request, version, clip_id) == ('ws', 'req', 2, '0')
+        return selected
+    monkeypatch.setattr(video_inheritance, 'selected_job', select)
     conn = Connection(None)
     with pytest.raises(ValueError, match="approval_required"):
         approved_source(conn, "ws", "req", 2, "0")
-    assert conn.params == ("ws", "req", 2, "0")
+    assert conn.params == ("ws", "req", "parent", "approved")
     conn.row = {"id": "parent", "video": b"original"}
     snapshot = approved_source(conn, "ws", "req", 2, "0")
     assert snapshot["source_video_sha256"] == sha256(b"original").hexdigest()

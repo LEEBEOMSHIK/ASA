@@ -74,6 +74,8 @@ def redact(value: Any, settings: Settings) -> Any:
                settings.anthropic_api_key.get_secret_value(),
                settings.search_api_key.get_secret_value(),
                settings.wan_api_key.get_secret_value(),
+               settings.wan_singapore_api_key.get_secret_value(),
+               settings.wan_tokyo_api_key.get_secret_value(),
                settings.runway_api_key.get_secret_value(),
                settings.owner_access_key.get_secret_value(),
                settings.database_url]
@@ -186,6 +188,19 @@ class Capture(BaseCallbackHandler):
                  (self.error_code or "call_or_output_failed") if status == "failed" else None,
                  self.settings.workspace_id, self.id),
             )
+
+
+@contextmanager
+def trace_review(settings: Settings) -> Iterator[None]:
+    """Account for the classification call independently from the plan-writing call."""
+    parent = _active.get()
+    if parent is None:
+        yield
+        return
+    context = {**parent.context, 'step_id': 'review_annotations',
+               'step_name': '영상 계획 구절 분류', 'original_request': None}
+    with trace_call(settings, context):
+        yield
 
 
 @contextmanager

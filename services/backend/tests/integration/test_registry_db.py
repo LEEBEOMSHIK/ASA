@@ -2636,6 +2636,18 @@ def test_image_review_queue_snapshot_auto_and_isolation(db, monkeypatch, legacy,
     repo.approve(image.id,None,1)
     assert repo.project(project)['approved'][char.id]==str(image.id)
 
+    # Current usage switch applies to old assets, but preserves previous reports.
+    pending = enqueue_review(repo, image.id, uuid4(), changed, settings)
+    repo.save_settings(AgentDraft.model_validate(definition()), maker['id'], 1)
+    with pytest.raises(RegistryError, match='review_not_configured'):
+        enqueue_review(repo, image.id, uuid4(), changed, settings)
+    call_count = len(calls)
+    assert process_review(repo, settings)
+    assert len(calls) == call_count
+    reviews = repo.project(project)['reviews']
+    assert next(v for v in reviews if v['id'] == pending['id'])['error_code'] == 'review_disabled'
+    assert any(v['result'] == '발이 설정과 다릅니다.' for v in reviews)
+
 
 def test_agent_icon_saved_published_and_version_preserved(db):
     repo=RegistryRepository(*db)
@@ -3711,9 +3723,33 @@ def test_wan_queue_worker_lifecycle(client, db, monkeypatch, outcome, continuati
         assert api_client.get(path).json()["available_models"] == ["wan3"]
         denied = api_client.post(path, json={"clip_ids": ["clip1"]}, headers=h)
         assert denied.status_code == 409
-        assert denied.json()['detail'] == 'video_plan_approval_required'
+        assert denied.json()['detail'] == 'video_clip_plan_approval_required'
+        # Whole-answer approval no longer authorizes video generation.
         assert api_client.post(f"/api/v1/work-requests/{rid}/script/approve", headers=h,
                                json={"expected_revision": 0, "version": 1}).status_code == 200
+        assert api_client.post(path, json={"clip_ids": ["clip1"]}, headers=h).status_code == 409
+        approvals = api_client.get(path).json()["plan_approvals"]
+        payload = {"clip_ids": ["clip1"],
+                   "fingerprints": {"clip1": approvals["clip1"]["fingerprint"]}}
+        assert api_client.post(path + "/plan-approve", json=payload).status_code == 403
+        assert api_client.post(path + "/plan-approve", headers=h,
+            json={**payload, "fingerprints": {"clip1": "stale"}}).status_code == 409
+        assert api_client.post(path + "/plan-approve", headers=h, json=payload).status_code == 200
+        assert api_client.post(path + "/plan-revoke", headers=h, json=payload).status_code == 200
+        revoked = api_client.post(path, json={"clip_ids": ["clip1"]}, headers=h)
+        assert revoked.status_code == 409
+        assert revoked.json()['detail'] == 'video_clip_plan_approval_required'
+        assert api_client.post(path + "/plan-approve", headers=h, json=payload).status_code == 200
+        saved = api_client.get(path).json()["plan_approvals"]
+        assert saved["clip1"]["approved"]
+        if continuation:
+            assert not saved["clip2"]["approved"]
+            mixed = api_client.post(path, headers=h, json={"clip_ids": ["clip1", "clip2"]})
+            assert mixed.status_code == 409
+            assert mixed.json()["detail"] == "video_clip_plan_approval_required"
+            assert api_client.post(path + "/plan-approve", headers=h, json={
+                "clip_ids": ["clip2"], "fingerprints": {
+                    "clip2": saved["clip2"]["fingerprint"]}}).status_code == 200
         with psycopg.connect(db[0]) as conn:
             assert conn.execute("SELECT count(*) FROM video_clip_jobs").fetchone()[0] == 0
             conn.execute("UPDATE script_stages SET head_version=2 WHERE workspace_id=%s "
@@ -3735,6 +3771,12 @@ def test_wan_queue_worker_lifecycle(client, db, monkeypatch, outcome, continuati
                 conn.execute('UPDATE script_stages SET head_version=%s,approved_version=%s '
                              'WHERE workspace_id=%s AND request_id=%s',
                              (test_version, test_version, db[1], rid))
+            version_path = f'/api/v1/video-clips/{rid}/{test_version}'
+            approvals = api_client.get(version_path).json()["plan_approvals"]
+            assert not approvals["clip1"]["approved"]
+            assert api_client.post(version_path + "/plan-approve", headers=h, json={
+                "clip_ids": ["clip1"], "fingerprints": {
+                    "clip1": approvals["clip1"]["fingerprint"]}}).status_code == 200
             rejected = api_client.post(f'/api/v1/video-clips/{rid}/{test_version}',
                                        json={'clip_ids': ['clip1']}, headers=h)
             assert rejected.status_code == 422
@@ -3750,6 +3792,9 @@ def test_wan_queue_worker_lifecycle(client, db, monkeypatch, outcome, continuati
         assert api_client.post(
             path, json={"clip_ids": ["clip1"]}, headers=h
         ).json() == {"queued": 0}
+        before_revoke = api_client.get(path).json()['jobs']
+        assert api_client.post(path + "/plan-revoke", headers=h, json=payload).status_code == 200
+        assert api_client.get(path).json()['jobs'] == before_revoke
     calls = []
 
     def respond(request):
@@ -3932,3 +3977,112 @@ def test_failed_script_retry_reuses_input_and_is_idempotent(client, db):
     assert client.post(url + "/retry", headers=headers, json=stale).status_code == 409
     foreign = {**retry, "id": str(uuid4()), "attempt_id": str(uuid4())}
     assert client.post(url + "/retry", headers=headers, json=foreign).status_code == 409
+
+
+def test_clip_plan_approval_versions_legacy_migration_and_isolation(client, db):
+    from psycopg.types.json import Jsonb
+
+    from asa.registry.work_progress import attach_progress
+
+    headers, work, _ = script_work(client)
+    rid = work["id"]
+    image = str(uuid4())
+    clip = {"clip_id": "clip1", "scene_id": "scene1", "shot_id": "shot1",
+            "image_id": image, "source_start_seconds": 0, "source_end_seconds": 5,
+            "duration_seconds": 5, "prompt": "A child smiles", "source_excerpt": "text",
+            "continuity_in": "", "continuity_out": "", "split_reason": ""}
+    answer = {"model_key": "wan3", "model_revision": "1", "aspect_ratio": "9:16",
+              "clips": [clip]}
+    repo = RegistryRepository(*db)
+    with repo._connect() as conn:
+        conn.execute("INSERT INTO script_stages(workspace_id,request_id,head_version,"
+                     "approved_version) VALUES(%s,%s,1,1)", (db[1], rid))
+        for version in (1, 2, 3):
+            conn.execute("INSERT INTO script_versions(workspace_id,request_id,version,operation_id,"
+                         "title,narration,source,answer) VALUES(%s,%s,%s,%s,'','','ai',%s)",
+                         (db[1], rid, version, uuid4(), Jsonb(answer)))
+        # Reproduce a pre-upgrade database: only the initial migration imports old approvals.
+        conn.execute("DROP TABLE video_clip_plan_approvals")
+    migrate(*db)
+    base = f"/api/v1/video-clips/{rid}"
+    assert client.get(base + "/1").json()["plan_approvals"]["clip1"]["approved"]
+    assert not client.get(base + "/2").json()["plan_approvals"]["clip1"]["approved"]
+    with repo._connect() as conn:
+        conn.execute("UPDATE script_stages SET head_version=2,approved_version=2 "
+                     "WHERE workspace_id=%s AND request_id=%s", (db[1], rid))
+    migrate(*db)
+    current = client.get(base + "/2").json()["plan_approvals"]["clip1"]
+    # Repeated migration cannot turn new whole approval into a grant.
+    assert not current["approved"]
+    payload = {"clip_ids": ["clip1"], "fingerprints": {"clip1": current["fingerprint"]}}
+    assert client.post(base + "/1/plan-approve", headers=headers, json=payload).status_code == 409
+    assert client.post(base + "/2/plan-approve", headers=headers, json=payload).status_code == 200
+    assert client.get(base + "/3").json()["plan_approvals"]["clip1"]["approved"]
+    with repo._connect() as conn:
+        conn.execute('ALTER TABLE video_clip_plan_approvals DROP COLUMN approved')
+    migrate(*db)
+    assert client.get(base + "/2").json()["plan_approvals"]["clip1"]["approved"]
+    assert client.post(base + "/2/plan-revoke", json=payload).status_code == 403
+    assert client.post(base + "/1/plan-revoke", headers=headers, json=payload).status_code == 409
+    assert client.post(base + "/2/plan-revoke", headers=headers, json={
+        **payload, "fingerprints": {"clip1": "stale"}}).status_code == 409
+    assert client.post(base + "/2/plan-revoke", headers=headers, json=payload).json() == {
+        "revoked": 1}
+    assert not client.get(base + "/2").json()["plan_approvals"]["clip1"]["approved"]
+    assert not client.get(base + "/3").json()["plan_approvals"]["clip1"]["approved"]
+    # Previous versions stay readable; migration must never resurrect a revoked approval.
+    assert client.get(base + "/1").json()["plan_approvals"]["clip1"]["approved"]
+    migrate(*db)
+    assert not client.get(base + "/2").json()["plan_approvals"]["clip1"]["approved"]
+    assert client.post(base + "/2/plan-approve", headers=headers, json=payload).status_code == 200
+    assert client.get(base + "/3").json()["plan_approvals"]["clip1"]["approved"]
+    with repo._connect() as conn:
+        assert conn.execute("SELECT count(*) AS n FROM video_clip_jobs").fetchone()["n"] == 0
+        rows = [{"id": rid}]
+        attach_progress(conn, db[1], rows)
+        groups = rows[0]["work_progress"]["groups"]
+        assert [(g["kind"], g["status"]) for g in groups] == [
+            ("video_plans", "complete"), ("video_clips", "pending")]
+    other = uuid4()
+    migrate(db[0], other)
+    with TestClient(create_app(Settings(_env_file=None, database_url=db[0], workspace_id=other,
+                    owner_access_key=KEY, allowed_origins=["http://testserver"]))) as foreign:
+        foreign_headers = login(foreign)
+        assert foreign.get(base + "/2").status_code == 404
+        assert foreign.post(base + "/2/plan-approve", headers=foreign_headers,
+                            json=payload).status_code == 404
+        assert foreign.post(base + "/2/plan-revoke", headers=foreign_headers,
+                            json=payload).status_code == 404
+
+
+def test_video_review_metadata_is_separate_from_plan_and_jobs(client, db):
+    from psycopg.types.json import Jsonb
+
+    from asa.video_review import save, sources
+
+    _, work, _ = script_work(client)
+    rid = work['id']
+    clip = dict(clip_id='c', scene_id='s', shot_id='s', image_id=str(uuid4()),
+                source_start_seconds=0, source_end_seconds=5, duration_seconds=5,
+                prompt='A child pauses.', source_excerpt='', continuity_in='',
+                continuity_out='', split_reason='')
+    answer = dict(model_key='wan3', model_revision='1', aspect_ratio='9:16', clips=[clip])
+    repo = RegistryRepository(*db)
+    with repo._connect() as conn:
+        conn.execute('INSERT INTO script_stages(workspace_id,request_id,head_version) '
+                     'VALUES(%s,%s,1)', (db[1], rid))
+        conn.execute('INSERT INTO script_versions(workspace_id,request_id,version,operation_id,'
+                     "title,narration,source,answer) VALUES(%s,%s,1,%s,'','','ai',%s)",
+                     (db[1], rid, uuid4(), Jsonb(answer)))
+        save(conn, db[1], rid, 1, {'spans': [dict(clip_id='c', section='prompt',
+             quote='A child pauses.', kind='action')]}, sources(answer))
+        assert conn.execute('SELECT answer FROM script_versions WHERE workspace_id=%s '
+                            'AND request_id=%s', (db[1], rid)).fetchone()['answer'] == answer
+        assert conn.execute('SELECT count(*) AS n FROM video_clip_jobs').fetchone()['n'] == 0
+    response = client.get(f'/api/v1/video-clips/{rid}/1')
+    assert response.status_code == 200
+    assert response.json()['review_annotations'][0]['quote'] == 'A child pauses.'
+    assert not response.json()['plan_approvals']['c']['approved']
+    with repo._connect() as conn:
+        assert conn.execute('SELECT annotations FROM video_review_annotations '
+                            'WHERE workspace_id=%s', (uuid4(),)).fetchall() == []

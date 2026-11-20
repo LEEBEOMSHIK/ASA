@@ -22,7 +22,14 @@ class ReviewLink(BaseModel):
 class AfterTasks(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     image_review: ReviewLink | None = None
+    video_review: ReviewLink | None = None
     scene_timing: bool = False
+
+    @model_validator(mode='after')
+    def manual_video_review(self) -> 'AfterTasks':
+        if self.video_review and self.video_review.mode != 'manual':
+            raise ValueError('video_review_manual_only')
+        return self
 
 
 class AgentDraft(BaseModel):

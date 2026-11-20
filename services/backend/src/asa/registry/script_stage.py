@@ -53,6 +53,16 @@ class RewriteScript(BaseModel):
     acknowledge_unknown: bool = False
 
 
+class ReviseClip(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    id: UUID
+    expected_revision: int = Field(ge=0, strict=True)
+    base_version: int = Field(gt=0, strict=True)
+    clip_id: str = Field(min_length=1, max_length=100)
+    instruction: str = Field(min_length=1, max_length=2000)
+    acknowledge_duplicate_cost: bool = Field(default=False, strict=True)
+
+
 class ApproveScript(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_revision: int = Field(ge=0, strict=True)
@@ -100,7 +110,7 @@ class ScriptRepository(RegistryRepository):
         from asa.voice_directions import answer_contract
 
         contract = answer_contract(conn, self.workspace_id, request['id'], version)
-        if contract and 'video_voice_directions' in contract:
+        if contract and ('video_voice_directions' in contract or contract.get('revision_clip_id')):
             row['definition'] = {**row['definition'], 'output_schema': contract['output_schema']}
         return {**request, **row}
 
@@ -165,7 +175,8 @@ class ScriptRepository(RegistryRepository):
                 from asa.voice_directions import answer_contract
 
                 contract = answer_contract(conn, self.workspace_id, request_id, answer['version'])
-                if contract and 'video_voice_directions' in contract:
+                if contract and ('video_voice_directions' in contract
+                                 or contract.get('revision_clip_id')):
                     answer['output_schema'] = contract['output_schema']
                 answer['requires_approval'] = definition.get('requires_approval', False)
             for attempt in stage['attempts']:
@@ -173,14 +184,18 @@ class ScriptRepository(RegistryRepository):
                 from asa.output_validation import output_issues
 
                 contract = json.loads(attempt.pop('prompt'))
+                if contract.get('revision_clip_id'):
+                    attempt['revision_clip_id'] = contract['revision_clip_id']
                 attempt['error_details'] = []
                 if attempt.get('error_code') == 'ai_output_invalid':
                     attempt['error_details'] = output_issues(
                         (attempt.get('live_output') or {}).get('value'),
-                        contract.get('output_schema', {}))
+                        contract.get('clip_output_schema', contract.get('output_schema', {})))
             latest = self._latest_request(conn, request)
             stage['retry_agent_version'] = latest['version']
-            stage['retry_input_schema'] = latest['definition']['input_schema']
+            from asa.registry.video_model_schema import runtime_input_schema
+
+            stage['retry_input_schema'] = runtime_input_schema(latest['definition']['input_schema'])
             stage['retry_input'] = request['input']
             previous_input = conn.execute(
                 'SELECT prompt FROM script_attempts WHERE workspace_id=%s AND request_id=%s '
@@ -211,6 +226,14 @@ class ScriptRepository(RegistryRepository):
             if body.answer is not None:
                 if not valid_input(body.answer, answer_request["definition"]["output_schema"]):
                     raise RegistryError(422, "invalid_work_input")
+                from asa.video_settings import validate_answer
+                from asa.voice_directions import answer_contract
+                contract = answer_contract(conn, self.workspace_id, request_id, base)
+                if contract and contract.get('video_execution_settings'):
+                    try:
+                        validate_answer(body.answer, contract['video_execution_settings'])
+                    except ValueError as exc:
+                        raise RegistryError(422, 'video_settings_mismatch') from exc
             else:
                 try:
                     Script(title=body.title, narration=body.narration)
@@ -323,7 +346,7 @@ class ScriptRepository(RegistryRepository):
     def queue(
         self,
         request_id: str,
-        body: GenerateScript | RetryScript | RewriteScript,
+        body: GenerateScript | RetryScript | ReviseClip | RewriteScript,
         *,
         provider: str | None = None,
         model: str | None = None,
@@ -343,8 +366,17 @@ class ScriptRepository(RegistryRepository):
                 "SELECT * FROM script_attempts WHERE workspace_id=%s AND request_id=%s AND id=%s",
                 (self.workspace_id, request_id, body.id),
             ).fetchone()
+            existing_contract = json.loads(existing['prompt']) if existing else {}
             retry_of = None
+            revision_clip_id = None
             rewrite_latest = isinstance(body, RewriteScript)
+            if isinstance(body, ReviseClip):
+                revision_clip_id = body.clip_id
+                body = GenerateScript(
+                    id=body.id, expected_revision=body.expected_revision,
+                    base_version=body.base_version, instruction=body.instruction,
+                    acknowledge_unknown=body.acknowledge_duplicate_cost,
+                )
             if isinstance(body, RewriteScript):
                 prior = existing or conn.execute(
                     'SELECT prompt FROM script_attempts WHERE workspace_id=%s AND request_id=%s '
@@ -360,8 +392,7 @@ class ScriptRepository(RegistryRepository):
                     request_input=stored.get('submitted_request',
                                              stored.get('original_request', request['input'])),
                 )
-            if (existing and bool(json.loads(existing['prompt']).get('rewrite_latest'))
-                    != rewrite_latest):
+            if existing and bool(existing_contract.get('rewrite_latest')) != rewrite_latest:
                 raise RegistryError(409, 'work_conflict')
             if isinstance(body, RetryScript):
                 retry_of = str(body.attempt_id)
@@ -379,6 +410,7 @@ class ScriptRepository(RegistryRepository):
                 if existing and json.loads(existing['prompt']).get('retry_of') != retry_of:
                     raise RegistryError(409, "work_conflict")
                 snapshot = json.loads(source['prompt'])
+                revision_clip_id = snapshot.get('revision_clip_id')
                 body = GenerateScript(
                     id=body.id, expected_revision=body.expected_revision,
                     base_version=source['base_version'], instruction=source['instruction'],
@@ -389,15 +421,31 @@ class ScriptRepository(RegistryRepository):
                 if (
                     existing["base_version"] != body.base_version
                     or existing["instruction"] != body.instruction
+                    or existing_contract.get('revision_clip_id') != revision_clip_id
+                    or existing_contract.get('retry_of') != retry_of
                     or ('request_input' in body.model_fields_set and body.request_input !=
                         json.loads(existing['prompt']).get('submitted_request',
                             json.loads(existing['prompt'])['original_request']))
                 ):
                     raise RegistryError(409, "work_conflict")
             else:
+                stage = self._stage(conn, request_id, body.expected_revision)
+                self._idle(conn, request_id)
+                if revision_clip_id and stage['head_version'] != body.base_version:
+                    raise RegistryError(409, 'script_revision_conflict')
+                base_request = request
                 if use_latest:
                     request = self._latest_request(conn, request)
-                if 'request_input' in body.model_fields_set:
+                clip_contract: dict[str, Any] = {}
+                if revision_clip_id:
+                    from asa.voice_directions import answer_contract
+
+                    base_request = self._answer_definition(
+                        conn, {**base_request, 'id': request_id}, body.base_version)
+                    clip_contract = (answer_contract(
+                        conn, self.workspace_id, request_id, body.base_version) or {})
+                    request['input'] = clip_contract.get('original_request', base_request['input'])
+                elif 'request_input' in body.model_fields_set:
                     request['input'] = body.request_input
                 elif use_latest:
                     prior = conn.execute(
@@ -413,15 +461,23 @@ class ScriptRepository(RegistryRepository):
                 submitted_request = request['input']
                 is_video = any(field.get('x-video-model') is True for field in
                                request['definition']['input_schema'].get('properties', {}).values())
+                keep_style = bool(revision_clip_id and 'original_request' in clip_contract)
                 visual_style = (art_styles.resolve(
                     conn, self.workspace_id, request['input'], UUID(str(request_id)))
-                    if is_video else None)
-                request['input'] = art_styles.video_inputs(request['definition'], request['input'],
-                                                         visual_style)
+                    if is_video and not keep_style else None)
+                if not keep_style:
+                    request['input'] = art_styles.video_inputs(
+                        base_request['definition'] if revision_clip_id else request['definition'],
+                        request['input'], visual_style)
                 if (is_video and isinstance(submitted_request, dict)
                         and submitted_request.get('video_style')):
                     visual_style = art_styles.video_style(submitted_request, visual_style)
-                if not valid_input(request['input'], request['definition']['input_schema']):
+                if revision_clip_id:
+                    visual_style = clip_contract.get('work_visual_style')
+                input_schema = (clip_contract.get('input_schema',
+                                base_request['definition']['input_schema'])
+                                if revision_clip_id else request['definition']['input_schema'])
+                if not valid_input(request['input'], input_schema):
                     raise RegistryError(422, 'retry_input_required')
                 if execution_settings is not None:
                     provider = (
@@ -431,7 +487,8 @@ class ScriptRepository(RegistryRepository):
                     if (model not in execution_settings.models_for(provider)
                             or not execution_settings.key_for(provider).get_secret_value()):
                         raise RegistryError(422, 'invalid_model_selection')
-                    if request['definition'].get('after_tasks', {}).get('scene_timing'):
+                    if (not revision_clip_id
+                            and request['definition'].get('after_tasks', {}).get('scene_timing')):
                         profile = execution_settings.audio_model_profiles.get(
                             execution_settings.audio_timing_model_key)
                         if (not profile or not profile.enabled
@@ -445,8 +502,6 @@ class ScriptRepository(RegistryRepository):
                     ).fetchone()
                     if pending and pending["n"] >= queue_limit:
                         raise RegistryError(429, "script_queue_full")
-                self._stage(conn, request_id, body.expected_revision)
-                self._idle(conn, request_id)
                 if request["definition"]["tools"]:
                     raise RegistryError(422, "script_tools_unsupported")
                 if (
@@ -475,8 +530,23 @@ class ScriptRepository(RegistryRepository):
                     else None
                 )
                 voice_contract = {}
-                if any(field.get('x-video-model') is True for field in
-                       request['definition']['input_schema'].get('properties', {}).values()):
+                output_schema = request['definition']['output_schema']
+                if revision_clip_id:
+                    from asa.registry.audio_service import load as load_audio
+                    from asa.video_clip_revision import revision_contract
+
+                    if not is_video:
+                        raise RegistryError(422, 'video_clip_revision_unavailable')
+                    output_schema = base_request['definition']['output_schema']
+                    current_audio = load_audio(
+                        conn, self.workspace_id, UUID(request_id), body.base_version)
+                    voice_contract = revision_contract(
+                        previous_answer, output_schema, clip_contract, revision_clip_id,
+                        current_audio['settings'])
+                    if current_audio['revision']:
+                        voice_contract['clip_revision_audio_override'] = current_audio['revision']
+                    submitted_request = clip_contract.get('submitted_request', submitted_request)
+                elif is_video:
                     from asa.audio_instructions import upgrade_definition
                     from asa.voice_directions import snapshot
 
@@ -485,13 +555,31 @@ class ScriptRepository(RegistryRepository):
                         request['definition'], video_voice=True)['output_schema']
                     from asa.video_plan_quality import upgrade_schema
 
-                    output = request['definition']['output_schema']
+                    output_schema = request['definition']['output_schema']
+                    output = output_schema
                     clips = output.get('properties', {}).get('clips', {})
                     if clips.get('items', {}).get('properties'):
-                        request['definition']['output_schema'] = upgrade_schema(output)
+                        output_schema = upgrade_schema(output)
                         voice_contract['video_quality_version'] = 1
                     voice_contract['video_voice_directions'] = snapshot(
                         conn, self.workspace_id, request['input'])
+                if is_video:
+                    from asa.video_management import policy
+                    from asa.video_settings import resolve_settings
+                    if revision_clip_id:
+                        # A one-clip revision must not change the other clips' settings.
+                        if clip_contract.get('video_execution_settings'):
+                            voice_contract['video_execution_settings'] = clip_contract[
+                                'video_execution_settings']
+                    else:
+                        cfg = execution_settings or Settings()
+                        model_field = next(key for key, field in
+                                           input_schema.get('properties', {}).items()
+                                           if field.get('x-video-model') is True)
+                        if execution_settings is not None or request['input'].get(model_field):
+                            request['input'], voice_contract['video_execution_settings'] = (
+                                resolve_settings(cfg, policy(conn, cfg, self.workspace_id),
+                                                 request['input'], model_field))
                 prompt = json.dumps(
                     {
                         **voice_contract,
@@ -502,8 +590,8 @@ class ScriptRepository(RegistryRepository):
                         "agent_instructions": request["definition"]["instructions"],
                         "agent_version": request['version'],
                         "agent_name": request['definition']['name'],
-                        "scene_timing": request['definition'].get('after_tasks', {}).get(
-                            'scene_timing', False),
+                        "scene_timing": not revision_clip_id and request['definition'].get(
+                            'after_tasks', {}).get('scene_timing', False),
                         "video_prompt_bundle": build_prompt_bundle(
                             request["definition"], request["input"],
                             work_style_auto=bool(
@@ -512,9 +600,9 @@ class ScriptRepository(RegistryRepository):
                                              if visual_style else None),
                         ),
                         "original_request": request["input"],
-                        "input_schema": request["definition"]["input_schema"],
+                        "input_schema": input_schema,
                         "previous_answer": previous_answer,
-                        "output_schema": request["definition"]["output_schema"],
+                        "output_schema": output_schema,
                         "revision_request": body.instruction,
                     },
                     ensure_ascii=False,
@@ -668,8 +756,33 @@ class ScriptRepository(RegistryRepository):
                     "WHERE workspace_id=%s AND request_id=%s",
                     (self.workspace_id, request_id),
                 )
+            contract = json.loads(attempt['prompt'])
+            revision_clip_id = contract.get('revision_clip_id')
+            audio_override = contract.get('clip_revision_audio_override')
+            if version and audio_override:
+                conn.execute(
+                    'INSERT INTO audio_settings (workspace_id,request_id,answer_version,'
+                    'revision,settings) VALUES (%s,%s,%s,%s,%s)',
+                    (self.workspace_id, request_id, version, audio_override,
+                     Jsonb(contract['effective_clip_revision_audio'])),
+                )
+            if (version and isinstance(result, AgentAnswer)
+                    and (revision_clip_id or result.review_annotations is not None)):
+                from asa.registry.audio_service import load as load_audio
+                from asa.video_review import save, save_clip_revision, sources
+
+                audio = load_audio(
+                    conn, self.workspace_id, UUID(str(request_id)), version)['settings']
+                texts = sources(result.value, audio)
+                if revision_clip_id:
+                    save_clip_revision(
+                        conn, self.workspace_id, request_id, version, attempt['base_version'],
+                        revision_clip_id, result.review_annotations, texts)
+                else:
+                    save(conn, self.workspace_id, request_id, version,
+                         result.review_annotations, texts)
             if (version and isinstance(result, AgentAnswer) and result.timing_plan is not None
-                    and json.loads(attempt['prompt']).get('scene_timing')):
+                    and contract.get('scene_timing')):
                 from asa.scene_timing import enqueue_timing
 
                 config = getattr(self, 'settings', None) or Settings()
@@ -709,8 +822,17 @@ def execute_attempt(
 
     def draft(state: ScriptState) -> ScriptState:
         result = generate(state["prompt"])
+        contract = json.loads(state['prompt'])
+        if contract.get('revision_clip_id'):
+            from asa.video_clip_revision import merge_clip_revision
+
+            if not isinstance(result, AgentAnswer):
+                raise ValueError("invalid_agent_output")
+            return {"script": AgentAnswer(
+                value=merge_clip_revision(contract, result.value),
+                review_annotations=result.review_annotations,
+            )}
         if isinstance(result, AgentAnswer):
-            contract = json.loads(state['prompt'])
             schema = contract['output_schema']
             if not valid_input(result.value, schema):
                 raise ValueError("invalid_agent_output")
@@ -731,6 +853,9 @@ def execute_attempt(
                     VideoPreparation.model_validate(result.value)
                 except ValidationError as exc:
                     raise ValueError('invalid_agent_output') from exc
+            if contract.get('video_execution_settings') and not contract.get('revision_clip_id'):
+                from asa.video_settings import validate_answer
+                validate_answer(result.value, contract['video_execution_settings'])
         elif not isinstance(result, Script):
             raise ValueError("invalid_agent_output")
         return {"script": result}
@@ -785,5 +910,7 @@ def output_error_code(error: BaseException) -> str:
             return "ai_output_limit"
         if isinstance(current, ValueError) and str(current) == "invalid_agent_output":
             return "ai_output_invalid"
+        if isinstance(current, ValueError) and str(current) == 'video_settings_mismatch':
+            return 'video_settings_mismatch'
         current = current.__cause__ or current.__context__
     return "ai_call_failed"

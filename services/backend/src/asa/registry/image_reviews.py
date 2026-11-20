@@ -24,8 +24,8 @@ def review_config(conn: Any, workspace: UUID, project: UUID) -> dict[str, Any] |
         "SELECT v.definition->'after_tasks'->'image_review' AS link "
         "FROM character_projects p JOIN customer_requests r ON r.workspace_id=p.workspace_id "
         "AND r.id=p.request_id JOIN registry_versions v ON v.workspace_id=r.workspace_id "
-        "AND v.agent_id=r.agent_id AND v.version=r.version "
-        "WHERE p.workspace_id=%s AND p.id=%s",
+        "AND v.agent_id=r.agent_id "
+        "WHERE p.workspace_id=%s AND p.id=%s ORDER BY v.version DESC LIMIT 1",
         (workspace, project),
     ).fetchone()
     return row["link"] if row else None
@@ -206,6 +206,9 @@ def review_image(
 def process_review(repo: Any, settings: Settings) -> bool:
     from asa.worker_control import accepting_work
     with repo._connect() as conn:
+        # Serialize saved connection changes with the paid-call reservation.
+        conn.execute('SELECT id FROM registry_workspaces WHERE id=%s FOR UPDATE',
+                     (repo.workspace_id,))
         if not accepting_work(conn, repo.workspace_id, "image"):
             return False
         conn.execute(
@@ -220,6 +223,13 @@ def process_review(repo: Any, settings: Settings) -> bool:
         ).fetchone()
         if not review:
             return False
+        if not review_config(conn, repo.workspace_id, review['project_id']):
+            conn.execute(
+                "UPDATE asset_reviews SET status='failed',error_code='review_disabled',"
+                "finished_at=now() WHERE workspace_id=%s AND id=%s",
+                (repo.workspace_id, review['id']),
+            )
+            return True
         conn.execute(
             "UPDATE asset_reviews SET status='running',started_at=now() "
             "WHERE workspace_id=%s AND id=%s",

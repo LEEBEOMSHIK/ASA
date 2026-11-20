@@ -21,8 +21,9 @@ def run(args: list[str], timeout: int) -> subprocess.CompletedProcess[bytes]:
                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
 
 
-def extract_frames(path: Path, directory: Path, ffmpeg: str) -> dict[str, Any]:
-    if path.stat().st_size > MAX_BYTES:
+def extract_frames(path: Path, directory: Path, ffmpeg: str,
+                   *, max_bytes: int = MAX_BYTES) -> dict[str, Any]:
+    if path.stat().st_size > max_bytes:
         raise RegistryError(422, 'video_upload_invalid')
     common = [ffmpeg, '-nostdin', '-hide_banner', '-protocol_whitelist', 'file,pipe',
               '-i', str(path)]

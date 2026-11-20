@@ -97,7 +97,7 @@ def attach_progress(
     if not rows:
         return
     data = conn.execute(
-        "SELECT r.id::text, s.version, s.answer, p.characters, p.approved, p.kind, "
+        "SELECT r.id::text, r.input, s.version, s.answer, p.characters, p.approved, p.kind, "
         "v.definition->>'requires_approval' AS requires_approval, st.approved_version, "
         "COALESCE((SELECT jsonb_agg(jsonb_build_object('id',j.id,'character_id',j.character_id,"
         "'version',j.version,'status',j.status)) FROM character_image_jobs j "
@@ -131,6 +131,28 @@ def attach_progress(
                 ),
             }]))
         answer = record["answer"]
+        if isinstance(answer, dict) and "clips" in answer and "model_key" in answer:
+            from pydantic import ValidationError
+
+            from asa.registry.video_plan_approvals import status as plan_status
+            try:
+                approvals = plan_status(conn, workspace, UUID(record["id"]),
+                                        record["version"], answer, record["input"])
+            except ValidationError:
+                approvals = {}
+            if approvals:
+                from asa.registry.video_inheritance import resolve
+                jobs = resolve(conn, workspace, UUID(record['id']), record['version'])['jobs']
+                states = {j["clip_id"]: j["status"] for j in jobs}
+                groups = [summarize("video_plans", "클립 계획", record["version"], [
+                    {"id": cid, "name": cid, "state": "approved" if a["approved"] else "review"}
+                    for cid, a in approvals.items()
+                ]), summarize("video_clips", "생성 영상", record["version"], [
+                    {"id": cid, "name": cid,
+                     "state": "running" if states.get(cid) == "submitting"
+                     else states.get(cid, "pending")}
+                    for cid in approvals
+                ])]
         scene = record["kind"] == "scene"
         if isinstance(answer, dict) and "shots" in answer:
             from pydantic import ValidationError

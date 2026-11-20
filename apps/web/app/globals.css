@@ -1370,13 +1370,22 @@ article.flow-library-card { display:flex; flex-direction:column; gap:0; padding:
 .video-model-row > :only-child { grid-column:1 / -1; }
 .video-model-input { gap:var(--space-3); }
 .video-model-input > .field, .video-model-input > .field > p { margin:0; }
+.video-provider-model { display:grid; gap:var(--space-3); min-width:0; padding:var(--space-4); border:1px solid var(--border); border-radius:var(--radius-md); }
+.video-provider-model > .field,.video-provider-model > p,.video-provider-model > .field > p { margin:0; }
+.video-provider-models { display:grid; gap:var(--space-3); min-width:0; border-top:1px solid var(--border); padding-top:var(--space-4); }
+.video-provider-models > .field,.video-provider-models p { margin:0; }
+.video-provider-model-facts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:var(--space-3); margin:0; }
+.video-provider-model-facts dt { color:var(--muted); font-size:var(--font-small); }
+.video-provider-model-facts dd { margin:0; overflow-wrap:anywhere; }
+@media(max-width:600px) { .video-provider-model-facts { grid-template-columns:minmax(0,1fr); } }
 .video-model-guidance { display:grid; gap:var(--space-3); padding:var(--space-4); border:1px solid var(--border); border-radius:var(--radius-md); background:var(--surface); min-width:0; overflow-wrap:anywhere; }
 .video-model-guidance p { margin:0; }
 .video-guidance-label { display:block; font-weight:600; margin-bottom:var(--space-1); }
 .video-model-guidance summary { cursor:pointer; min-height:var(--control-height); display:flex; align-items:center; }
 .video-guidance-details { display:grid; gap:var(--space-3); padding-top:var(--space-2); }
 .video-guidance-sources { display:flex; flex-wrap:wrap; gap:var(--space-3); }
-.video-model-row .video-model-check { width:var(--control-height); height:var(--control-height); min-width:0; padding:0; display:grid; place-items:center; }
+.video-model-row .video-model-check { min-width:0; white-space:normal; }
+@media(max-width:600px) { .video-model-row { grid-template-columns:minmax(0,1fr); } .video-model-check { justify-self:start; } }
 
 .work-management { display:grid; gap:var(--space-4); min-width:0; }
 .work-management h1,.work-management h3,.work-management p { margin:0; }
@@ -1742,6 +1751,8 @@ article.flow-library-card { display:flex; flex-direction:column; gap:0; padding:
 
 /* Video permission, provider use and worker lifecycle are separate controls. */
 .video-management-content { display:grid; gap:var(--space-4); }
+.video-management-content .field { margin:0; }
+.video-management-content select { width:100%; min-width:0; }
 .video-management-section { display:grid; gap:var(--space-4); padding:var(--space-4); border:1px solid var(--border); border-radius:var(--radius-md); min-width:0; }
 .video-management-content p, .video-management-section h3 { margin:0; }
 .video-management-row { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:var(--space-3); }
@@ -1775,3 +1786,13 @@ article.flow-library-card { display:flex; flex-direction:column; gap:0; padding:
 .script-request-modes .input-radio-option:has(input:checked) { background:var(--accent-soft); border-color:var(--primary); }
 .script-request-modes .input-radio-option span { min-width:0; overflow-wrap:anywhere; }
 @media (max-width:640px) { .script-request-modes { grid-template-columns:minmax(0,1fr); } }
+
+.video-cost-reference { gap:var(--space-2); }
+.video-model-guidance > .field { margin:0; }
+
+.video-reference-support,.video-cost-calculator-body { display:grid; gap:var(--space-3); min-width:0; }
+.video-reference-support p,.video-cost-calculator-body p,.video-cost-calculator-body > .field { margin:0; }
+.video-reference-support-list { display:flex; flex-wrap:wrap; gap:var(--space-3); }
+.video-reference-support-list > span { display:inline-flex; align-items:center; gap:var(--space-2); }
+.video-cost-calculator > summary { min-height:var(--control-height); display:flex; align-items:center; cursor:pointer; }
+.video-cost-calculator[open] .video-cost-calculator-body { padding-top:var(--space-3); }

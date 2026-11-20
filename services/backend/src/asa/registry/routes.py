@@ -80,9 +80,10 @@ def registry_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
             settings.model_copy(update={"workspace_id": repository.workspace_id})
         )
         validate_selection(config, body.provider, body.model)
-        if body.after_tasks.image_review:
-            from asa.registry.review_connection import connection_status
-            connection_status(repository, settings, body.after_tasks.image_review.agent_ref)
+        from asa.registry.review_connection import connection_status
+        for link in (body.after_tasks.image_review, body.after_tasks.video_review):
+            if link:
+                connection_status(repository, settings, link.agent_ref)
 
     @router.get("/review-connection")
     def review_connection(agent_ref: str, repository: RegistryRepository = Depends(repo)

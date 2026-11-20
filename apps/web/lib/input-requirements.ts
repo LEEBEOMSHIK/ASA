@@ -58,6 +58,7 @@ export function retryValues(input: unknown, schema: SchemaNode): Record<string, 
     return [key, value == null ? "" : typeof value === "string" ? value : JSON.stringify(value)];
   }));
   if (Object.values(schema.properties||{}).some(n=>n["x-video-model"]) && typeof source.video_art_style==="string") values.video_art_style=source.video_art_style;
+  if (Object.values(schema.properties||{}).some(n=>n["x-video-model"]) && typeof source.video_duration_seconds==="number") values.video_duration_seconds=String(source.video_duration_seconds);
   return values;
 }
 
@@ -71,5 +72,6 @@ export function retryPayload(values: Record<string, string>, schema: SchemaNode)
       : ["integer", "number"].includes(node.type) ? Number(value) : JSON.parse(value);
   }
   if (Object.values(schema.properties||{}).some(n=>n["x-video-model"]) && values.video_style!=="auto" && values.video_art_style) result.video_art_style=values.video_art_style;
+  if (Object.values(schema.properties||{}).some(n=>n["x-video-model"]) && values.video_duration_seconds) result.video_duration_seconds=Number(values.video_duration_seconds);
   return schema.type === "object" ? result : result.value ?? null;
 }

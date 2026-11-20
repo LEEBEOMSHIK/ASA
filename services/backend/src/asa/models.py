@@ -24,3 +24,4 @@ class Approval(BaseModel):
 class AgentAnswer(BaseModel):
     value: Any
     timing_plan: dict[str, Any] | None = None
+    review_annotations: dict[str, Any] | None = None

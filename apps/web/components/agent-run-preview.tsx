@@ -72,6 +72,7 @@ export function AgentRunPreview({ definition, onBack, customer = false, initialI
         payload[key] = node.type === "string" ? value : ["integer", "number"].includes(node.type) ? Number(value) : JSON.parse(value);
       }
       if (input.some(([,n])=>n["x-video-model"]) && values.video_style!=="auto" && values.video_art_style) payload.video_art_style=values.video_art_style;
+      if (input.some(([,n])=>n["x-video-model"]) && values.video_duration_seconds) payload.video_duration_seconds=Number(values.video_duration_seconds);
       savingRef.current = true; setSaving(true);
       try {
         for (const [key, node] of input) {
@@ -106,7 +107,7 @@ export function AgentRunPreview({ definition, onBack, customer = false, initialI
           const conditionHint = inputConditionHint(definition.input_schema, key);
           return <div className="run-field-section" key={key}>
             {conditionHint && <p className="input-condition-hint" role="status">{conditionHint} {required ? "현재 필수 입력입니다." : "현재 선택 입력입니다."}</p>}
-            <AgentInput defaultsReady={draft.loaded} onDetailChange={v=>{setValues(current=>({...current,video_art_style:v}));setChecked(false);}} inputs={values} node={node} id={`run-input-${key}`} label={label} required={required} value={values[key] ?? ""} videoStyle={values.video_style ?? ""} onChange={v => { setValues(current => ({ ...current, [key]: v })); setChecked(false); setError(""); }} />
+            <AgentInput onDurationChange={v=>{setValues(current=>({...current,video_duration_seconds:v}));setChecked(false);}} defaultsReady={draft.loaded} onDetailChange={v=>{setValues(current=>({...current,video_art_style:v}));setChecked(false);}} inputs={values} node={node} id={`run-input-${key}`} label={label} required={required} value={values[key] ?? ""} videoStyle={values.video_style ?? ""} onChange={v => { setValues(current => ({ ...current, [key]: v })); setChecked(false); setError(""); }} />
           </div>;
         })}
         {input.length === 0 && <p>입력 없이 실행하도록 설정된 에이전트입니다.</p>}

@@ -1,8 +1,15 @@
 """Provider-neutral video planning contracts. No paid calls or automatic retries."""
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+    model_validator,
+)
 
 from asa.audio_contracts import AudioSettings
 from asa.video_plan_quality import ClipQuality, DurationReview
@@ -23,6 +30,7 @@ class VideoModelProfile(BaseModel):
     max_prompt_chars: int = Field(gt=0, le=32000)
     supports_audio: bool = False
     usd_per_second: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    usd_per_second_with_video: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     supports_extension: bool = False
     documentation_url: str = Field(pattern=r"^https://", max_length=500)
     verified_on: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
@@ -33,6 +41,46 @@ class VideoModelProfile(BaseModel):
             raise ValueError("video_duration_out_of_range")
         if len(set(self.durations)) != len(self.durations):
             raise ValueError("video_duplicate_duration")
+        return self
+
+
+class VideoReferenceAudio(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    job_id: UUID
+    speaker_id: str = Field(min_length=1, max_length=64)
+    start_seconds: float = Field(ge=0, le=120, allow_inf_nan=False)
+    end_seconds: float = Field(gt=0, le=120, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def validate_segment(self) -> "VideoReferenceAudio":
+        if not 1 <= self.end_seconds - self.start_seconds <= 15:
+            raise ValueError("video_reference_audio_duration")
+        return self
+
+
+class VideoReferenceVideo(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    job_id: UUID
+
+
+class VideoReferenceInputs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    character_image_ids: list[UUID] = Field(default_factory=list, max_length=9)
+    audio: list[VideoReferenceAudio] = Field(default_factory=list, max_length=1)
+    video: list[VideoReferenceVideo] = Field(default_factory=list, max_length=1)
+
+    @model_serializer(mode='wrap')
+    def legacy_snapshot(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        result: dict[str, Any] = handler(self)
+        # Keep historical generation snapshots and approval hashes byte-compatible.
+        if not self.video:
+            result.pop('video', None)
+        return result
+
+    @model_validator(mode="after")
+    def validate_images(self) -> "VideoReferenceInputs":
+        if len(set(self.character_image_ids)) != len(self.character_image_ids):
+            raise ValueError("video_reference_image_duplicate")
         return self
 
 
@@ -56,9 +104,12 @@ class VideoClip(BaseModel):
     connection_type: Literal["cut", "continue"] = "cut"
     previous_clip_id: str = Field(default="", max_length=100)
     quality: ClipQuality | None = None
+    reference_inputs: list[VideoReferenceInputs] = Field(default_factory=list, max_length=1)
 
     @model_validator(mode="after")
     def validate_span(self) -> "VideoClip":
+        if self.reference_inputs and self.connection_type != "cut":
+            raise ValueError("video_reference_continuity_conflict")
         span = self.source_end_seconds - self.source_start_seconds
         if span <= 0 or span > self.duration_seconds:
             raise ValueError("video_clip_timeline_invalid")

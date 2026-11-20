@@ -1,0 +1,28 @@
+.video-review-text { display:grid; gap:var(--space-3); min-width:0; }
+.video-review-toolbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:var(--space-3); }
+.video-review-actions { display:flex; flex-wrap:wrap; gap:var(--space-2); }
+.video-review-text .video-review-legend { display:flex; flex-wrap:wrap; gap:var(--space-2); padding:0; margin:0; list-style:none; }
+.video-review-legend li { margin:0; font-size:var(--font-small); }
+.video-review-legend .review-legend-button { display:inline-flex; min-height:var(--control-height); padding:var(--space-2); color:var(--review-fg); background:var(--review-bg); }
+.video-review-text .video-review-prose { white-space:pre-wrap; overflow-wrap:anywhere; line-height:2; margin:0; }
+.review-mark { color:var(--review-fg); background:var(--review-bg); border-radius:var(--radius-sm); text-decoration-line:underline; text-decoration-style:var(--review-line); text-decoration-thickness:1px; text-underline-offset:3px; -webkit-box-decoration-break:clone; box-decoration-break:clone; }
+.review-mark--composition { --review-fg:var(--review-composition-fg); --review-bg:var(--review-composition-bg); --review-line:solid; }
+.review-mark--expression { --review-fg:var(--review-expression-fg); --review-bg:var(--review-expression-bg); --review-line:double; }
+.review-mark--gaze { --review-fg:var(--review-gaze-fg); --review-bg:var(--review-gaze-bg); --review-line:dotted; }
+.review-mark--action { --review-fg:var(--review-action-fg); --review-bg:var(--review-action-bg); --review-line:dashed; }
+.review-mark--camera { --review-fg:var(--review-camera-fg); --review-bg:var(--review-camera-bg); --review-line:wavy; }
+@media(max-width:600px) { .video-review-toolbar { align-items:stretch; flex-direction:column; } .video-review-actions .button { flex:1; } }
+@media(forced-colors:active) { .review-mark { color:CanvasText; background:Canvas; } }
+
+.video-review-section { display:grid; gap:var(--space-3); padding-top:var(--space-4); min-width:0; }
+.review-mark--voice { --review-fg:var(--review-voice-fg); --review-bg:var(--review-voice-bg); --review-line:double; }
+.review-mark--music { --review-fg:var(--review-music-fg); --review-bg:var(--review-music-bg); --review-line:dashed; }
+
+.video-review-legend .button[aria-pressed="true"] { outline:2px solid var(--focus); outline-offset:2px; }
+.video-review-prose .review-dimmed { color:var(--text); background:transparent; text-decoration:none; opacity:var(--review-context-opacity); }
+@media(forced-colors:active) { .video-review-prose .review-dimmed { color:CanvasText; opacity:1; } .video-review-legend .button[aria-pressed="true"] { outline-color:Highlight; } }
+.video-review-legend .button { min-height:var(--control-height); padding:var(--space-2); font-size:var(--font-small); line-height:1.4; }
+
+.video-review-prose .review-focused { font-weight:600; }
+
+.video-review-legend .review-legend-button:disabled { opacity:.45; text-decoration:none; cursor:not-allowed; }

@@ -12,6 +12,7 @@ from asa.registry.script_stage import (
     ApproveScript,
     GenerateScript,
     RetryScript,
+    ReviseClip,
     RewriteScript,
     SaveScript,
 )
@@ -78,6 +79,14 @@ def script_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
     @router.post('/rewrite', status_code=201)
     def rewrite(
         request_id: UUID, body: RewriteScript, repository: ScriptQueue = Depends(repo)
+    ) -> dict[str, Any]:
+        if settings.script_ai_enabled:
+            return repository.submit(str(request_id), body)
+        return repository.queue(str(request_id), body)
+
+    @router.post("/revise-clip", status_code=201)
+    def revise_clip(
+        request_id: UUID, body: ReviseClip, repository: ScriptQueue = Depends(repo)
     ) -> dict[str, Any]:
         if settings.script_ai_enabled:
             return repository.submit(str(request_id), body)

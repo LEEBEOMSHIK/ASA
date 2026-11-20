@@ -1,0 +1,9 @@
+.wan-region-controls .field { margin:0; }
+.video-management-section > .wan-region-controls { padding:var(--space-4) 0 0; border:0; border-top:1px solid var(--border); border-radius:0; }
+.wan-region-controls .field > .muted { font-size:var(--font-small); }
+.wan-region-status { display:grid; gap:var(--space-2); min-width:0; }
+.wan-region-controls select { width:100%; min-width:0; }
+.wan-region-controls .video-management-actions { align-items:stretch; }
+@media(max-width:520px) {
+  .wan-region-controls .video-management-actions .button { justify-self:stretch; }
+}

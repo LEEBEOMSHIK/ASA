@@ -26,11 +26,14 @@ from asa.registry.routes import registry_router
 from asa.registry.runtime import runtime_router
 from asa.registry.schemas import RegistryError
 from asa.registry.script_routes import script_router
+from asa.registry.video_asset_reviews import video_review_router
 from asa.registry.video_jobs import video_job_router
 from asa.registry.video_planning import video_planning_router
+from asa.registry.video_sources import video_source_router
 from asa.registry.work_management import management_router
 from asa.registry.worker_routes import worker_router
 from asa.video_management import video_management_router
+from asa.video_reference_delivery import reference_delivery_router
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -62,6 +65,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(catalog_router(settings, sessions))
     app.include_router(video_planning_router(settings, sessions))
     app.include_router(video_job_router(settings, sessions))
+    app.include_router(video_source_router(settings, sessions))
+    app.include_router(reference_delivery_router(settings))
+    app.include_router(video_review_router(settings, sessions))
     app.include_router(video_management_router(settings, sessions))
     app.include_router(audio_router(settings, sessions))
     app.include_router(library_router(settings, sessions))

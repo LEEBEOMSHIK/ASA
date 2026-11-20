@@ -1,0 +1,13 @@
+.video-asset-review-panel,.video-asset-review-result,.video-asset-review-history,.video-asset-review-entry { display:grid; gap:var(--space-4); min-width:0; overflow-wrap:anywhere; }
+.video-asset-review-panel p,.video-asset-review-panel h3,.video-asset-review-panel h4 { margin:0; }
+.video-asset-review-panel p,.video-asset-review-panel dd { white-space:pre-wrap; }
+.video-asset-review-panel>.button { justify-self:start; }
+.video-asset-review-entry { border-top:1px solid var(--border); padding-top:var(--space-4); }
+.video-asset-review-heading { display:flex; flex-wrap:wrap; align-items:center; gap:var(--space-3); justify-content:space-between; }
+.video-asset-review-check { display:grid; gap:var(--space-3); padding:var(--space-4); border:1px solid var(--border); border-radius:var(--radius-md); background:var(--surface-subtle); }
+.video-asset-review-check dl { display:grid; gap:var(--space-3); margin:0; }
+.video-asset-review-check dt { font-weight:600; margin-bottom:var(--space-1); }
+.video-asset-review-check dd { margin:0; }
+.video-asset-review-result ul { display:grid; gap:var(--space-2); padding-inline-start:var(--space-6); margin:var(--space-3) 0 0; }
+.video-asset-review-entry details>.video-asset-review-result { margin-top:var(--space-4); }
+@media(max-width:600px) { .video-asset-review-panel>.button { justify-self:stretch; } }

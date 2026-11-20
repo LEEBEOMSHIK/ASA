@@ -13,6 +13,7 @@ from asa.registry.repository import RegistryRepository
 from asa.registry.schemas import RegistryError
 from asa.registry.service import safe_number
 from asa.registry.sse import snapshot_stream
+from asa.registry.video_model_schema import model_choices, runtime_input_schema
 from asa.registry.work_progress import attach_progress
 from asa.registry.work_titles import attach_titles
 
@@ -34,13 +35,15 @@ class WorkNameEdit(BaseModel):
 
 
 def valid_input(value: Any, schema: dict[str, Any]) -> bool:
-    if "enum" in schema and value not in schema["enum"]:
+    choices = model_choices(schema)
+    if choices is not None and value not in choices:
         return False
     kind = schema["type"]
     if kind == "object":
         properties = schema.get("properties", {})
         if any(p.get('x-video-model') is True for p in properties.values()):
             properties = {**properties, 'video_art_style': {'type': 'string', 'maxLength': 2000}}
+            properties['video_duration_seconds'] = {'type': 'integer', 'minimum': 0, 'maximum': 120}
         # Compatibility for saved video-agent contracts: auto is an execution policy,
         # not a new concrete media type or a rewrite of the registered schema.
         if (any(p.get("x-video-model") is True for p in properties.values())
@@ -88,7 +91,7 @@ class HistoryRepository(RegistryRepository):
                 "agent_id": row["agent_id"], "version": row["version"], "kind": "agent",
                 "name": definition["name"], "description": definition["description"],
                 "icon": definition.get("icon", "bot"),
-                "input_schema": definition["input_schema"], "available": True,
+                "input_schema": runtime_input_schema(definition["input_schema"]), "available": True,
                 "output_schema": definition["output_schema"],
                 "after_tasks": definition.get("after_tasks", {}),
                 "execution_available": False, "unavailable_reason": "실행 연결 준비 중",

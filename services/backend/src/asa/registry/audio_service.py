@@ -245,13 +245,17 @@ def composition_spec(
     if any(c.end > duration for c in data.cues):
         raise RegistryError(422, "audio_timeline_invalid")
     validate_assets(conn, workspace, data)
+    from asa.registry.video_inheritance import resolve
+    linked = {r['clip_id']: r['id'] for r in resolve(
+        conn, workspace, request, version)['jobs']}
     videos = []
     for clip in plan.clips:
         row = conn.execute(
             "SELECT *,encode(sha256(video),'hex') AS sha FROM video_clip_jobs "
-            "WHERE workspace_id=%s AND request_id=%s AND answer_version=%s AND clip_id=%s "
+            "WHERE workspace_id=%s AND request_id=%s AND id=%s "
+            "AND superseded_by IS NULL "
             "FOR SHARE",
-            (workspace, request, version, clip.clip_id),
+            (workspace, request, linked.get(clip.clip_id)),
         ).fetchone()
         if not row or row["status"] != "approved" or not row["video"]:
             raise RegistryError(409, "audio_video_approval_required")

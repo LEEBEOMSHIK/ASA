@@ -11,6 +11,7 @@ from psycopg.types.json import Jsonb
 from asa.database import connection
 from asa.registry.schemas import AgentDraft, RegistryError
 from asa.registry.service import normalize_schema, validate_definition
+from asa.registry.video_model_schema import runtime_input_schema
 from asa.tools.catalog import builtin_tools
 
 
@@ -135,7 +136,7 @@ class RegistryRepository:
                     "available": True,
                     "execution_available": False,
                     "unavailable_reason": "",
-                    "input_schema": definition["input_schema"],
+                    "input_schema": runtime_input_schema(definition["input_schema"]),
                     "output_schema": definition["output_schema"],
                     "dependencies": definition["tools"],
                     "purpose": definition.get("purpose", "general"),

@@ -1621,3 +1621,374 @@ UI · 실제Chrome 양테마 desktopCSS1600에서 대표씬·연결계획·원�
 - 전체pytest539 passed in240.92s(.local/commit-final-tests.log), frontend typecheck/build 통과(.local/commit-final-build.log), frontend Node 단위79 passed(.local/commit-final-web-tests.log). Node 기본 strip-only로 실행한 첫 시도는 parameter property 구문 지원 부족으로1파일 로딩 실패; --experimental-transform-types로 전체79개 통과 확인. 코드 오류로 오인해 기능을 변경하지 않음.
 - git diff --check 및 커밋 대상 자격증명 패턴 검사 통과. 누적 기능·테스트·문서41파일만 포함: 이미지 보관함 필터/개수, AI 실패 진단·재시도·최신지침 재작성, 영상계획 확정·목소리·품질검증/표정·카메라 지침, 타입 수정 및 작업 기록. .local 사용자계획/보고서/생성물과 .env는 기존 ignore로 제외하여 로컬 보존. 삭제0, 실제 영상 생성0. 이번 타입 수정은 UI변경 없어 시각검증 추가 대상 아님; 앞 작업의 실제 시각검증과 미검증 기록 유지.
 - 사용자 승인에 따라 위 검증 완료 내용을 main에 커밋·origin/main 일반 push 진행. 원격 동기화 여부와 최종 해시는 실행 결과로 확인한다.
+
+## 영상 계획 검토용 연출 하이라이트 (완료)
+- 원문 구절/구두점/공백을 보존하는 클라이언트 표시만 추가. 구도·표정·시선·동작·카메라 범례/서로 다른 밑줄/테마 색상, 표시 켜기·끄기 및 원문 복사. 인용 대사와 불명확 구절은 무강조. 기존 답변에도 렌더 시 적용, DB/영상 요청 경로 변경 없음.
+- 분류/원문 불변 테스트 선행 후 구현. 실제 브라우저 모바일·밝은/어두운 테마 및 전체 개발 검사 예정. 생성·확정·자료 수정 금지.
+- 브라우저 검증: 실제 기존 영상 계획의 제작 지시에서 강조 켜기/끄기 DOM 텍스트 동일 및 원문 복사 동일 확인. 데스크톱 1600 CSS px와 좁은 화면 433 CSS px(390 viewport override, 기존 90% 확대 유지), 밝은/어두운 테마를 확인했다. 컨트롤 높이 약47.5px(데스크톱)/69.9px(좁은 화면), 컴포넌트 간격12px, 본문 행높이32px, 좁은 화면 가로 넘침 없음. 색상 대비 최소5.70:1(밝게), 7.43:1(어둡게). 키보드 포커스 및 범례/버튼 줄바꿈 확인.
+- 화면 증거: `.local/video-review-mobile-dark.png`(커밋 제외). 모바일 캡처가 반복 시간초과하여 viewport reset 후 재적용으로 실제 밝은/어두운 화면을 확인. 테마/viewport 복원, 임시 탭 닫음. 실제 모바일 기기·스크린리더·강제 색상 모드 및 클립 전체의 의미 분류 정확도는 미검증; 규칙 기반 보조 분류로 범위 명시.
+- 복사 테스트는 원문과 일치. 브라우저 clipboard.read가 빈 배열을 반환하여 원상 복구 불가; 빈 문자열로 복원하려는 동작은 자동 승인 검토가 거부해 추가 쓰기 중단. 사용자에게 검증 문구가 클립보드에 남을 수 있음을 알림.
+- 프론트엔드85개 테스트/typecheck/build, backend Ruff/mypy(90파일) 통과. 초기 샌드박스 검사 DB 접근/빌드 EPERM 실패 후 승인된 실행 권한으로 재실행; 전체 pytest 539개 통과(227.51초). 생성/확정/유료 API 요청 및 사용자 자료 수정 없음.
+
+## 목소리·배경음악 검토 하이라이트 (구현·필수 검사 완료)
+- 기존 검토 표시를 음성/후반 편집 지시로 확장. 원문·인용 및 비인용 대사·복사·모델 전달은 유지. 공통 범례/표시 토글을 재사용하고 새 생성/확정은 하지 않는다.
+- 구현: 공통 범례7종, 하나의 토글로 제작/음성/후반 편집 지시를 함께 표시. 별도 UI 데이터만 전달하며 기존 voice_direction_prompt 우선순위, 빈 발화 안내 및 복사 범위 유지. 여러 줄 인용/따옴표 없는 원문 행 보호 테스트 추가.
+- 검증: frontend88개 테스트 통과, backend539개(252.48초) 통과, Ruff/mypy90파일 통과. 최종 typecheck/build 통과. 기존 S01 결과의 세 영역 DOM textContent가 강조 전후 동일. 실제 유료 호출/자료 확정/수정 없음. 클립보드는 이번 검증에서 조작하지 않았다.
+- 브라우저: desktop1600 CSS px 어두운 테마, 모바일433 CSS px 밝은 테마 범례/본문/음성/후반 영역 확인. 기존90% 배율 유지. legend335.57px, 전체 scrollWidth416<=innerWidth433, 행높이32px, 섹션gap12px/padding-top16px. 밝은 테마 신규 색상 적용 확인. 모바일 어두운 테마는 목소리 부분만 확인(캡처의 viewport 위치 오류 때문에 전 영역 시각검증은 미완료). 실기기/스크린리더는 미검증. 테마 dark/viewport reset 및 임시 탭 닫음. 증거 `.local/audio-review-mobile-light.png`(커밋 제외).
+
+## 범례 집중 보기 (완료)
+- 범례를 aria-pressed 버튼으로 전환, 한 항목 집중/재선택 해제/전체 보기. 비선택 본문만 muted 처리하고 제목·버튼·문맥 가독성을 유지. 원문/복사/영상 전달 변경 없음. 실제 모바일·밝은 테마 및 검사 예정.
+- 구현/브라우저 검증: 목소리 집중 시 비선택16개 dim, 선택 목소리 dim0 확인. 재선택 및 전체 보기 Enter로 dim0 복원; 세 본문 textContent 완전 일치. 구도 항목 없음 안내 확인. 클립보드/API 생성/확정/사용자 자료 수정 없음.
+- 실제 Chrome desktop1600 CSS px dark 및 좁은433 CSS px light 검증. 범례 전부43.99px(44px 토큰), gap8px, scrollWidth416<=innerWidth433. selected 테두리/공통 confirm 아이콘/aria-pressed 및 키보드 확인. muted 색상 dark rgb179,191,211/light98,107,120으로 문맥 유지. 모바일 실기기/강제 색상/스크린리더는 미검증. `.local/review-focus-mobile-light.png` 증거, 테마 dark/viewport 복원 및 테스트 탭 닫음.
+- 최종 검증: frontend88개 테스트/typecheck/build, backend539개 pytest/Ruff/mypy(90파일) 모두 통과. git diff --check 통과. 커밋/푸시 요청 없음.
+
+## 범례 아이콘·집중 대비 보완 (진행 중)
+- 전체 보기 제거, 재선택 해제 유지. 공통 ActionIcon에 구도 grid/표정 smile/시선 eye/동작 running/카메라 video/목소리 microphone/음악 note 추가. 선택과 무관하게 의미 아이콘 유지.
+- 비선택 본문 opacity 토큰 .42, 선택 구절 font-weight600으로 집중 차이를 강화. 제목/범례/대사는 원문 유지, 강제색 모드 opacity1. 실제 모바일/밝은 테마 및 필수 검사 예정.
+
+### 범례 아이콘·집중 대비 보완 검증 완료
+- 전체 보기 제거, 항목별 공통 아이콘 7종, 재선택 복원 확인. 선택 opacity1/weight600, 주변 .42 확인. 세 본문 textContent 변경 없음. 원문 복사·저장·API 경로 변경 없음.
+- Chrome 실제 화면: 데스크톱 어두운/밝은 테마, 모바일 390×844 override(사용자 배율 유지, CSS viewport433) 밝은/어두운 테마 확인. 범례44px, 아이콘20px, 줄바꿈 및 가로 넘침 없음(scrollWidth416). 데스크톱 시선·모바일 카메라/목소리 선택과 재선택 확인. 임시 테마/viewport 복원, 검증 탭 종료. 증거 .local/focus-icons-dark.png, focus-icons-light.png, focus-icons-mobile-dark.png. 모바일 밝은 화면은 도구 이미지로 확인했으며 추가 파일 저장은 캡처 timeout으로 미보존.
+- backend pytest539 통과(268.99초), ruff 통과, mypy90파일 통과. frontend typecheck/build 통과, Node88 통과, git diff --check 통과. 생성/확정/유료 호출 없음.
+
+## 구도 중복 분류 및 빈 범례 (진행 중)
+- 고정 와이드 구도+좌우 배치가 카메라 우선 규칙에 가려짐 확인. 구도/카메라 복합 구절 지원, 검출 없음 범례 disabled 예정. 원문 보존.
+
+- 수정: 카메라 구절에 구도 표지가 함께 있으면 relatedKinds로 양쪽 범례에서 집중. 인접 카메라 전용 구절과 병합하지 않음. 범례는 현재 본문+음성+편집 지시의 검출 여부로 disabled, .45 옅은 표시. 실제 연출 부재가 아닌 텍스트 검출 없음으로 안내.
+- 브라우저: 실제 S01 구도 2구절 집중, S02 배경음악 disabled 확인. Enter 재선택 dim0. desktop dark 및 모바일390×844(CSS433) light에서 44px 높이/가로넘침 없음(scroll416) 확인, 비활성 opacity .45 computed 확인. 밝은 테마 마지막 opacity 변경 후 화면 캡처는 미확인(computed 확인). 증거 .local/composition-dark.png, composition-mobile-light.png. 임시 UI 테마/viewport 복원, 탭 종료. 사용자 자료/유료 호출 없음.
+- 프런트엔드89개 테스트 및 추가 인접 구절 회귀10개 통과, typecheck 통과, build는 sandbox EPERM 후 권한 있는 재실행 통과. backend 전체 검사 진행 중.
+- 최종 backend pytest539/ruff/mypy90파일 통과. git diff --check 통과. 전체 자료 보존, 커밋/푸시 미요청.
+
+## 구도·카메라 범례 통합 (진행 중)
+- 사용자 승인에 따라 6개 범례로 통합. 원문 보존, 공통 camera 아이콘/청록 토큰, 집중·비활성 유지.
+
+- 구현: camera ID/청록색/공통 카메라 아이콘으로 구도·카메라 통합. relatedKinds 중복 로직 제거. 6개 범례, 재선택 해제 및 검출 없음 비활성 유지. 문장 분류/표시만 변경.
+- 실제 Chrome desktop dark와 모바일390×844(기존 배율 유지 CSS433) light 확인. 6버튼 모두44px, 가로넘침 없음(scroll416), 집중/Enter 복원(dim0), 본문 textContent 동일 확인. 증거 .local/merged-legend-dark.png 및 도구 모바일 화면. 테마/viewport 복원·검증 탭 종료. 실기기/스크린리더는 미검증.
+- 프런트엔드89테스트/typecheck/build 통과. 전체 backend 검사 진행 중. 자료 저장/확정/영상 생성 없음.
+- 완료: backend pytest539/ruff/mypy90파일 통과, frontend89/typecheck/build 및 diff --check 통과. 영상 생성/재생성 없이 기존 결과에도 적용.
+
+## 영상 계획 검토 참고 영역 분리 (진행 중)
+- 대본/장면 연결은 clip 답변의 AI 정리 정보임 확인. 제작 지시 카드 밖 검토 참고 aside로 분리, 원본 자료로 오인하지 않도록 출처 안내. 접힘 및 모든 내용 유지.
+
+- 구현: 제작 지시 Card 뒤 별도 aside(surface-subtle/좌측 경계/문서 아이콘)로 분리. 검토 참고 라벨과 AI 정리 정보 설명, 기존 4필드 원문 그대로 제목별 제공. 기본 접힘 및 Enter 접기 유지.
+- 브라우저: desktop dark 접힘/펼침, 참고 본문 전체 및 카드 외부 DOM 확인. padding16/body gap16/summary68px. 모바일390×844(CSS433) light의 결과-참고 경계/제목/설명 확인, scroll416<=433. 모바일 펼친 하단 전체는 캡처 위치 제한으로 미검증. 테마/viewport 복원 및 임시 탭 종료. 증거 .local/reference-ui-dark.png, reference-ui-closed.png. 사용자 자료 저장/확정/생성 없음.
+- frontend typecheck/build 및 diff --check 통과. 전체 backend 검사 진행 중.
+- 완료: backend pytest539/ruff/mypy90파일, frontend89/typecheck/build 통과. 기존 자료 보존. 모바일 펼친 하단 전체 시각 검증은 위 제한대로 미검증.
+
+## 개별 클립 영상 생성 버튼 (진행 중)
+- 기존 선택 생성만 있는 점 확인. 상세 상단 단일 클립 생성/예상 비용/비활성 사유 추가. 기존 생성 API와 계획 확정·연속 참조·중복 접수 검증 유지. 실제 생성 금지.
+
+- 구현: 미접수 클립 상세 상단에 길이/예상 비용/유료 표시와 단일 생성 버튼 추가. submit(action,ids)를 공통으로 사용하며 개별 요청은 현재 clip_id 하나만 전송. busy/계획 승인/연결/기존 job/앞 영상 확정 검증 후 접수. batch 선택과 별개이며 서버 최신 계획 확정/참조 검증 유지.
+- 브라우저: 실제 미확정 v6에서 상세 버튼 disabled 및 선행 확정 안내 확인. desktop dark flex/gap16/button47.5px, mobile390×844(CSS433) light column/gap16/가로넘침 없음(scroll416). 증거 .local/single-clip-dark.png, single-clip-mobile-light.png. 검증 목적으로 계획을 확정하거나 유료 호출하지 않았으므로 활성 버튼 실제 전송은 미검증. 임시 테마/viewport 복원·탭 종료.
+- frontend89/typecheck/build, diff --check 통과. 전체 backend 검사 진행 중.
+- 완료: backend pytest539/ruff/mypy90파일, frontend89/typecheck/build 모두 통과. 실제 유료 생성은 실행하지 않음.
+
+## 클립별 영상 계획 확정 (완료)
+- 승인된 범위: 전체 계획 gate 제거, 클립 계획 확정과 영상 결과 확정 분리, batch는 확정된 클립만. 기존 자료 보존. 계획 docs/superpowers/plans/2026-11-15-clip-plan-approval.md.
+
+- 구현: clip별 확정 table/API/fingerprint와 서버의 선택 전체 검증 추가. 이전 전체 확정은 최초 migration에서만 버전 한정 이관. 동일 클립 확정 승계/변경 및 연속 의존 재검토. 계획 확정은 큐/유료 호출 없음. 결과 영상 확정 API 유지.
+- UI: 전체 확정 버튼 제거, 상세 `이 클립 계획 확정` → `이 클립 영상 생성`, 결과 `이 영상 확정`/`선택 영상 확정` 구분. 계획/생성 영상 progress와 이동 anchor 연결. 미확정 클립은 batch 적격성 제외. 원문·기존 자료 미변경, local migration 적용.
+- 검증: 핵심 PostgreSQL 통합 7건 + fingerprint 단위 3건 통과(부분 확정, mixed batch 원자 차단, 전체 approve 우회 차단, CSRF/격리, stale fingerprint, 동일 클립 버전 승계, legacy migration 반복, no-job). ruff/mypy91, frontend89/typecheck/build 통과.
+- 실화면: desktop CSS1600×823 dark/light, mobile override390×844(사용자90% zoom 유지 CSS433×938) light/dark에서 0/4 미확정, 개별/선택 생성 disabled, 클립1→4 선택, 결과 하단 확인. computed gap16, button47.5px, 좁은 화면 column/width302px, 가로 넘침 없음. 스크린샷 .local/clip-plan-desktop-dark.png, clip-plan-desktop-light.png, clip-plan-mobile-light.png, clip-plan-mobile-dark.png, clip-plan-mobile-bottom.png. 테마 dark/viewport 복원·임시 탭 종료.
+- 검증 목적으로 사용자 계획/영상 확정 또는 유료 생성하지 않음. 확정 후 활성/영상 완료 화면의 실브라우저 검증은 기존 생성 자료가 없어 미검증(서버 통합 테스트로 확인). 기존 데이터 유지.
+- 전체 pytest 1차 521통과/22setup오류: Windows 사용자 Temp 접근 거부. 새 .local 전용 basetemp로 전체 재검사 진행 중.
+
+- 최종 완료: 새 basetemp 전체 backend pytest543 통과(238.32초), ruff/mypy91파일 통과. frontend89/typecheck/build 및 git diff --check 통과. 실제 사용자 계획 확정·영상 생성·유료 호출·커밋/푸시 없음.
+
+## 전체 클립 계획 확정 추가 (진행 중)
+- 개별 확정 유지, 미확정 클립을 기존 plan-approve API로 일괄 확정. 생성/영상 결과 확정과 분리.
+- 완료: 상단 `전체 계획 확정` 추가. 미확정 클립만 일괄 확정하고, 모두 확정되면 `전체 계획 확정됨`으로 비활성화. 개별 계획 확정 및 영상 결과 확정 유지. 확정만으로 생성/비용 발생 없음.
+- 검증: 전체 backend pytest 543 통과(251.56초), ruff/mypy 91파일, frontend 89건/typecheck/build 통과.
+- 실화면: desktop dark CSS1600, mobile light override390×700/844(기존 확대율 유지) 확인. 버튼 156.26×47.5px, 모바일 줄바꿈 및 가로 넘침 없음. 증거 .local/all-plan-desktop.png, .local/all-plan-mobile-light.png. 테마/viewport 복원 및 임시 탭 종료.
+- 사용자 자료 보존을 위해 실제 전체 확정/영상 생성은 실행하지 않음. 전체 확정 후 화면은 실브라우저 미검증, 기존 다중 ID 승인 API 검증 유지. 커밋/푸시 없음.
+
+## AI 구절 분류 하이라이트 (진행 중)
+- 생성 응답 envelope에 검토용 분류를 별도 생성·저장. 원문과 정확히 일치하는 구절만 표시하고 키워드 fallback 제거. 과거 답변은 원문 변경 없이 분류만 보충. 영상 생성 없음.
+- 완료: 영상 계획 생성 envelope에 review_annotations를 추가하고 workspace/request/version별 별도 테이블에 저장. 원문 일치·고유 위치·겹침 검증 후 표시. 프런트엔드 키워드 분류 제거, source가 달라진 경우 표시 제외. value/복사/영상 생성 입력 및 계획 승인 fingerprint는 유지.
+- 기존 자료: 외부 분류 호출은 자동 승인 검토에서 처음 차단되어 사용자의 명시 허용을 받음. 기존 작성 모델(openai/gpt-6.1-terra)로 현재 v6의 4클립만 분류하여 12개 본문 영역에 58개 일치 구절 저장. 이전 답변 버전 원문은 미변경·추가 분류 미실행. 영상 생성/계획 확정 없음. 분류 사용량 기록 유지.
+- 기존 결과 보충 도구 asa.review_backfill 추가: 조회 기본/--apply 명시 실행, 부모 편집 이력의 원래 모델 조회, 이미 분류된 버전 재호출 방지, 원문 변경 감지 후 저장. 새 요청 적용을 위해 대기/진행 요청 0 확인 후 script 워커만 정상 재시작.
+- 검증: 전체 backend pytest545 통과(264.57초), 이후 추가 envelope/저장 분리 통합 포함 집중4건 통과. ruff/mypy93 통과. frontend83/typecheck/build 및 diff --check 통과. 단위/통합 테스트의 실제 유료 호출 없음.
+- 실브라우저: desktop dark CSS1600 및 mobile light override390×844/700(CSS433, 사용자 배율 유지). 6범례/정확한 구절 색상/구도 집중 및 해제/목소리·음악 집중/키보드 포커스 확인. 버튼44px, 범례gap8, 본문영역gap12, mobile scroll416<=433. 음성/편집 섹션 width335.57/gap12/넘침없음 DOM확인. 전체 하단 스크린샷은 CDP 캡처 timeout으로 미검증. 증거 .local/ai-review-desktop-dark.png, .local/ai-review-mobile-light.png. 테마 dark 복원, viewport reset 호출 후 임시 탭 종료(종료 직전 CSS433으로 복원 반영은 미확인).
+
+## AI 영상 계획·범례 실제 재요청 검증 (진행 중)
+- 사용자 요청으로 현재 작업의 기존 입력을 최신 지침으로 재요청. 새 답변과 AI 분류의 동시 생성·저장을 확인하고 이전 버전/영상 작업 보존 검증. 계획 확정·영상 생성은 하지 않음.
+- 실제 실행 완료: 기존 입력으로 최신 지침 재작성 요청 961ffb0e-e792-4cf8-be19-9993e14870a6 → v7 성공(4클립/24초). 공급자 원응답에 value와 review_annotations가 별도 존재함을 확인. 원응답 분류7개 = 저장7개; 서버 일치 검증에서 누락된 것이 아니라 모델이 적게 출력함.
+- 보존 검증: 이전 모든 답변 answer 동일, video_clip_jobs 동일. 계획/영상 확정·영상 생성 없음. 과거 unknown 형식 오류 기록은 이후 성공 이력 확인 후 새 요청의 acknowledge_unknown 처리.
+- 품질 판정: 연결 동작 성공, 분류 품질은 미충족. G01의 시선/목소리 누락, 눈썹+고개 동작을 표정으로 묶음. G04 마주보고 웃음을 action 하나로 처리. 클립별·섹션별 전체 분류와 복합 구절 분리 지침/검증 보완 필요. 현재 v7은 테스트 생성 결과이며 확정하지 않음. v7 자체에 G02~G04 이미지 호환 생성 차단도 존재함.
+- 실제 브라우저 v7에서 G01 mark3개, 시선/동작/목소리 범례 비활성 확인. 증거 .local/review-live-v7.png. 임시 탭 종료. 이번 턴은 실제 실행·검증만 수행하여 애플리케이션 코드 변경 없음, 테스트 재실행 없음.
+
+## 구절 분류 누락·복합 연기 보완 (진행 중)
+- 완료된 계획을 읽는 내부 분류 단계로 역할 분리. 사용자용 새 에이전트/영상 생성 없이 동일 계획 모델 사용. 전체 본문을 범례 또는 none으로 분할하여 원문 복원·모든 섹션 검증. 분류 실패는 계획 원문을 보존하고 검토 상태로 표시. 실제 재요청과 기존 자료 보존 검증 예정.
+
+### 구절 분류 누락·복합 연기 보완 완료
+- 계획 생성과 사람 검토용 구절 분류를 내부 두 단계로 분리. 같은 설정 모델로 추가 1회 분류 호출하며 별도 사용량 기록. 사용자용 새 에이전트/다른 모델을 필수로 추가하지 않음. 자동 유료 재시도 없음.
+- 모든 prompt/voice/edit_notes를 범례 또는 none으로 순서대로 분할. 모든 key, 중복, 공백·줄바꿈 포함 원문 복원 일치 검증. 반복 구절은 Unicode 위치로 표시. 분류 준비·호출 실패는 유효한 계획 원문을 유지하고 incomplete 상태로 안내. 문자 검증은 의미 분류의 정확성을 보장하지 않음.
+- 실제 재작성 150efdde-0ad1-43a8-b2b4-0ad02a0cc803 → v8, 4클립/24초 성공. 최초74구절에서 효과음의 voice 오분류를 발견해 지침 보완 후 v8 원문 그대로 분류만 명시 refresh. 최종62구절, 12/12 본문 전체 일치, issues 없음. camera8/expression5/gaze5/action9/voice34/music1.
+- 실제 G01 눈썹(expression)/고개(action), G04 마주 보고(gaze)/까르르 웃는다(expression)/손을 흔든다(action) 분리 확인. 효과음은 none. 기존 모든 답변 및 v8 분류 전후 answer 동일, video_clip_jobs 동일. 계획 확정·영상 생성 없음. v8 전체 영상 계획의 이미지 호환 차단 사유는 유지됨.
+- 대기·실행 요청0 확인 후 script 워커만 정상 재시작. 최신 지침 반영, running/busy false 확인. 영상 워커 변경 없음.
+- 검증: backend 전체550 passed(249.16초), 집중12 passed, ruff/mypy93 통과. frontend84 tests/typecheck/build 통과, diff --check 통과. 최초 전체검사에서 축약 계약2건 실패 → 선택 분류 준비도 실패 격리 범위로 수정 후 전체 재검증. 샌드박스 DB 접근 오류 실행은 중지하고 로컬 DB 접근 허용으로 하나씩 재실행. 실제 유료 호출은 명시 수동 검증에만 수행.
+- UI: desktop dark CSS1600, narrow light override390x700/실제 CSS433(사용자 배율 유지). 표정/시선 집중, 다른 구절 opacity0.42·선택1, 가로 넘침 없음, 범례 줄바꿈 및 읽기 확인. 증거 .local/review-partition-mobile-light.png, .local/review-partition-v8-final.png. 테마dark/viewport reset 후1600 확인, 임시 탭 종료. incomplete 안내의 실브라우저 상태 및 화면 전체 하단은 미검증(실제 자료를 고장 상태로 바꾸지 않음).
+
+## v8 별도 검증 에이전트 분류 품질 검사 (진행 중)
+- 사용자 요청으로 저장된 v8의 클립별 원문·분류를 읽기 전용으로 독립 검토. 누락/오분류/복합 연기 분리 여부를 보고하며 기존 자료·분류 수정, 계획 확정, 영상 생성은 하지 않음.
+- 완료: 별도 v8_classification_audit 에이전트가 DB 추출 v8의12개 본문/62구절 및 비강조 영역 전체를 독립 대조. G01 오류0/경계1, G02 오류0, G03 확실한 누락1/경계1, G04 오류0/경계2. 주요 표정·시선·동작 혼합 분리 정상.
+- 확실한 누락: G03 edit_notes ‘다음 컷의 튐으로 연결한다.’가 none이며 action 권장. 조명/발화 대상/놀람/웃음소리4건은 정책 경계로 오류와 구분. 공유 술어·시간·동시성이 비강조인 범위 완결성 한계도 보고.
+- 보고서 .local/v8-independent-review-report.md. 검토 후 DB 읽기 비교에서 answer/sources/annotations/validation/video jobs 모두 동일 확인. 계획 확정·영상 생성·분류 수정 없음. 검토 보고만 수행하여 코드/UI 변경 및 전체 테스트 재실행 없음; 실제 브라우저와 영상은 이번 검사 범위 제외.
+
+## v8 시간·연결 조건 분류 보완 (진행 중)
+- 독립 검토 누락과 경계 사례를 분류 지침에 반영. v8 원문 유지 재분류 후 별도 검증. 자료·영상 생성 변경 없음.
+- 완료: 분류 지침에 시간·지속·선후·동시성/유지·연결 술어 귀속, 실제 동작 연결과 행정 차단 안내 구분, 조명camera/발화대상·시간voice/놀람·웃음expression 명시. 효과음none 우선 및 음성 항목 라벨none 기준 추가. 사용자용 범례·원문·영상 전달 형식은 변경 없음.
+- 실제 v8 분류만2회 실행. 1차56개/12본문에서 독립 에이전트가 효과음voice 및 음성 라벨 과강조 회귀 발견 → 지침 보완 후 최종75개/12본문 전체일치. 최신 DB 추출 기준 v8 answer/sources 및 영상 작업은 이전과 동일. 영상 생성·계획 확정 없음.
+- 별도 v8_classification_audit 최종 검토: 4클립 모두 확실한 잔존 오류0. G03 동작 연결, 시작/지속/발화 시간, 공유 술어/동시성, 이전4경계 및 효과음/라벨 회귀 해결. 보고서 .local/v8-timing-review-final.md. 공유 조건을 여러 범례에 중복 표현하지 않는 구조적 한계와 G02 ‘질문과 함께’ 귀속 경계는 별도 기록.
+- 검증: backend550 passed(244.93초), ruff/mypy93, frontend typecheck/build 통과. 최초 build의 .next mkdir EPERM은 권한 허용 재실행에서 통과. diff --check 통과. 이번은 지침/분류 데이터만 변경하여 브라우저·모바일·테마 재검사 없음; 실제 영상/음성 미검증. 유료 호출은 명시 수동 재분류에만 수행.
+- 대기/진행 요청0 확인 후 script 워커만 정상 재시작해 지침 반영. 영상 워커 변경 없음. 커밋/푸시 없음.
+
+## 실제 생성 영상 독립 검수 에이전트 준비
+- 사용자 선택: ASA 앱 신규 기능이 아니라 이 대화의 별도 검증 에이전트. generated_video_inspector 구성 및 클립별 검수 체크리스트 준비. 실제 생성 당시 계획/영상 버전 기준, 관찰 시각 증거·기대/관찰·문제/미검증 분리. 영상 미제공 상태이므로 검수/영상생성/유료 호출/확정 없음.
+- 준비 완료: .local/generated-video-inspector.md 작성. 실제 영상 미제공으로 검수 결과 없음. 앱 코드/UI 변경 없어 테스트/시각검사 재실행 대상 아님.
+
+## 앱 AI 영상 검수 (완료)
+- 생성 완료 job의 immutable generation_input/참조 및 프레임을 검수 에이전트로 비교, 별도 검수 큐/기록/모달. after_tasks.video_review 수동 연결(사용 안 함 기본). 이미지 검수도 연결 여부로 새 요청 제어, 기존 이력 보존. 샘플 프레임 기반이며 오디오/립싱크는 미검증 강제. 자동 생성/확정 없음. 백엔드·프런트엔드 분담 후 통합/전체검사/실브라우저 검증.
+- 구현: 완료/확정 영상의 공통 AI 아이콘 버튼 → 수동 검수 모달. 별도 영상 검수 API/큐/이력 및 기존 영상 워커 연결, 최신 소유 에이전트의 image_review/video_review 연결로 새 요청·대기 실행을 제어. 저장 설정 끄기와 실행 예약을 잠금으로 직렬화. 예전 결과는 유지하고 영상·확정 상태는 변경하지 않음.
+- 실제 로컬 반영: migration 적용. 생성 영상 검수 에이전트 생성 및 현재 비디오 프롬프트 에이전트에 수동 연결(이전 설정 .local/diagnostics/video-review-backups 백업), 이미지 입력 지원 연결 확인. 대기/진행 영상0 확인 후 유휴 이미지·영상 워커만 정상 재시작. 실제 검수·영상 생성 호출0.
+- 독립 코드 검토 2건 수정: 이미지 검수 비활성화 경합 잠금, 모달 GET의 최대64MB 영상 반복 로딩 제거. 재검토 추가 지적0.
+- 검증: backend558 passed(245.78초), Ruff 통과, mypy94파일 통과. 최초536pass/22setup error는 Windows 임시 경로 권한 문제로 전용 .local basetemp 재실행에서 전체 통과. 영상 검수8개 및 이미지 연결4개 회귀 테스트도 통과.
+- 시각 검증: 실제 VideoAssetReviewPanel + GET 합성 응답/POST 차단 임시 페이지에서 CSS433px 밝은 상단·어두운 하단 브라우저 캡처(프런트 검증 에이전트 도구 기록). 연결 해제/오프라인 비활성·이력 보존, 긴 문구, 오디오 미검증·한계, Escape/포커스 복귀 확인. DOM 간격16px, 카드12px/padding16px, 아이콘20px/버튼 간격8px/높이47.5px, 수직 중심 오차0.000002px 미만, 가로 넘침0. 임시 페이지 제거·viewport 초기화·탭 종료, 사용자 저장/확정 없음.
+- 미검증: 데스크톱 viewport 변경이 실제 DOM에 반영되지 않아 데스크톱 시각 검증 제외. 실제 생성 영상 없음으로 유료 검수 품질·실영상·음성 검증 미수행. 샘플 프레임만 검토하므로 음성·립싱크와 프레임 사이 연속 동작을 완전 검증한다고 주장하지 않음.
+- 최종 frontend typecheck/build 및 diff-check 통과. 임시 검증 route 빌드 포함되지 않음. 기존 다른 변경 보존, 커밋/푸시 없음.
+
+## 클립 계획 확정 해제·클립별 AI 수정 (완료)
+- 승인 범위: 개별/전체 계획 확정 해제, 선택 클립만 AI 수정해 같은 작업 새 답변 버전 저장. 기존 자료/영상/검수·영상확정 유지, 자동 생성 없음.
+- 구현 계획: (1) 승인/해제 기록과 최신 fingerprint 상태·API·회귀 테스트 (2) 기존 비동기 답변 큐에 클립 수정 범위 스냅샷/서버 병합·검증 (3) 개별/전체 해제 버튼 및 클립 AI 수정 모달 (4) 독립 검토, 전체 검사, 모바일·밝은 테마 실제 DOM 확인.
+- 결정: 이미 접수된 영상 생성은 유지하고 UI 안내. 계획 변경된 클립과 연속 참조 영향을 받는 클립은 fingerprint로 재검토, 원문이 같은 다른 클립은 확정 유지. 유료 호출 검증은 mock만 사용.
+- 확정 해제 구현: 승인과 같은 최신 버전/fingerprint/권한 검증, 최신 동일 fingerprint의 승인·해제 상태 적용. 기존 테이블 upgrade와 반복 migration, 이전 버전 열람, 해제 후 생성 차단·이미 접수 영상 보존 회귀검사 통과.
+- 클립 수정 구현: 대상 클립 객체만 반환하도록 모델 출력 제한, 서버 병합으로 나머지 클립/공통 계획 보존. 입력·화풍·유효 음성과 저장 revision을 접수 시 고정. 원문·시간·길이·이미지·대사·공통 목소리는 단독 수정에서 고정하며 전체 수정 안내. 같은 작업 새 버전, 기존 영상/검수는 이전 버전에 남음. 원문과 일치하는 다른 클립의 분류만 상속.
+- 독립 검토: 클립 단독 출력과 충돌하는 전체 계획 시간·음성·quality 출력 지침 제거, 변경된 음성 구절의 분류 coverage 과장 방지, 접수 뒤 disabled opener 대신 상태 안내에 포커스. 재검토 차단 지적0.
+- 시각/동작 검증: 격리 Chrome fixture(쓰기 API mock, 실제 유료 호출0)에서 실제 innerWidth1440/390, 밝은/어두운 테마, 상세·모달·오류·긴문구 확인. 버튼48.39px, 아이콘20px 중앙 정렬, gap8px, 모바일 버튼309px 동일폭, 가로 넘침0. 개별/전체 해제 payload, queued영상 보존, 재생성 차단, 모달 열기 GET만, 비용 확인·충돌 입력 보존·취소/Escape 포커스 확인. 임시 fixture/프로필 제거. evidence: C:/Users/bumci/.codex/visualizations/2026/11/05/01a1ac6f-040f-7f80-842b-827723564530/clip-actions-*.png (6장).
+- 미검증: 실제 유료 모델 출력 품질/실영상 생성, 실제 사용자 데이터에서 워커·SSE 브라우저 종단 검증은 수행하지 않음. 마지막 접수 포커스 보완은 타입/빌드·코드검토 확인, 브라우저 재검증은 없음.
+- 로컬 반영: migration 적용, 진행/대기 스크립트 요청0 확인 후 유휴 스크립트 워커 정상 재시작. OpenAPI에 revise-clip/plan-revoke 확인. 사용자 계획·영상·검수 상태를 테스트로 변경하지 않음. 기존 변경 보존한 codex/clip-plan-actions 브랜치, 커밋/푸시 없음.
+- 최종 검증: backend559 passed(251.19초), Ruff, mypy95파일, frontend typecheck/build, diff-check 통과. 관련 확정 해제5개·클립 수정/기존 재요청9개 테스트 별도 통과.
+
+### S01 영상 생성 접수 불명확 상태 조사 · DONE (읽기 전용)
+- 요청 c068fb6a/v8/G01, job 57ec73b3: 2026-11-16 13:44:04.822 접수 후 13:44:06.533 KST에 unknown/submission_uncertain. provider_task 미저장. 영상 워커 running/enabled/busy=false; 해당 unknown 작업은 자동 조회·재전송 대상이 아님.
+- 현재 설정된 WAN Tokyo endpoint의 GET /tasks(model_name=wan3.0-video) 읽기 전용 조회가 401 InvalidApiKey 반환. 원래 생성 당시 HTTP 상태/공급자 오류/예외 유형을 보존하지 않아 최초 오류가 동일한 인증 오류였는지는 확정 불가. 현재 조회의 request_id=165da93a-373a-4d88-819b-3049e6a9eeb9.
+- UI의 생성 가능은 키 존재/설정·워커 준비 여부이며 실제 공급자 인증 성공 보장이 아님. 접수 불명확 상태에서 사용자가 다음 행동과 진행 중단을 명확히 알기 어려움.
+- 생성 POST·재시도·원본 데이터 변경 없음. 코드/UI 수정·시각 검증·전체 테스트는 이번 조사 범위에서 미실시. 기존 미커밋 구현 유지.
+
+### WAN 인증·생성 진행 상태 개선 · 진행 중
+- S01 중복 생성 금지, 기존 요청/자료 유지. 인증 설정·읽기 전용 공급자 조회 조사, 실제 연결 검사와 안전한 오류 기록·진행 UI 구현, mock 회귀 및 모바일/밝은 테마 확인 예정.
+
+### WAN 인증·생성 진행 상태 개선 · DONE
+- 원인 확인: 사용자 Alibaba 콘솔 API Host는 Singapore(ap-southeast-1), 로컬 .env는 Tokyo(ap-northeast-1). 동일 키 GET tasks가 Tokyo401 InvalidApiKey/Singapore200. 키·workspace 변경 없이 로컬 리전만 수정. 실제 앱의 CSRF 보호 연결 검사에서도 authenticated200 확인. 작업 없는 응답의 data 필드 생략 계약 반영.
+- 실제 연결 확인: GET tasks/organization만 호출, workspace·endpoint·키별 5분 캐시. 설정 존재와 인증 성공을 구분하고 최근 인증+생성허용+워커온라인일 때만 생성 가능 배지. 인증 체크는 영상 생성/잔액·모델별 권한 확인을 하지 않음. 관리자 및 모델 입력의 공통 검사 연결.
+- 진단: 진행 단계/공급자 상태/안전한 HTTP·오류코드·요청ID 저장·조회. 원문 응답/키/프롬프트 저장 없음. 전송·조회·다운로드 오류 구분. unknown 자동 재전송 없음; 조회/다운로드 실패는 동일 task만 확인. 기존 상세 기록 없는 S01은 미기록 안내, 추정 원인으로 덮어쓰지 않음.
+- 로컬 nullable 컬럼 migration 적용. 진행·대기 영상0/검수0 확인 후 유휴 영상 워커만 재시작. S01 job57ec73b3는 unknown/provider_task null/submission_uncertain/13:44:06.533 KST 그대로 유지. 재생성·확정·자료 수정0.
+- 실제 Chrome 검증: desktop innerWidth1600 dark, mobile innerWidth433 dark/light(사용자 기존 확대배율 유지). 계정 인증 미확인/응답확인불가/성공 및 legacy unknown 화면 확인. 모바일 가로넘침0, 인증 버튼47.5px/아이콘 gap8px; 단계 grid gap8px/내부gap4px·높이65.88px. 답변 helper-text의 margin16px 상속을 컴포넌트 내부 grid 규칙으로 제거. desktop3열 동일340.60px. 테마dark/viewport 원상복원. 증거 wan-auth-mobile-light.png, wan-progress-mobile-light.png, wan-progress-desktop-dark.png (Codex visualizations 경로).
+- 미검증: 실제 유료 생성 진행의 공급자 종단 결과, running/download/신규 오류의 실제 브라우저 상태는 생성하지 않아 미검증(mock 워커 테스트로 확인). 모델 입력의 초록 생성 가능 표시 브라우저 개별 화면은 미검증이며 공통 인증 상태 회귀 테스트 확인. 모바일 모달 캡처는 스크롤 위치상 상단 제목이 잘린 부분 증거임.
+- 검사: 전체 backend577 passed267.76초 + 최종 인증/워커19개 통과(빈목록 추가회귀 포함), Ruff/mypy96파일/typecheck/build 통과. 최초 Next build 샌드박스 EPERM은 로컬 권한 동일 빌드로 통과, 최종 CSS 보완 뒤 재빌드 통과. 커밋·푸시 없음.
+
+### WAN 리전별 연결·인증 후 전환 · 진행 중
+- 현재 리전 표시/싱가포르·도쿄별 서버 비밀 설정 분리, 대상 인증 확인 후 관리자 전환. 새 요청만 새 리전, 기존 queued/running 작업 endpoint·자료 유지. S01 재전송 금지. API/worker 회귀와 모바일·밝은 테마 확인 예정.
+
+### WAN 리전별 연결·인증 후 전환 · 구현·화면 확인 완료 / 전체 검사 중
+- 영상 생성 관리에 현재 리전, 싱가포르·도쿄 선택, 대상 인증 확인, 리전 적용을 제공. 대상/revision에 일치하는 5분 이내 인증만 UI 적용 허용하며 서버는 적용 시 재인증·관리자/workspace/revision 검증. 접수와 전환은 동일 정책 잠금 사용.
+- 리전별 API 키·workspace 서버 환경 설정 분리. 기존 환경값은 원래 리전의 전용 설정이 모두 비었을 때만 호환. 비밀값 클라이언트/로그 제외. 새 요청에만 활성 endpoint 고정, 대기·진행·보류 재개는 원래 endpoint의 리전 자격 증명 유지. 지역 변경으로 재생성/재개하지 않음.
+- 로컬 migration 적용, 영상/검수 진행0 확인 후 유휴 영상 워커 재시작. Singapore 실제 GET 인증 성공; Tokyo 별도 설정 없음/적용 비활성 확인. 실제 리전 변경·영상 생성0. S01 unknown/provider_task null/updated_at13:44:06.533 KST 그대로.
+- Chrome desktop1600 dark 및 mobile433 light 확인(사용자 확대배율 유지). 모바일 select/버튼 시작 x52.11px·폭295.78px 동일, select44px·버튼47.5px, 아이콘 gap8px, 섹션 gap16px, 가로넘침0. 인증 성공/미설정/비활성/포커스·상하단 확인. 기존 dark/viewport 복원. 증거: Codex visualizations/wan-regions-desktop-dark.png, wan-regions-mobile-light.png.
+- 별도 읽기 전용 코드 검토: 구체적 결함 없음. 관련 backend12개, frontend 인증/전환 조건3개, Ruff/mypy97파일/typecheck/build 통과. 최초 build EPERM은 권한 부여 후 통과. 최초 전체 검사는 수정 전 수집된 테스트1건 실패(585통과), 최종 파일로 전체 재실행 중.
+- 미검증: Tokyo 실제 인증/전환(키 미등록), 실제 유료 생성/진행 중 공급자 종단. 전환·기존 요청 보존·원래 지역 POST/GET·새 지역 enqueue·재개는 모의 공급자 테스트로 검증. 사용자 자료 유지, 커밋/푸시 없음.
+- 최종 완료: 전체 backend586 passed(253.18초), Ruff/mypy97파일, frontend typecheck/build 및 조건 회귀3개 통과. WAN 리전별 연결·인증 후 전환 DONE.
+
+### 영상 생성 관리 공급자별 컨트롤 · 진행 중
+- 공통 요청 상태는 항상 유지하고 공급자 콤보박스에 따라 연결/허용/전용 리전 컨트롤 표시. 선택만으로 설정 저장·인증·생성하지 않음. 기존 자료와 정책 유지, 모바일/밝은 테마 확인 예정.
+
+### 영상 생성 관리 공급자별 컨트롤 · DONE
+- 관리 대상 공급자 콤보박스 추가(기본 WAN, 모달 재열기 동안 선택 유지). 선택한 공급자의 연결 상태·사용 허용·인증 확인만 표시하고 WAN 선택 시 리전 컨트롤 표시. 공통 요청 상태·전체 생성 허용·보류 재개 유지. 선택만으로 API 변경/인증/생성하지 않음. 처리 중 공급자 전환 방지, 전환 시 이전 공급자 안내 제거.
+- WAN 리전 중첩 카드 제거, 구분선으로 통합. 디자인 시스템 기록. Chrome desktop1600 dark에서 Runway/WAN 전환, mobile433 light에서 두 공급자·미설정/비활성/포커스·상하단 확인. 모바일 두 select x52.11px/width295.78px/height44px 동일, gap16px, 가로넘침0. 테마/viewport 복원. 증거 provider-controls-desktop-dark.png, provider-controls-mobile-light.png, provider-wan-mobile-light.png (Codex visualizations 경로).
+- 검증: backend586 passed272.62초, Ruff/mypy97파일, frontend typecheck/build, diff-check 통과. 설정 변경·인증 호출·영상 생성·자료 변경 없음. 실제 공급자 설정 저장은 이번 UI 검증에서 미실행(기존 API 그대로 사용). 커밋/푸시 없음.
+
+### 영상 실패·결과 미확인 재시도 · 진행 중
+- 공급자 기록 확인 근거 후 현재 설정으로 새 시도. 원본 요청/자료/이력 유지, 동시·중복 접수 방지 및 최신 계획/현재 연결 검증. 작업 ID 없음을 미생성 증거로 간주하지 않음. S01 실제 생성 금지, mock 테스트·모바일/밝은 테마 검증 예정.
+
+### 영상 실패·결과 미확인 재시도 · 구현/시각 확인 완료, 전체 검사 중
+- 원본 요청의 상태/시각/입력/모델/자료 유지, superseded_by 연결과 새 요청 UUID·현재 슬롯 부분 유일 인덱스로 이전 시도 분리. 작업별 이전 생성 이력 제공, worker/진행 요약/연속참조/합성 등 현재 시도 조회 반영.
+- 관리자·workspace·CSRF, 명시적 확인+근거20자, provider_task 존재/영상 존재/진행중/이미 재시도됨 차단. 공유 enqueue dry-run으로 최신 계획·클립 확정·정책·참조/목소리 입력 불변 검사. POST에서 검토한 model/endpoint/price/policy fingerprint 일치 및 현재 대상 인증 확인 후 원자적 기록 보존+새 접수. 같은 ID/본문 재요청 멱등, 다른 ID의 같은 원본 재접수 차단. 알려진 task는 결과복구 우선으로 재생성 금지.
+- 모달은 공급자 자동조회가 아님을 명시하고 원래 공급자 기록을 관리자가 확인하도록 안내. 조회 실패/빈 목록/ID 없음은 미생성 증거가 아님. 접수 전 대상변경은 안내 재조회·확인 해제. 확인 근거/이력은 보존. 현재 원래Tokyo/새Singapore 표시 확인.
+- 실제 Chrome desktop1600 dark, mobile433 light에서 입력 빈값/근거만/확인후 활성/확인해제, 긴 endpoint 줄바꿈, 고정footer, 취소 포커스 복원 확인. 임시 입력/체크 삭제, POST0. mobile 가로넘침0, checkbox20px/gap8px, footer버튼351.55px/47.5px·gap12px. modal DOM top28.13px/header44.69px/footer769.54~909.09px(viewport938px) 확인. 모바일 캡처는 도구상 상단 일부가 잘려 본문·하단 부분 증거이며 전체상단 시각 증거는 미확보. screenshot video-retry-desktop-dark.png, video-retry-mobile-light.png (Codex visualizations). 테마dark/viewport 복원.
+- additive migration 적용, 영상/검수active0 확인 후 유휴 영상 워커 재시작. S01 id57ec73b3/unknown/provider_task null/submission_uncertain/updated13:44:06.533KST 그대로. 실제 공급자 기록 확인이나 유료 재시도·영상 생성0. S01 자동복구/자동재생성 없음.
+- 별도 코드 검토의 stale target 결함을 fingerprint로 수정, 연속참조 source ID/hash도 정확히 원본 비교. 재검토 blocking issue 없음. 관련 backend12개/frontend2개, Ruff/mypy98/typecheck/build 통과. 전체 backend 진행 중. 미검증: 실제유료재시도·생성/기존 공급자 결과 존재 여부, 실패·성공 후 실제 브라우저 history는 mock/API 검증만. 커밋/푸시 없음.
+- 최종 검증 완료: backend598 passed271.34초, Ruff/mypy98/typecheck/build, frontend 재시도 조건2개 통과. 영상 실패·결과 미확인 재시도 DONE.
+
+### 재시도 모달 간소화 · 진행 중
+- 확인 근거 입력 제거, 결과 미확인에만 위험 안내/체크. 기존 이력·접수 방지 유지, S01 생성 금지. 검사 및 모바일/밝은 테마 확인 예정.
+
+- 구현: 근거 textarea 제거, 현재 모델/리전/예상 비용 기본 노출·이전 요청 상세 접힘, 결과 미확인만 짧은 위험 안내/체크. 서버는 unknown 확인 검증, 기존 클라이언트 확인 계약 호환, 감사 문자열 저장. 기존 원본/부분 유일 인덱스/동일 ID 멱등·권한·대상 fingerprint·인증·계획 검증 유지.
+- 실제 Chrome desktop1600 dark 모달 전체 확인(704×541px), 체크 전 비활성/체크 후 활성/해제 확인. mobile viewport390×844(실제 CSS433×938) light: 가로넘침0, checkbox gap8px align center, 상세 펼침 시 footer 동일폭351.55px/높이47.5px/gap12px, 화면 내 하단 유지. 임시 체크/테마/viewport 복원. 캡처 retry-compact-mobile-light.png는 도구의 화면 상단 잘림으로 본문·하단 증거만 확보, 모바일 전체 상단 시각 확인은 미검증(실제 DOM 경계는 정상).
+- 실제 생성 POST 실행하지 않음, S01 기존 unknown 기록 그대로 화면 확인. 실패 상태의 체크 생략/서버 거절/동시 중복 요청은 자동 테스트로 검증하며 사용자 자료를 바꿔 상태를 만들지 않음. Ruff/mypy98/typecheck/frontend2개/build 통과, 전체 backend 검사 진행 중. 최초 sandbox DB/빌드 폴더 접근 오류 후 승인 환경에서 재실행.
+
+- 완료: 전체 backend 596 passed (273.97초), Ruff/mypy98, frontend typecheck/build 및 재시도 조건2개 통과. 수기 근거 제거와 unknown 전용 확인, 이력 보존·동시 중복 접수 방지 검증 완료. 실제 유료 재시도/영상 생성 미실행. 커밋·푸시 없음.
+
+### 영상 진행·결과 검토 UI 개선 · 진행 중
+- 사용자 용어/실시간 경과 및 종료 시간 표시. 세로 결과는 영상+검토 패널 2열, 가로는 넓은 플레이어+하단 검토. 상세 기록/이력/기능 유지, 영상 생성 및 확정 금지. 모바일/밝은 테마 검증 예정.
+
+- 구현: 완료 영상 우선 배치, 9:16 왼쪽 플레이어/오른쪽 검토·완료시간·AI검수·영상확정, 16:9 넓은 플레이어/하단 검토, 모바일1열. 기존 계획/이력/재시도/원문/참조이미지 유지. 공급자 용어는 영상 서비스로, 기본 상태는 사용자 작업 표현으로 변경. 6단계·시각·서비스 원문 코드는 생성 상세 기본 접힘.
+- 경과 시간 1초 갱신(대기 포함); 완료/실패/미확인 종료 시 고정. API는 workspace/id로 기존 usage finished_at 조회, 확정 후 updated_at 증가와 분리. 오래된 approved 기록에 종료시각이 없으면 시간을 추측하지 않고 기록 없음. 타이머 종료/클립 전환 정리.
+- 실제 S01 완료 영상으로 desktop1600 dark: 368px+687px 2열/gap16px, 상단 정렬 일치·가로넘침0·2분0초 완료 소요 확인. mobile390×844(CSS433×938) light: 1열335.57px, 검수/확정 버튼 동일폭335.57px/높이47.5px, 긴문구 줄바꿈·넘침0·상세 펼침/접힘·키보드 플레이어 접근 확인. snapshot video-result-desktop-dark.png 및 video-result-mobile-light-controls.png. 모바일 캡처 도구 좌표 오차로 화면 일부만 증거이며 DOM 전체 경계도 확인.
+- 16:9는 기존 데이터 미변경을 위해 실제 공통 CSS 기반 임시 HTML 샘플에서 desktop/mobile light 검증: 넓은 플레이어·검토525.998px/526.007px 2열, mobile384.67px 1열, 넘침0. 샘플 탭/파일 제거. 실제 가로 영상 재생은 미검증(샘플 미디어 없음). 생성 진행 중 타이머는 순수 함수 테스트로 확인, 실제 생성은 실행하지 않음. 테마/viewport 복원, 영상 생성·검수 요청·확정0.
+
+- 완료: backend 전체596 passed(296.65초), Ruff/mypy98, frontend typecheck/build, 시간·화면비율 테스트2개 통과. 기존 자료 변경 없이 조회/표시 개선. 실제 생성·확정0, 커밋·push 없음. 실제 가로 미디어 재생과 진행 중 실호출은 미검증이며 샘플/함수 검증으로 구분.
+
+### 결과 영상 수정 요청·정보 명확화 · 진행 중
+- 결과 옆 수정 요청은 기존 계획 수정 모달 연결, 생성 별도 안내. 시간/비율/시작 기준 라벨화. 기존 자료 보존, 실제 AI 요청·영상 생성·확정 금지.
+
+- 구현: 결과 옆 AI 아이콘 ‘수정 요청’ 버튼→기존 revision 모달. 권한/진행 상태 제한 그대로, 같은 작업 새 계획 버전·기존 영상자료 보존·영상 생성 별도 안내. 모달 footer 고정, 실제 전송 API/비즈니스 규칙 변경 없음. 시간·화면비율·시작 기준은 의미별 dl 라벨.
+- 실제 S01 desktop dark1600 및 mobile light390×844(CSS433×938) 확인. 수정 버튼→모달→수정 지시/기존 unknown 확인 체크 후 활성→값/체크 제거→취소·포커스 복원 검증, 전송0. 모바일 모달 가로넘침0/textarea334.89px/footer383.55px/하단909.09<938, 정보302.47px 1열. 데스크톱 정보335.26px 균등3열+시작 기준 전체행, gap12px16px, 넘침0. 화면증거 video-result-revision-desktop.png, video-revision-mobile-light.png. 모바일 캡처 도구 상단 잘림은 부분 증거로 기록, DOM경계도 검증. 테마/viewport 복원. 실제 생성·확정/검수/AI 수정0.
+
+- 완료: 전체 backend596 passed(291.37초), Ruff/mypy98, frontend typecheck/build 통과. UI 수정/모달 안내 및 시간 라벨 정리 완료. 기존 자료 유지, 실제 생성·수정 요청 미실행. 커밋·푸시 없음.
+
+### S01 초반 동작·반응·손발 프레이밍 보완 · 진행 중
+- 공통 지침/템플릿에 이미지에서 이어지는 초반 동작, 계기 이후 읽히는 반응, 동작 전체의 손발 프레이밍 기준 추가. S01만 새 계획 버전으로 보완하고 기존 영상·이미지·대사·다른 클립 보존. 영상 생성·확정 금지.
+
+- 저장 에이전트 지침 revision18과 배포용 템플릿에 동일 규칙 적용. 실제 AI S01 개별 수정 요청1회 성공(v9). AI가 음성 처리를 무음으로 변경하여 요청 범위 밖 변경을 제거, 기존 audio=true/내레이션/효과음/음악 지시 복원 후 수동 보완 v10 저장. v9도 이력으로 보존.
+- S01: 첫0.5초 안 호흡 시작/0~3.6초 양발 지지 작은 무게 이동, 기존3.6초 소리→3.9~4.8초 시선 집중/눈썹/미소 멈춤/추가 고개 돌림→4.8~5초 유지. 고정 와이드, 손발 프레임 유지/왼손 바깥 뻗기 제한. 원본 이미지 자체가 잘렸다면 지침만으로 해결했다고 판정하지 않도록 공통 규칙 명시.
+- 비교 검증: 기존 v1~v8 전체 답변 행, S02~S04, 공통 audio_plan 및 실제 음성 설정, 영상 job 전체 행 동일. G01 고정 ID/원문/5초·0~5초/연결 방식 유지. v10 미확정. 분류는 v9/v8의 AI 분류 중 최종 원문과 정확히 일치하는 구절만 보존(새 분류 추측 없음). 스키마/시간 계약 통과, 프롬프트580자/편집지시222자. 전체24초 유지.
+- Ruff/mypy98/frontend typecheck/build 통과. 전체 pytest 진행 중. UI 코드 변경 없어 모바일·테마 재검증 제외. 실제 영상 생성/확정0, 새 영상에서의 정지감·반응·손발 개선 재현은 미검증.
+
+- 완료: 전체 backend596 passed(286.70초), Ruff/mypy98/typecheck/build 통과. 저장 에이전트의 instructions 이외 설정 전체 동일 확인. 최종 v10, 기존 영상/이미지/대사/과거 버전 유지, 실제 영상 생성0. 커밋·푸시 없음.
+
+### S01~S04 에이전트 재보완·음성 보존 · 진행 중
+- 사용자 요청: 수동 결과 보정 금지. 무조건 무음/TTS로 이관하는 공통 지침과 영상 음성 지침 충돌 제거. 기존 음성·대사·이미지·시간표 보존 후 전체 클립을 에이전트로 보완, 연결 검증. 영상 생성/확정 금지.
+
+- 완료: 공통 무조건 audio=false/TTS 지시를 음성 모드 조건부로 수정. 기존 계획 수정에서는 audio_plan/화자 목소리/대사/감정/시간표/음악 유지, 신규 자동 결정과 구분. 저장 에이전트 revision19, 템플릿 및 audio_instructions/voice_directions 반영. 유휴 계획 워커만 재시작.
+- 실제 비디오 프롬프트 AI 전체 요청2회: v11 및 검증 피드백 반영 v12. 처음 요청에 과거 생략 승인을 잘못 전제한 것을 v10 원본 기록과 대조해 발견하여 두 번째 요청에서 철회. v11은 이력 유지, 최종 v12 source=ai. SaveScript/수동 결과 보정 실행0.
+- 최종 비교 통과: audio_plan 전체/실제 음성 설정, 모든 clip 고정 ID·image_id·원문·시작/종료·길이·연결 타입, 모델/비율/duration_review, 기존 v1~v10 전체 행, 영상 job 전체 행 동일. 기준 이미지4장의 byte 원본과 조회 파일 동일. 총24초(5/4/6/9) 유지. 구절 분류 validation complete=true,12/12영역,85개 span. 스키마/시간 검증 통과.
+- 실제 기준 이미지 시각 대조/클립 연결 검토: S01 호환. S01→S02 오른쪽 시선/공간은 이어지나 S02의 이미 드러난 형상·놀람·후퇴 상태가 원본 등장→후퇴의 시작과 충돌. S02→S03 형상 정체 공개 방향은 일치하나 유령이 이미 드러나1초 등장 불가, S03 왼쪽 머리·몸·신발 일부는 원본 이미지부터 잘림. S03→S04 딸꾹 연결 의도는 이어지나 S04 이미 공중 상태가 유령튐→발화→이루리도약 순서와 충돌. 최종 G02/G03/G04 image_status=conflict 유지, 해결/승인된 것으로 꾸미지 않음. 대안은 검토 메모에만 기록, 자동 이미지 수정/생략 승인/확정 없음.
+- 전체 backend596 passed(276.19초), Ruff/mypy98/frontend typecheck/build 통과. 초기 Ruff 긴 줄1건은 줄바꿈 후 재검사 통과. UI 변경 없어 모바일/테마 검증 비대상. 영상 생성/확정0, 실제 영상 재현 미검증. 기존 생성물·이력 유지, 커밋·push 없음.
+
+### S01 접수 표시·S02 차단 원인 분석 · 2026-11-17
+- 읽기 전용 DB/접근 로그/프론트·서버 코드 분석. 추가 생성/재시도/확정/자료 변경 없음.
+- S01 v12 job785901e0: 02:17:25.616KST 접수, 02:19:15.600KST review, error 없음. POST200 직후 jobs GET200/script GET200 및 추가 jobs GET200 확인. 서버 접수/생성은 정상. UI submit은 POST 결과를 상태에 반영하지 않고 GET에 의존, 성공 notice 없음, active jobs가 있을 때만5초 폴링. 다만 로그상 후속 조회도 성공하여 당시 응답 본문/브라우저 state 없이는 화면 미갱신의 정확한 원인을 확정할 수 없음(미재현).
+- S02 v12 계획은02:21:07 확정됐으나 image_status=conflict. 실제 이미지가 형상노출/놀람/후퇴 이후 상태라 원본 등장→후퇴와 충돌. 생성 POST422 두 번, G02 job0. 서버 enqueue는 require_ready에서 접수 전 거절. UI Clip 타입에 quality 없음, ready는 continue의 앞 영상 확정만 검사해 cut 충돌을 적격으로 표시. 계획 확정 API도 품질 검증 없음. 따라서 확정됨/미생성/활성 생성 버튼 후 포괄 오류가 뜸. image_reason 상세도 manager에 표시되지 않음.
+- 이번 범위는 분석만. 코드 수정/유료 호출 없음, 전체 회귀·모바일 시각 검증 미실행. S01 브라우저 재현은 모의 접수/지연 응답으로 추가 확인 필요하며 실제 영상 재생성으로 재현하지 않음.
+
+### 영상 접수 즉시 진행 안내·이미지 충돌 사전 표시 · 진행 중
+- 접수 중/완료 상태 즉시 노출 및 해당 클립 진행 영역 포커스·스크롤. quality 충돌/미확인 생성 제외, 원인·해결 경로 사전 안내. 기존 자료 유지, 실제 생성0, 모의 응답과 모바일/밝은 테마 검증 예정.
+
+- 완료: 생성 클릭 즉시 현재 클립 진행 영역으로 포커스/스크롤, 접수 중→접수 완료→서버 단계 표시. 서버 job 조회 전에도 pending 유지·5초 폴링, 중복 클릭 ref 방지. 진행 중 6단계 기본 펼침. 카드/요약/상세 배지에 접수 상태 즉시 반영.
+- quality.image_status가 compatible이 아닌 클립은 개별/선택 생성 비활성, 구체적인 image_reason 및 이미지 유지/원본 행동 유지의 해결 경로 표시. 과거 quality 없는 자료는 기존 서버와 동일 동작 유지. 계획·이미지·영상·승인 데이터 수정 없음, 실제 생성/AI 호출0.
+- 브라우저: 실제 VideoClipManager에 /api/ 전체 차단 모의 응답을 연결한 임시 QA 화면. POST 대기 중 즉시 진행 영역 focus/스크롤(top 약96px), 접수 응답 후 job 미조회 상태에서도 안내 유지/POST1, running 조회 후6단계/경과 표시 확인. 선택 생성에서 S02 disabled, 모두 선택 시 S01만1개 선택. QA route 제거, 소스는 ignored .local/qa-video-progress-page.tsx에 기록.
+- 시각/DOM: desktop CSS1600 및 mobile390×844(CSS433×938, 기존 확대율 유지), 밝은 테마 긴 이유/해결 문구 줄바꿈·가로넘침0. 모바일 안내319.58px/패딩16px/gap12px, 생성 disabled 확인. .local/progress-mobile-light.png 화면 증거. 어두운 테마 접수 상태/포커스 DOM 확인 및 부분 캡처; 캡처 도구의 반복 timeout/좌표 오차로 모바일 dark 전체 영역의 시각 검증은 미완료. viewport 복원·QA 탭 닫음. 실제 장시간 생성/재시도 실호출은 미검증.
+- 검사: backend 전체574 passed+임시폴더 WinError5 setup22건 → 프로젝트 내부 basetemp로 해당22건 재실행 모두 통과(합596). Ruff 통과/mypy98파일 통과, frontend typecheck 통과/build 통과(.next 폴더 sandbox EPERM 후 권한 범위 재실행). 실제 자료 보존, 커밋·push 없음.
+
+### 영상 생성 차단 안내 강조 · 진행 중
+- 공통 경고 아이콘/경고 토큰 배경·강조선, 명시적 생성 불가 제목과 해결 방법 구분. 계획/자료 변경·실제 생성 없음.
+- UI 구현: 공통 ActionIcon warning 추가, 생성 불가 제목·amber 경고 배경/전경 쌍·시작 방향4px 강조선. 원인과 해결 방법을 경계선으로 구분하고 도움말도 경고 전경색 유지. 버튼/적격성/자료/계획 변경 없음.
+- 검증: 실제 VideoClipManager+모의 API 화면에서 desktop dark CSS1600 시각 검증 및 .local/video-blocker-desktop-dark.png 저장. mobile390×844(CSS433×938, 확대율 미변경) light DOM: 가로넘침0, 경고319.58px, gap12px/padding16px, 생성 disabled, 색상 warning 토큰 확인. 대비 light6.30:1/dark8.93:1. 모바일 캡처 반복 timeout/좌표 오차로 모바일 전체 시각 검증은 미완료. viewport 복원/검증 탭 닫음/QA route 제거. 실제 생성·AI 요청0.
+- Ruff/mypy98/typecheck/build 통과. 전체 pytest 완료 대기.
+- 완료: backend 전체596 passed(287.22초), Ruff/mypy98/frontend typecheck/build 통과. 생성 차단 안내만 변경, 기존 자료 유지·실제 생성0·커밋/푸시 없음. 모바일 시각 캡처 한계는 위에 명시.
+
+### S02~S04 기존 이미지 기반 AI 재구성 · 진행 중
+- 사용자 명시 승인: 비디오 프롬프트 에이전트로만 재작성. S01 전체/기존 이미지/대사/음성 보존, S02~S04 시각 연출 조정 및 연결 검증. 수동 결과 수정·영상 생성 금지. v12와 영상 기록을 읽기 전용으로 보존 후 같은 작업 새 AI 답변 요청.
+- 완료: 기존 비디오 프롬프트 에이전트 실제 요청1회(634f4950-fc08-413a-9793-f4b5b1ad4d00) 성공, 같은 작업 v13/source=ai 저장. 수동 SaveScript/답변 보정0. 에이전트는 기존 이미지를 시작점으로 삼도록 허용된 시각 동작 조정을 작성.
+- AI 결과: S02 이미 드러난 형상·놀란 자세에서 호흡/시선/질문, 등장·후퇴 반복 없음. S03 이미 드러난 유령의 미세 움직임→기존 시각 대사/딸꾹, 출현 반복 없음. S04 공중 시작→0~0.7초 착지→기존 시각 발화/웃음/인사, 추가 도약 없음. 컷 사이 생략과 좌우/시선 연결을 edit_notes/continuity에 명시. 모든 image_status=compatible, 실제 이미지와 새 동작 시각 대조. 무중단 연속 동작이 아니라 컷 생략 연결이며 S03 원본 왼쪽 머리·몸·신발 잘림은 그대로 한계로 기록.
+- 보존 검증 모두 true: S01 전체 필드 정확 일치, audio_plan 모든 키/값/순서 및 대사·음성·발화 시간표 동일, 모든 clip고정ID/이미지ID/원문/시간/길이/연결방식 동일, 모델/비율 동일, 전체24초 유지. 과거 v1~v12 전체 version 행 동일, 기존 영상 job 행 전체 동일. 현재 씬 이미지4장 bytes와 기존 조회 원본 SHA256 동일.
+- 출력 스키마/VideoPreparation/각 quality require_ready 통과. AI 분류 validation issues=[],complete=true,12/12영역. 새 계획 미확정, 영상 생성·이미지 생성·자료 변경0(새 AI 답변 버전 추가만). 코드/UI 변경 없어 전체 회귀/모바일 재실행 비대상; 직전596 pytest/ruff/mypy98/typecheck/build 통과 상태 유지. 실제 생성 영상에서의 연결/음성 재현은 미검증.
+
+### v13 S01 미생성 표시 원인 확인 · 2026-11-17
+- 읽기 전용 분석 완료. 현재head13, S01 clip 전체 및 audio_plan v12=v13 정확 일치. v12 G01 review 영상4,973,135bytes 존재. v8 영상도 보존. video_jobs 조회의 answer_version=선택버전 조건 때문에 v13에는 jobs가 없어 UI가 미생성/생성 버튼 표시. 자료 유실이 아니라 변경되지 않은 클립의 이전 버전 영상 연결 부재. 생성/확정/자료 수정 없음, 코드 미변경·회귀/시각 검사 비대상. 재생성 불필요하며 향후 생성 조건 동등성 확인 후 기존 결과 연결 필요.
+
+### 답변 버전 간 동일 클립 영상 연결 · 진행 중
+- 기존 job을 복제/이동하지 않고 동일 생성 조건의 이전 job을 해석해 연결. 조회/중복 생성 차단/확정/연속 참조에 같은 해석 적용. 원본 버전 표시 및 변경 클립 구분. S01 실제 생성 금지. 회귀 테스트 후 모바일/밝은 테마 확인.
+
+- 구현: video_inheritance 공유 해석 추가. 클립/모델 revision/비율/음성/참조 씬/화풍 fingerprint 및 실제 generation_input 비교; 원래job 유지. 조회·일반접수 중복차단·영상확정·재시도·연속 source/hash·작업요약·오디오 합성 적용. source_video는 현재 선택된 원본job 검증.
+- 실행 중 API 읽기 확인: v13 G01 → v12 review inherited=true, changed_clips=G02/G03/G04, 이전 이력2건. 기존 v8/v12 영상 byte수 4,948,182/4,973,135 유지. S01 생성/확정/원본 수정0.
+- UI: v12 영상 이어받음(초록), 계획 변경·새 생성 필요(노랑), 상세설명. 실제 DOM에서 character-picker span이 글자색을 덮는 문제 수정. 모바일 선택 생성/확정 버튼 세로배치로 글자 끊김 제거.
+- 시각 검증: 실제 VideoClipManager를 사용하는 저장/생성 차단 QA fixture, 390×844 및1440×900, 밝음/어두움. 선택/미선택·포커스·생성 비활성·이어받음/변경 안내·상하단 확인. scrollWidth 375/1425로 가로 넘침 없음. 배지padding4/8, 안내padding16/gap12, 모바일 안내293px폭·135~160px높이, 라이트초록#165a38/#dff4e8 및 노랑#785000/#fff0ca, 다크#abebc8/#173c2d 및 #ffe0a0/#493714 확인. 증거 .local/video-inheritance-{mobile-light,mobile-changed,mobile-dark,desktop-dark,desktop-light}.png. fixture 영상 재생은 인증 없는 모의 페이지라 미검증, 실제 저장 영상 bytes/원래job와 API 연결은 읽기검증. 임시페이지 제거·viewport복원·탭종료.
+- 1차 전체 600pass/1fail(기존 연속참조 단위mock이 옛 SQL만 허용). mock 경계 수정 및 버전 간 parentjob/hash 변경 차단 회귀 추가. 집중15통과, ruff/mypy99/typecheck/build 통과. 최종 전체 재실행 중.
+- 완료: 최종 backend 전체602 passed(285.23초), Ruff 통과, mypy99 통과, frontend typecheck/build 통과, git diff --check 통과. 임시 UI 경로 빌드에서 제외. S01 실제 재생성0, 기존 job/영상/과거답변 보존, 커밋·푸시 없음.
+
+### S01·S02 결과 및 원문 접근성 분석 · 진행 중
+- 실제 생성 영상/생성 입력/원본 참조를 읽기 전용 비교. 자료·영상 생성/확정/계획 변경 없음.
+- 분석 완료: 현head13, 실제 S01=v12/785901e0 review 5초, S02=v13/65f09919 review 4초. 로컬 영상/참조 추출 및0/0.5/1/끝1초/끝0.1초 시각 대조. 원문script/scenes/scene_images 계약에 보존됨. UI는 확정 시작 이미지 접힘과 AI 발췌/연결정보만 제공하며 전체 원문 통합확인 부재.
+- S02 약0.5초 얼굴 공개,3~3.9초 긴 몸/다리 생성. 기존 작은 둥근 유령/물결밑단과 불일치, 프롬프트 얼굴·몸 세부 비공개 지시 위반. 실제 WAN payload는 first_frame1장+prompt+audio이며 캐릭터 기준이미지·음성ID·참조음원 별도첨부 없음.
+- S01/S02 audio_plan 전체 정확일치, narrator 기본 특징 동일, 감정만 따뜻함/가벼운놀람. 동일문장 전달은 동일 실제음색 고정이 아님. 현재검수 extract_frames audio_analyzed=false, audio/lipsync unverified강제. 실제 청취/음색 비교는 이 환경에서 미검증이며 사용자 관찰을 독립청취한 것으로 보고하지 않음.
+- 연결: 양쪽cut/previous_clip_id빈값, S01끝프레임 미사용. 좌이루리/우미끄럼틀 방향유지되지만 S01끝미소/팔내림에서 S02놀란표정/가슴앞팔/벌어진자세로 급변, 배경벤치→그네 변화. 계획edit_notes자체가 등장·후퇴 생략을명시. 부드러운동작연결보장아님, 시각점프확인. S02조기유령공개는 S03공개계획도침해.
+- 코드/계획/자료/확정 수정0, 유료호출0, 생성0. 분석전용이라전체검사/모바일시각재검증비대상. 증거 .local/s01-s02-audit/{audit.json,G01-sheet.jpg,G02-sheet.jpg,ghost-comparison.jpg}.
+
+### 생성 당시 자료·WAN 참조 기반 일관성 · 진행 중
+- 사용자 승인: 씬·캐릭터 이미지와 S01 음성을 참조하는 모드. 첫 프레임 완전 고정 아님. 생성 당시 대본/씬/이미지 표시, 실제 비디오 프롬프트 에이전트로 S01~S02 보완 및 검증. 기존 자료 보존·영상 생성0. 계획 docs/superpowers/plans/2026-11-17-video-reference-mode.md.
+- 구현 완료: 생성 당시 자료 패널(대본·씬·실제 입력 이미지·계획 참고 캐릭터)을 영상 옆에 추가. 이어받은 영상과 과거 생성 이력은 원래 job/답변 계약을 조회하며 과거 영상 재생도 제공. 전체 계약/시스템 지침 비노출, workspace·클립·job 경계 및 참조 해시 검증.
+- WAN 참조 모드: 클립별 선택 배열, 사용자 입력과 AI 출력의 정확 일치 검증. 씬+캐릭터 이미지3장, 지정 나레이션 구간만 추출. 접수/워커에서 이미지·원본 영상·WAV 해시 검증. 기존 첫 프레임 계약과 fingerprint 유지. 음성 참조 시 audio=true. 임시 서명 URL은 job/workspace/hash/만료에 바인딩하며 공개 주소를 자동 생성하지 않음.
+- 실제 비디오 프롬프트 에이전트 요청1회 ce47c2c4-9163-4b4e-9fd1-6bcb8e5e4d40 → v14 성공. 수동 답변 보정 없음. S01/S02 참조 모드·반응 컷 연결 보완. audio_plan 전체 정확 일치, 고정 ID/이미지/대사/시간/24초 유지. S03/S04는 새 빈 참조 배열 외 정확 일치. 이전 v1~v13 자료와 기존 영상 job4개/해시 보존. AI 구절 분류 issues=[],complete=true,12/12.
+- 별도 검증 에이전트가 v13/v14 및 S01/S02·유령 기준 이미지를 대조: 계획 연결/공개 시점의 명백한 모순 없음. 기존 실제 영상은 새 계획으로 바뀌지 않음. 실영상의 음색·외형·동작 재현은 미검증. .local/reference-plan-independent-review.md 기록.
+- 실제 입력 로컬 검증: G01/G02 각각 동일한 S01 v12 나레이션0~3.4초 WAV163278bytes/SHA256 일치, 참조 이미지3장 승인·소유권/해시 검증. 외부 미전송. 실제 영상 생성0.
+- 실행 조건: 실제 환경의 음성 참조 HTTPS 주소/서명 키 미설정. 참조 음성 생성 버튼 비활성·‘음성 참조 연결 필요’와 관리자 연결 안내 표시. 참조 모드 첫 프레임 비고정 안내. 배포자가 연결을 설정해야 실제 참조 음성 생성 가능; 기능 실호출/공개 전달/음색 성공은 미검증.
+- UI 검증: 실제 VideoClipManager+생성/저장 API를 차단한 QA fixture. desktop1440×1000/mobile390×844 밝음·어두움, 자료 펼침/접힘·긴 원문·이전 이력 재생기·현재 선택·생성 비활성 확인. 실제 API 원본 조회는 별도 읽기검증; fixture 영상은 poster/모의 응답으로 실제 재생 미검증. 가로넘침0, 모바일panel293px, summary44px, gap12px, desktop 결과368/918px+gap16px. 단일 이미지320px상한/모바일행전체로 개선. .local/reference-{desktop-light,mobile-light,mobile-dark,desktop-dark,final-desktop}.png. 임시 QA route 제거, viewport복원/탭닫음. 16:9 결과는 이번 별도 시각검증 미실시(기존레이아웃 유지).
+- 검증: 전체 backend631 passed(306.71초), 이후 추가·수정 회귀30 passed. focused초기 Windows 임시폴더 권한1error는 내부basetemp재실행 통과. Ruff전체 통과/mypy102통과. frontend typecheck통과, build는 Next.js16.4.3 보안 업데이트 안내로1차중단 후 재확인 중. 자료/생성물 커밋 없음, 커밋·push 미요청.
+- 최종: frontend build 재실행 exit0(임시 QA 경로 제외), typecheck exit0. Next.js16.4.3의 알려진 보안 취약점 업데이트 안내는 남아 있으며 패키지 변경은 이번 범위에서 하지 않음. 코드/UI/계획 보완 완료; 공개 음성 전달 연결과 실제 생성 결과 검증은 위 실행 조건으로 미완료.
+
+### 영상 생성 관리 내부 모델 확인 · 완료
+- 생성 입력만 변경되어 관리 모달에 모델 목록이 빠진 문제 수정. 관리 모달의 제공자 아래 모델 선택·실제 연결 상태·지원 조건·예상 비용을 표시한다. 선택은 조회용이며 작업 설정/자료/생성을 변경하지 않는다.
+- VideoProviderModels가 실제 /video-planning/models 카탈로그를 조회. 제공자별 모델 콤보/상태/해상도/비율/길이/오디오 지원/HF 비용 미리보기 추가. 모델 조회 실패 안내와 명시적 미지원/미설정 상태를 유지. 모달 닫기/제공자 변경 시 폴링 정리. 관리 API/지역키/기존자료 변경0.
+- 실제 로그인 앱 localhost3001에서 작업 관리→영상 생성 관리→Higgsfield 확인(가상 fixture 아님): WAN3.0,720p,2–30초,9:16/16:9,오디오지원,현재 키미설정,5초$0.38 표시. 외부 인증·업로드·생성 요청0. 데스크톱 밝음/어두움 상단~비용/요청상태까지 확인, facts2열/gap12px/체크박스gap8px. 증거 .local/video-management-models-{dark,light}.jpg. 모바일CSS viewport433px/모달378px scrollWidth동일/facts295px1열/입력44px 확인. 모바일 전체 캡처는 CDPtimeout으로 시각미검증. 원래dark테마/viewport복원 및 검증탭닫음.
+
+- 최종 검증: backend pytest667 passed(363.29초), Ruff/mypy104파일 및 frontend typecheck/build 통과. build의 Windows standalone 복사 EPERM은 권한 적용 재실행으로 해결. 기존 Next16.4.3 보안 업데이트 안내는 남아 있으며 의존성 변경 없음. 실제 생성/자료 변경/커밋·push 없음. 모바일 전체 시각검증 제한은 위와 같음.
+
+### 영상 제공자 → 모델 선택 · 완료
+- 사용자 정정: 제공자에서 Higgsfield를 선택하고 내부 모델에서 WAN3.0을 선택한다. 모델 키·기존 설정/자료 보존, 실제 생성 없이 관리 제공자명과 공통 모델 입력 UI를 수정하고 검증한다.
+- 공통 VideoModelInput을 제공자 선택/하위 모델 선택으로 분리. 입력 스키마 허용 목록과 저장값을 유지하고 선택한 제공자의 모델만 표시한다. 기존 wan3/hf-wan3 키 유지, 폴링/마운트 시 기본값 덮어쓰기 없음. 관리 공급자명은 Runway/Alibaba/Higgsfield로 통일. 모델명·비용 제목은 제공자와 분리하며 연결 상태·초록 생성 가능·예상 비용 유지.
+- 프런트 회귀4개/타입검사/build 통과. Ruff전체/mypy104파일 통과. build 최초 Next16.4.3 보안 업데이트 안내 중단 후 동일 명령 exit0; 기존 의존성은 변경하지 않음.
+- 전체 backend pytest667개 통과(357.34초, 프로젝트 내부 basetemp). 실제 외부 AI 호출 없음.
+- 시각 검증: 실제 컴포넌트+가상 API/변경403 fixture에서 Alibaba↔Higgsfield/wan3↔hf-wan3 전환, 관리 제공자명, 비용/초록 상태, 키보드 포커스 확인. 데스크톱 어두움·밝음, CSS viewport1600px, 입력44px/하위padding16px/gap12px 확인. 모바일433px DOM 가로넘침0, 하위351px/모델행1열/gap8px; 모바일 전체 캡처는 CDP timeout 및 native crop으로 시각검증 제한. 증거 .local/provider-selector-desktop-light.jpg. 임시 route삭제/뷰포트·테마복원, 실제 생성/사용자 자료 변경0.
+
+### Higgsfield WAN 3.0 · 구현 완료 / 실계정 생성 미검증
+- Alibaba 유지, 별도 Higgsfield 제공자/자동 참조 업로드/비용 표시 구현 시작. 실제 생성 및 기존 자료 변경 금지. 계획 docs/superpowers/plans/2026-11-20-higgsfield-video.md. 모바일·밝은 테마 및 전체 검사 예정.
+- `hf-wan3` 별도 프로필·인증·상태 조회·결과 다운로드 연결. 기존 Alibaba 지역/키/요청 보존. 기존 WAN 입력 enum은 화면과 서버 검증에서 동일하게 확장하며 저장된 정의·기본값은 변경하지 않음. 신규 템플릿에 두 WAN 경로 추가.
+- 저장된 씬/캐릭터 이미지·선택 WAV 구간·선택 MP4를 워커 예약 및 권한/원본 해시 검증 후 자동 업로드. 외부 HTTPS 음성 공개 주소가 HF에는 불필요. 업로드 저장소에 API 자격 증명 미전달. 업로드 실패와 제출 결과 불확실을 구분하고 요청 ID/멱등 키/기존 자료 유지.
+- 공개 요금 예상 비용: 720p 출력 초당 $0.075, 영상 참조 포함 $0.1493. 모델/길이별 미리보기 및 클립별 합계, 조회 실패를 0으로 표시하지 않음. 모델 선택/비용 조회는 파일 업로드·영상 생성하지 않음. 실제 계정 견적 API는 별도 helper이며 화면은 카탈로그 추정임을 명시.
+- 검증: 전체 backend 수집663개 중640통과,23개는 기존 Windows pytest 공용 임시폴더 접근 오류. 프로젝트 내부 basetemp로 오류23개 모두 재실행 통과(2.63초). 이후 런타임 모델/템플릿 회귀6개 통과. HF 업로드→제출→조회 및 기존 Alibaba 보존 DB 통합2개 통과. Ruff전체/mypy104파일 통과. 실제 인증·업로드·유료 영상 생성0.
+- 브라우저: 생성/저장을403차단한 실제 공통컴포넌트 QA fixture. 데스크톱 어두운 관리 모달/모델 행, 모바일 밝은 테마 비용·인증완료 초록상태·관리모달, 미설정/비용오류/영상참조 선택·미선택 확인. 모바일 CSS viewport433px(사용자 확대율 유지), 가로넘침0, checkbox20px/gap8px/중앙정렬, 입력44px, 모델행gap8px. 데스크톱 CSS viewport1600px, 행grid/gap8px/넘침0. 증거 .local/higgsfield-qa/mobile-light-{cost,management}.jpg. 하단 클립 결과 전체와 데스크톱 밝은 전체는 캡처 도구 지연으로 시각 미검증. viewport/테마 복원, QA탭닫음, 임시route삭제.
+- 사용 준비: 서버에 ASA_HIGGSFIELD_API_KEY 등록 및 API/영상 워커에 같은 환경 적용 필요. 실제 계정 인증·파일 업로드·영상 결과는 사용자가 생성 테스트할 때 별도 확인. 다른 Higgsfield 모델은 모델별 계약 검증 후 추가해야 하며 이번 지원은 WAN3.0. 기존 사용자 자료/영상/설정 변경 없음. 커밋·push 미요청.
+- frontend typecheck/build 최종 exit0, 비용 회귀2개 통과, QA route 빌드 제외 확인. 초기 standalone 복사 EPERM은 권한 적용 재실행으로 해결. 기존 Next16.4.3 보안 경고가 출력되었으며 이번 작업에서 의존성 변경하지 않음.
+
+### Higgsfield 복수 모델·참조 지원·요금 안내 · 완료
+- 공식 모델별 계약에 따라 WAN 유지+Seedance2.5/2.0/Kling4.0(720p) 추가. 모델별 참조 지원·요금 안내, 길이는 계획AI 결정/사용자 클립 계획 확정이며 관리화면은 접힌 요금 계산기로 분리. 기존 자료/계획/영상 변경 및 실제 생성 없음.
+
+- 구현: 제공자 내 WAN3/Seedance2.5/Seedance2.0/Kling4 네 모델 선택. 서버 카탈로그/런타임 입력 허용 목록/실제 요청 adapter를 함께 확장. 기존 저장 정의·모델 스냅샷은 변경 없음. 모델별 I2V/R2V 필드 및 최소/최대 길이 검증, Kling 음성 입력 사전 차단/클립 비활성 사유 표시. 계획 지침에도 지원 조건과 길이 판단 흐름 전달.
+- 초당 기본/영상 참조 요금 상시 표시, 조회용 요금 계산기는 기본 접힘. 실제 생성 길이는 계획 AI가 제안하고 사용자가 클립 계획 확정/AI 수정 요청으로 검토. 관리 선택·계산기는 저장되지 않으며 자료 업로드/실제 생성0.
+- 실제 앱 UI 검증: 작업관리→영상생성관리→Higgsfield, 네 모델 목록 및 각 전환/지원 조건/미설정 상태 확인. Seedance2.5 5초 기본$1.32/영상참조$1.63 확인. Kling 음성 참조 미지원 확인. 밝음·어두움, 계산기 접힘/펼침·체크선택·키보드 포커스, 상단과 하단 실제 화면 확인. desktop패널669px/gap12, 참조배지gap8/중앙정렬, 입력44px. 모바일CSS433px 패널296px/scrollWidth296px/1열/입력44px. 모바일전체스크린샷 CDPtimeout으로 전체시각미검증. viewport reset/원래dark테마복원/검증탭닫음. 증거 .local/hf-models-{dark,light,light-selection}.jpg.
+- 검증: 전체 backend672 passed(321.71초), 신규/기존 모델 집중30통과, frontend typecheck/build통과. 기존 Next16.4.3 보안업데이트 안내 후 빌드재실행exit0; 의존성 변경 없음. 실제 계정 모델권한/업로드/생성은 미검증(키 미설정). 기존자료·영상 변경/커밋·push 없음.
+- 최종 재확인: 프런트 모델 선택·비용 회귀4개, Ruff전체, mypy105파일 통과. git diff --check 통과(기존 파일 CRLF 경고 제외).
+
+## 2026-11-20 · 모델별 해상도와 사용자 세부설정 (진행 중)
+- 720p 하드코딩을 확인. Higgsfield 공식 모델별 해상도/영상 참조 유무별 단가를 분리하고, 기존 720p 프로필과 생성 스냅샷은 보존한다.
+- 관리자의 사용자 세부설정 표시 토글(기본 꺼짐), 관리 화면 요금 비교, 사용자 모델/해상도 선택을 연결한다. 이 토글은 입력 UI 노출 설정이며 기존 계획의 해상도를 변경하지 않는다.
+- 실제 생성/파일 업로드/유료 호출 없음. 기존 자료 변경 없음. 해상도 요청·요금 테스트 5건 실패 확인 후 구현, 관련 35건 통과. 전체 검사와 UI 검증 진행 중.
+
+### 모델별 해상도 작업 완료 기록
+- Higgsfield WAN 3.0/Seedance 2.5: 480p·720p·1080p, Seedance 2.0: 480p·720p·1080p·4K, Kling 4.0: 720p·1080p. 모델별 공식 공개 단가와 영상 참조 유무에 따라 비용 추정. 같은 모델은 목록에서 한 번만 표시하고 해상도를 별도 선택한다.
+- 기존 720p 모델 프로필 키/생성 스냅샷 불변, 추가 해상도는 독립 프로필. 선택한 해상도 → 계획 제약 → 생성 입력 → 공급자 payload까지 일치 검증. Alibaba 직접 연결/Runway 기존 계약 유지.
+- 관리자 사용자 세부설정 허용은 기본 꺼짐. 사용자 입력의 해상도 선택만 노출 제어하며 기존 선택값은 표시·보존. 관리 화면은 항상 조회용 해상도/요금 비교 가능. workspace 및 관리자 권한, revision 충돌, 구버전 클라이언트 필드 누락 시 보존 테스트 추가.
+- 개발 DB는 표시 설정 컬럼만 추가(기본 false). 사용자 설정/계획/자산/영상은 변경하지 않음. 실제 생성·인증 호출·업로드 없음.
+- 검증: 전체 backend pytest 678 passed/321.36초. 이후 확장한 해상도·표시 정책 검사 9 passed(추가 해상도 3건 포함). ruff 통과, mypy 105 files 통과. frontend typecheck/build 통과, 모델 선택/비용 JS 5 passed. git diff --check 통과. 기존 두 Any 반환 mypy 오류는 명시적 반환 타입/사전 변환으로 수정.
+- build 최초 실행은 기존 Next 16.4.3 일회성 SecurityFatalError 안내로 종료, 동일 명령 재실행 성공. 패키지 변경 없음.
+- 실제 Chrome: 데스크톱 CSS 1600px 밝은/어두운 테마, 모델/해상도 선택·포커스·계산기 열림/닫힘·API 키 미설정 표시 확인. Seedance 2.0 4K 출력 초당 $0.8907, 영상 참조 $1.0669/초, 5초 $4.45 표시 확인. 모델/해상도 입력 동일 x·너비, 높이 약44px, label gap8px, 가로 넘침 없음.
+- 모바일 viewport390×844(기존 사용자 배율 그대로, DOM CSS width433): 입력 x52.11/너비295.78/높이43.99, gap8, 정보1열, 가로 넘침 없음. 모바일 스크린샷은 CDP capture timeout으로 육안 미검증. 관리자 토글 ON 사용자 폼의 실제 브라우저 상태는 운영 설정을 임의 저장하지 않아 미검증(조건부 렌더링 구현 및 정책 통합 테스트 확인). UI 전체 검증 완료로 간주하지 않음.
+- 증거: .local/resolution-light.jpg, .local/resolution-dark.jpg. 테마 dark와 viewport를 복원하고 검증 탭 종료. 커밋·push 없음.
+
+## 2026-11-20 · 사용자/관리자 영상 설정 우선순위 수정 (진행 중)
+- 사용자 요청에 따라 표시 토글을 실제 적용 정책으로 변경. ON 사용자 길이·해상도, OFF 모델별 관리자 기본값. 접수 스냅샷으로 고정, 기존 자료/실제 영상 생성 없음. 우선순위·출력 불일치 거부 테스트 실패 확인 후 구현. 브레인스토밍은 사용자 지정 동작을 기준으로 최소 변경 경로를 검토하고 추가 승인 없이 진행.
+
+### 사용자/관리자 영상 설정 우선순위 · 완료
+- ON: 사용자가 모델 지원 길이(또는 AI 자동 판단)·해상도 선택. 관리자 기본값 미적용. OFF: 모델별 관리자 기본값을 서버에서 적용. 관리 화면에 기본 길이·해상도 및 명시적 저장 버튼 제공. 사용자 선택은 토글 전환으로 덮어쓰지 않음.
+- 답변 접수 시 적용 출처/정책 revision/모델/해상도/길이 스냅샷 고정. 사용자 원본 입력 보존. AI 출력·수동 계획 저장·영상 접수 불일치 거부. 기존 요청/스냅샷 없는 답변 보존, 클립 수정은 부모 설정 상속. 로컬 DB는 model_defaults 컬럼만 추가, 정책/사용자 자료 저장·AI 호출·영상 생성·업로드 없음.
+- 최종 검증: 전체 backend pytest 686 passed(331.32초). 마지막 수동 저장/접수 검증 보강 후 관련 설정·클립 수정·재시도 9 passed. Ruff 전체 통과, mypy106파일 통과. frontend typecheck/build 통과, 모델 선택·비용 JS5통과. git diff --check 통과. 빌드 기존 SecurityFatalError 안내 후 동일 명령 재실행 exit0; 의존성 변경 없음.
+- 브라우저 실제 공통 컴포넌트의 격리 QA: OFF 관리자1080p5초, ON 사용자480p8초 → 사용자720p10초($0.75), 관리자480p6초로 로컬 fixture 저장 후 OFF480p6초/ON720p10초 복원 검증. 운영 설정·자료 변경 차단. 모바일 AI 자동 판단 선택도 확인.
+- 데스크톱 CSS1600px 밝음/어두움: 입력 동일 x424.22/폭734.90/높이43.99px, label gap8px, 넘침 없음. 모바일390×844(사용자 배율 유지 CSS433px) 밝음/어두움 DOM: x32.55/폭351.56/높이43.99px/gap8px/넘침 없음. 모바일 캡처 CDP timeout으로 육안 검증 미완료. 전체 시각 검증 완료로 보고하지 않음. 증거 .local/video-policy-light.jpg. 임시 route 삭제, 검증 탭 닫음·viewport복원. 커밋·push 없음.
+
+## 2026-11-20 · 모바일 실제 화면 확인 및 누적 작업 커밋 (진행 중)
+- 모바일 밝음/어두움 실제 렌더링과 설정 ON/OFF, 관리 기본값 입력을 확인한 뒤 누적 기능 코드·테스트·문서만 커밋·푸시. 사용자 자료·비밀값·로컬 검증 산출물 제외. 실제 생성 없음.
+- 모바일 실제 화면 검증 완료: Chrome 내부 390×844 iframe 뷰포트 두 개에서 실제 공통 컴포넌트의 밝음/어두움 상단~하단 렌더링을 육안 확인. 물리 모바일 기기 검증은 아님. 기존 확대율 유지. 사용자 ON 해상도·고정/자동 길이, OFF 관리자1080p5초 표시, 관리자 기본값 입력·저장 버튼, 참조 배지, 계산기 접힘/펼침·체크/미체크·포커스·긴 안내문 확인. 운영 설정 저장/영상 생성/외부 호출은 fixture에서 차단.
+- 입력 높이43.99px, 사용자 모델·해상도·길이 동일 x32.55/너비307.12px, 관리자 입력 x16/너비340.23px, label gap8px. 계산기 checkbox gap8px/center. 본문 scrollWidth/clientWidth372px 일치. 넘침·잘림·겹침 없음. 추가 제품 스타일 수정 불필요. 증거 .local/mobile-policy-{on,off,admin,cost}.jpg. 임시route삭제·검증탭닫음. 사용자 설정·테마 저장 변경 없음.
+- 누적 작업 포함: 영상 검수/클립 수정·재시도·이력 상속·진행/참고자료 UI, 음성·캐릭터 참조, WAN리전, Higgsfield다중모델/해상도/요금, 사용자/관리자 적용 정책 및 테스트·문서 128파일. 사용자 자산·비밀값·캐시·검증이미지는 Git 제외. 기존 staged 없음, 비밀값 패턴 검사 일치 없음. 직전 전체 backend686통과+최종관련9통과, Ruff/mypy/typecheck/build 통과 결과 유지. 이번에는 임시검증route제거 후 frontend최종build와 JS검사를 재확인.
+- 커밋 직전 검증 완료: frontend JS85개 통과(TypeScript parameter property를 포함하므로 --experimental-transform-types 사용), 최종 build exit0/임시QA route제외, typecheck 통과. Ruff전체 및 mypy106파일 재확인 통과. frontendbuild 초기 기존 Next SecurityFatalError 안내 후 동일 명령 재실행 성공. 백엔드 제품 코드 변경이 없어 직전 전체686통과 결과를 유지한다. 누적 작업은 현재 codex/clip-plan-actions 브랜치로 커밋·push한다.

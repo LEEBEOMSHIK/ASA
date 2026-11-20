@@ -57,6 +57,7 @@ def make_agent_generator(
         from asa.registry.video_planning import planner_constraints
 
         video_constraints = planner_constraints(settings, contract)
+        revision_clip_id = contract.get('revision_clip_id')
         attachments = []
         if reference_repo is not None:
             from asa.registry.review_connection import validate_review_model
@@ -70,7 +71,7 @@ def make_agent_generator(
                                              settings))
             if attachments:
                 validate_review_model(settings, {})
-        schema = contract['output_schema']
+        schema = contract.get('clip_output_schema', contract['output_schema'])
         scene_plan = {'shots', 'checks', 'summary'} <= set(schema.get('properties', {}))
         model = init_chat_model(
             settings.ai_model, model_provider=settings.ai_provider,
@@ -100,7 +101,8 @@ def make_agent_generator(
             envelope['required'].append('timing_plan')
         text = json.dumps({key: contract[key] for key in
                            ['original_request', 'previous_answer', 'revision_request',
-                            'input_schema', 'video_voice_directions'] if key in contract},
+                            'input_schema', 'video_voice_directions', 'revision_clip_id',
+                            'effective_clip_revision_audio'] if key in contract},
                           ensure_ascii=False)
         human: Any = (HumanMessage(content=[{'type': 'text', 'text': text}, *attachments])
                       if attachments else ('human', text))
@@ -120,6 +122,7 @@ def make_agent_generator(
             messages.insert(1, ('system', INSTRUCTIONS))
         if video_constraints:
             messages.insert(1, ("system", video_constraints))
+        if video_constraints and not revision_clip_id:
             messages.insert(2, ('system',
                 '모든 클립에 source_start_seconds와 source_end_seconds를 숫자로 출력하세요. '
                 '원본 타임라인의 시작·종료 초이며 duration_seconds(생성 길이)와 구분합니다. '
@@ -130,11 +133,11 @@ def make_agent_generator(
                 'edit_notes 등에 해당 길이 제한 안에서 적으세요. '
                 '반환 직전 required와 maxLength를 확인하세요. 출력 계약: '
                 + json.dumps(schema, ensure_ascii=False)))
-        if 'video_voice_directions' in contract:
+        if 'video_voice_directions' in contract and not revision_clip_id:
             from asa.voice_directions import INSTRUCTIONS
 
             messages.insert(2, ('system', INSTRUCTIONS))
-        if contract.get('video_quality_version') == 1:
+        if contract.get('video_quality_version') == 1 and not revision_clip_id:
             from asa.video_plan_quality import INSTRUCTIONS as QUALITY_INSTRUCTIONS
 
             messages.insert(2, ('system', QUALITY_INSTRUCTIONS))
@@ -154,6 +157,10 @@ def make_agent_generator(
                 "참고용 인물을 장면에 추가하지 말고 참고 목적을 image_prompt에 명시하세요. "
                 "대본·장면에서 소품을 가져가거나 돌려주는 것은 동일 소품의 이동이며 "
                 "소유자가 달라졌다는 이유로 충돌로 판단하지 마세요. 원문은 변경하지 마세요."))
+        if revision_clip_id:
+            from asa.video_clip_revision import INSTRUCTIONS as CLIP_REVISION_INSTRUCTIONS
+
+            messages.insert(-1, ('system', CLIP_REVISION_INSTRUCTIONS))
         if video_constraints and settings.ai_provider == 'openai':
             from asa.output_validation import strict_output_schema
 
@@ -184,6 +191,37 @@ def make_agent_generator(
             plan = SceneTimingPlan.model_validate(result.get('timing_plan'))
             timing_settings(plan, settings.audio_timing_model_key, settings.audio_timing_voice)
             timing = plan.model_dump(mode='json')
-        return AgentAnswer(value=result['value'], timing_plan=timing)
+        review = None
+        if revision_clip_id:
+            from asa.video_clip_revision import merge_clip_revision
+
+            merged = merge_clip_revision(contract, result['value'])
+        else:
+            merged = result['value']
+        if video_constraints:
+            from asa.audio_contracts import AudioSettings
+            from asa.telemetry import trace_review
+            from asa.video_contracts import VideoPreparation
+            from asa.video_review import classify, sources
+            from asa.voice_directions import apply_snapshot
+
+            # An optional human-review failure must never destroy an already valid plan.
+            try:
+                video_plan = VideoPreparation.model_validate(merged)
+                audio = video_plan.audio_plan
+                if revision_clip_id:
+                    audio = AudioSettings.model_validate(contract['effective_clip_revision_audio'])
+                elif 'video_voice_directions' in contract:
+                    audio = AudioSettings.model_validate(apply_snapshot(
+                        merged.get('audio_plan', {}), contract['video_voice_directions']))
+                texts = sources(merged, audio)
+                if revision_clip_id:
+                    texts = {key: texts[key] for section in ('prompt', 'edit_notes', 'voice')
+                             if (key := f'{revision_clip_id}:{section}') in texts}
+                with trace_review(settings):
+                    review = classify(model, texts)
+            except Exception:
+                review = {'sections': []}
+        return AgentAnswer(value=result['value'], timing_plan=timing, review_annotations=review)
 
     return generate

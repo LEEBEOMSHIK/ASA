@@ -83,20 +83,29 @@ def validate_definition(
                     or any(not body.strip() for body in modules.style_instructions.values())):
                 issue("prompt_style_missing", path,
                       "자동 선택은 세 가지 스타일의 지침이 모두 필요합니다.")
-    link = draft.after_tasks.image_review
-    if link:
-        target = catalog.get(link.agent_ref)
-        if (not target or target.get("kind") != "agent"
-                or target.get("agent_id") == agent_id):
-            issue("review_agent", "after_tasks.image_review",
-                  "등록된 이미지 검수 에이전트를 선택하세요.")
+    for kind in ('image_review', 'video_review'):
+        link = getattr(draft.after_tasks, kind)
+        if link:
+            target = catalog.get(link.agent_ref)
+            if (not target or target.get("kind") != "agent"
+                    or target.get("agent_id") == agent_id):
+                issue("review_agent", f"after_tasks.{kind}",
+                      "등록된 검수 에이전트를 선택하세요.")
 
     if draft.model_profile != "default":
         issue("model_profile", "model_profile", "등록된 서버 모델 프로필을 선택하세요.")
 
     def validate_schema(node: Any, path: str, depth: int, counter: list[int]) -> None:
-        if depth > 5:
-            issue("schema_depth", path, "중첩 깊이는 5 이하여야 합니다.")
+        # Video plans include clips -> reference inputs -> bounded audio segments.
+        # Keep ordinary forms at five levels; only structured video output needs eight.
+        input_properties = draft.input_schema.get('properties', {})
+        video_output = (path.startswith('output_schema')
+                        and isinstance(input_properties, dict) and any(
+            value.get('x-video-model') is True
+            for value in input_properties.values() if isinstance(value, dict)))
+        maximum_depth = 8 if video_output else 5
+        if depth > maximum_depth:
+            issue("schema_depth", path, f"중첩 깊이는 {maximum_depth} 이하여야 합니다.")
             return
         if not isinstance(node, dict):
             issue("schema_type", path, "스키마 객체가 필요합니다.")

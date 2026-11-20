@@ -24,14 +24,23 @@ def reference_valid(row: dict[str, Any], by_clip: dict[str, dict[str, Any]],
                 and reference_valid(parent, by_clip, seen | {clip_id}))
 
 
+def resolved_video(conn: Any, workspace: Any, request: Any, version: int,
+                   clip_id: str) -> dict[str, Any] | None:
+    from asa.registry.video_inheritance import selected_job
+    selected = selected_job(conn, workspace, request, version, clip_id)
+    if not selected or selected['status'] != 'approved':
+        return None
+    row: dict[str, Any] | None = conn.execute(
+        'SELECT id,video,generation_input,request_id,answer_version FROM video_clip_jobs '
+        'WHERE workspace_id=%s AND request_id=%s AND id=%s AND status=%s '
+        'AND superseded_by IS NULL',
+        (workspace, request, selected['id'], 'approved')).fetchone()
+    return row
+
+
 def approved_source(conn: Any, workspace: Any, request_id: Any, version: int,
                     clip_id: str) -> dict[str, Any]:
-    row = conn.execute(
-        "SELECT id,video,generation_input,request_id,answer_version FROM video_clip_jobs "
-        "WHERE workspace_id=%s AND request_id=%s "
-        "AND answer_version=%s AND clip_id=%s AND status='approved'",
-        (workspace, request_id, version, clip_id),
-    ).fetchone()
+    row = resolved_video(conn, workspace, request_id, version, clip_id)
     if not row or not row["video"]:
         raise ValueError("video_previous_approval_required")
     if row.get("generation_input", {}).get("connection_type") == "continue":
@@ -44,12 +53,8 @@ def source_video(conn: Any, workspace: Any, row: dict[str, Any], depth: int = 0)
     if depth >= 100:
         raise ValueError("video_previous_reference_changed")
     spec = row["generation_input"]
-    parent = conn.execute(
-        "SELECT id,video,generation_input,request_id,answer_version FROM video_clip_jobs "
-        "WHERE workspace_id=%s AND request_id=%s "
-        "AND answer_version=%s AND clip_id=%s AND status='approved'",
-        (workspace, row["request_id"], row["answer_version"], spec["previous_clip_id"]),
-    ).fetchone()
+    parent = resolved_video(conn, workspace, row['request_id'], row['answer_version'],
+                            spec['previous_clip_id'])
     if (not parent or not parent["video"]
             or str(parent["id"]) != spec.get("source_job_id")
             or hashlib.sha256(bytes(parent["video"])).hexdigest()

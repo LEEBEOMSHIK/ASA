@@ -28,7 +28,7 @@ export type Definition = {
   name: string; description: string; instructions: string; model_profile: string;
   requires_approval?: boolean;
   purpose?: "general" | "image_review";
-  after_tasks?: {scene_timing?:boolean;image_review?: {agent_ref: string; mode: "manual" | "automatic"} | null};
+  after_tasks?: {scene_timing?:boolean;image_review?: {agent_ref: string; mode: "manual" | "automatic"} | null;video_review?: {agent_ref:string;mode:"manual"}|null};
   provider?: "openai" | "anthropic" | null; model?: string | null;
   input_schema: SchemaNode; output_schema: SchemaNode; tools: string[];
   limits: { model_calls: number; tool_calls: number; depth: number; seconds: number };
@@ -82,6 +82,12 @@ export function message(error: unknown): string {
     work_visual_plan_changed: "작품의 영상 유형이나 화풍이 변경됐습니다. 최신 공통 설정으로 비디오 프롬프트를 다시 요청해 주세요.",
     video_model_changed: "영상 모델 설정이 바뀌었습니다. 새 설정으로 계획을 작성해 주세요.",
     video_model_unavailable: "선택한 영상 모델을 사용할 수 없습니다.",
+    video_reference_video_missing: "참조 영상을 찾을 수 없습니다. 이 작업에 연결된 완료 영상을 다시 확인해 주세요.",
+    video_reference_video_invalid: "참조 영상의 완료 상태나 파일을 확인할 수 없습니다.",
+    video_reference_video_source_changed: "참조 영상의 버전 또는 파일이 변경되었습니다. 계획에서 참조 자료를 다시 확인해 주세요.",
+    video_reference_audio_unsupported: "선택한 모델은 음성 파일 참조를 지원하지 않습니다. 음성 참조 지원 모델을 선택해 주세요.",
+    video_reference_mode_unsupported: "선택한 영상 모델은 이 참조 방식으로 생성할 수 없습니다.",
+    video_reference_configuration_mismatch: "계획의 참조 자료와 요청에서 선택한 자료가 다릅니다. 계획을 다시 확인해 주세요.",
     video_prompt_limit: "클립의 시작·종료 모습을 포함한 영상 지시 길이를 확인해 주세요.",
     video_scene_reference_mismatch: "클립의 원본 장면·컷과 선택한 확정 이미지가 일치하지 않습니다.",
     video_review_changed: "확정할 영상 상태가 바뀌었습니다. 새로고침해 주세요.",
@@ -89,6 +95,8 @@ export function message(error: unknown): string {
     video_previous_reference_changed: "앞 영상의 확정 버전이 바뀌었습니다. 클립 연결을 다시 검토해 주세요.",
     video_frame_extraction_failed: "앞 영상의 마지막 프레임을 추출하지 못했습니다. 다음 영상은 생성하지 않았습니다.",
     video_duration_unsupported: "선택한 영상 모델이 지원하는 길이로 클립을 조정해 주세요.",
+    video_settings_mismatch: "AI 영상 계획이 적용된 모델·길이 설정과 일치하지 않습니다. 기존 입력으로 다시 요청해 주세요.",
+    video_defaults_invalid: "관리자 영상 기본값이 현재 모델과 맞지 않습니다. 영상 생성 관리에서 다시 저장해 주세요.",
     video_link_invalid: "YouTube·Shorts 또는 Instagram Reels의 HTTPS 링크를 입력하세요.",
     video_upload_invalid: "MP4·MOV·WebM 영상 파일을 20MB 이하로 올려 주세요.",
     video_link_unavailable: "영상을 읽지 못했습니다. 공개 링크인지 확인하거나 파일로 올려 주세요.",
@@ -99,7 +107,8 @@ export function message(error: unknown): string {
     category_conflict: "다른 관리자가 분류를 변경했습니다. 최신 목록을 불러왔으니 다시 시도해 주세요.",
     category_agent_missing: "에이전트 목록이 변경되었습니다. 다시 확인해 주세요.",
     review_image_required: "이미지 검수 에이전트는 캐릭터 이미지 결과의 AI 검수 요청으로 실행하세요.",
-    review_not_configured: "이 작업의 에이전트 등록 버전에 이미지 검수 연결이 없습니다. 설정에서 연결한 새 버전으로 시작하세요.",
+    review_not_configured: "검수 에이전트가 연결되지 않았습니다. 에이전트 설정에서 검수 에이전트를 선택하고 저장하세요.",
+    review_disabled: "검수 에이전트 사용이 꺼져 있습니다. 기존 검수 기록은 유지됩니다.",
     review_already_running: "이 이미지의 AI 검수가 이미 대기하거나 진행 중입니다.",
     image_not_configured: "이미지 API 실행을 활성화하고 서버 키를 확인해 주세요.",
     image_model_not_allowed: "서버에서 허용한 이미지 모델을 선택해 주세요.",
@@ -144,7 +153,7 @@ export function message(error: unknown): string {
     login_rate_limited: "로그인 시도가 많습니다. 1분 후 다시 시도하세요.",
     review_model_image_unsupported: "선택한 모델은 이미지 입력을 지원하지 않습니다. 연결할 에이전트의 모델을 바꾸고 새 버전을 등록하세요.",
     review_model_image_unknown: "공식 문서에서 이 모델의 이미지 입력 지원 여부를 확인하지 못했습니다. 지원이 확인된 모델로 변경하거나 잠시 후 다시 확인하세요.",
-    review_tools_unsupported: "연결한 에이전트에 별도 도구가 설정되어 있습니다. 현재 이미지 검수에서는 연결 도구 실행을 지원하지 않으므로 도구를 해제한 버전을 선택하세요.",
+    review_tools_unsupported: "연결한 에이전트에 별도 도구가 설정되어 있습니다. 이미지·영상 검수에서는 연결 도구 실행을 지원하지 않으므로 검수 에이전트의 도구를 해제하고 저장하세요.",
     owner_login_unconfigured: "로컬 소유자 로그인 설정이 필요합니다.",
     registry_database_unavailable: "저장소 연결 또는 초기화가 필요합니다. 입력은 유지됩니다.",
     login_required: "로그인이 만료되었습니다. 현재 입력을 보관한 뒤 다시 로그인하세요.",
@@ -154,7 +163,9 @@ export function message(error: unknown): string {
     retry_input_required: "최신 에이전트 설정에 필요한 입력이 달라졌습니다. 재요청 입력 확인·수정에서 필수 항목과 값의 형식을 확인하세요.",
     invalid_work_input: "입력 형식이 에이전트 설정과 맞지 않습니다. 필수 항목과 값의 형식을 확인하세요.",
     work_conflict: "이미 저장된 요청과 내용이 다릅니다. 작업 이력을 확인한 후 새 작업을 시작하세요.",
-    video_plan_approval_required: "최신 영상 계획을 확인하고 확정한 뒤 클립을 생성해 주세요.",
+    video_clip_plan_approval_required:"선택한 모든 클립의 계획을 먼저 확인·확정해 주세요.",
+  video_clip_plan_changed:"확인 중 클립의 제작 설정이 변경되었습니다. 상태를 새로고침하고 다시 검토해 주세요.",
+  video_plan_approval_required: "최신 영상 계획을 선택한 뒤 진행해 주세요.",
     video_start_image_review_required: "클립의 시작 이미지가 부적합하거나 확인되지 않았습니다. 영상 계획의 이미지 검토 사유를 확인하고 시작 이미지를 연결해 다시 요청해 주세요.",
     video_voice_description_required: "AI가 자동 화자의 구체적인 목소리 특징을 작성하지 않았습니다. 기존 입력으로 다시 요청해 주세요.",
     script_revision_conflict: "대본이 다른 화면에서 변경되었습니다. 입력은 유지됩니다. 내용을 복사한 뒤 최신 버전을 다시 불러오세요.",

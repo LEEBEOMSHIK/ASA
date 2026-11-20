@@ -1,4 +1,12 @@
 :root {
+  --review-context-opacity:.42;
+  --review-voice-fg:#9d286d; --review-voice-bg:#fce7f3;
+  --review-music-fg:#685000; --review-music-bg:#fff3c5;
+  --review-composition-fg:#205ab4; --review-composition-bg:#e6efff;
+  --review-expression-fg:#8a4400; --review-expression-bg:#fff0dc;
+  --review-gaze-fg:#6832aa; --review-gaze-bg:#f0e8ff;
+  --review-action-fg:#146342; --review-action-bg:#e0f4e9;
+  --review-camera-fg:#12636c; --review-camera-bg:#ddf5f6;
   --nav-red-fg:#9f2438; --nav-red-bg:#fde8ec;
   --nav-orange-fg:#8a4400; --nav-orange-bg:#fff0dc;
   --nav-green-fg:#146342; --nav-green-bg:#e0f4e9;
@@ -26,6 +34,13 @@
   --font-body: 1rem; --font-small: .875rem; --font-heading: 1.5rem; --font-title: 2rem;
 }
 :root[data-theme="dark"] {
+  --review-voice-fg:#ffb6de; --review-voice-bg:#48253c;
+  --review-music-fg:#f2df8f; --review-music-bg:#3c3519;
+    --review-composition-fg:#a7ccff; --review-composition-bg:#203552;
+    --review-expression-fg:#ffd099; --review-expression-bg:#46321d;
+    --review-gaze-fg:#d7b5ff; --review-gaze-bg:#392950;
+    --review-action-fg:#9ee4bd; --review-action-bg:#193c2d;
+    --review-camera-fg:#96e3e6; --review-camera-bg:#173c40;
     --nav-red-fg:#ffb6c1; --nav-red-bg:#482631;
     --nav-orange-fg:#ffd099; --nav-orange-bg:#46321d;
     --nav-green-fg:#9ee4bd; --nav-green-bg:#193c2d;
