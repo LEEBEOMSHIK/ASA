@@ -10,10 +10,42 @@ import styles from "./video-comparison.module.css";
 type Catalog = { models: { provider: string; model: string }[]; enabled: boolean; key_configured: boolean; worker_online: boolean };
 const money = (value: number) => `₩${Math.round(value).toLocaleString("ko-KR")}`;
 
-export function VideoComparison() {
+export function useVideoCostComparison() {
   const [seconds, setSeconds] = useState(60);
   const [exchange, setExchange] = useState("1325");
   const [baselineId, setBaselineId] = useState("seedance25");
+  const validRate = Number.isFinite(Number(exchange)) && Number(exchange) > 0;
+  const rate = validRate ? Number(exchange) : 1325;
+  const rows = videoCandidates.map(candidate => ({ ...candidate, ...estimateVideoCost(candidate, seconds, rate) })).sort((a, b) => a.won - b.won);
+  const baseline = rows.find(row => row.id === baselineId) ?? rows[0];
+  const cheapest = rows[0];
+  const durationLabel = seconds < 60 ? `${seconds}초` : `${seconds / 60}분 (${seconds}초)`;
+  return { seconds, setSeconds, exchange, setExchange, baselineId, setBaselineId, rows, baseline, cheapest, durationLabel, validRate };
+}
+
+type CostComparison = ReturnType<typeof useVideoCostComparison>;
+
+export function VideoCostControls({ cost }: { cost: CostComparison }) {
+  const { seconds, setSeconds, exchange, setExchange, baselineId, setBaselineId, validRate } = cost;
+  return <section className={styles.controls} aria-label="비용 비교 조건">
+      <label>완성 영상 1편의 목표 길이<select value={seconds} onChange={event => setSeconds(Number(event.target.value))}><option value={30}>30초</option><option value={60}>1분</option><option value={180}>3분</option><option value={300}>5분</option></select></label>
+      <label>차액 비교 기준<select value={baselineId} onChange={event => setBaselineId(event.target.value)}>{videoCandidates.map(model => <option value={model.id} key={model.id}>{model.name}</option>)}</select></label>
+      <label>환산 기준 · 원 / 1달러<input type="number" min="1" step="1" value={exchange} onChange={event => setExchange(event.target.value)} aria-invalid={!validRate} /><small>{validRate ? "실시간 환율 아님 · 비교용으로 조정할 수 있어요" : "양수를 입력하세요. 현재 계산은 1,325원 기준입니다."}</small></label>
+    </section>;
+}
+
+export function VideoCostSummary({ cost }: { cost: CostComparison }) {
+  const { seconds, baseline, cheapest, durationLabel } = cost;
+  return <section className={styles.highlights} aria-label="비용 차이 요약">
+      <article><span>비교 기준 · {baseline.name}</span><strong>{money(baseline.won)}</strong><small>{seconds}초 제작 · {baseline.clips}개 클립</small></article>
+      <article className={styles.saving}><span>자료상 최저 예상 비용 · {cheapest.name}</span><strong>{money(cheapest.won)}</strong><small>{durationLabel} 영상 1편 · {cheapest.clips}개 클립<br/>{baseline.won > cheapest.won ? `기준보다 ${money(baseline.won - cheapest.won)} 낮음 · ${Math.round((1 - cheapest.won / baseline.won) * 100)}% 절감` : "현재 비교 기준이 자료상 최저 비용입니다."}</small></article>
+      <article><span>가격 외에 비교할 차이</span><strong className={styles.feature}>10초 vs 15초 클립</strong><small>{seconds}초 기준 {Math.ceil(seconds / 10)}개 vs {Math.ceil(seconds / 15)}개 · 긴 클립은 연결할 구간이 적습니다.</small></article>
+    </section>;
+}
+
+export function VideoComparison() {
+  const cost = useVideoCostComparison();
+  const { seconds, rows, baseline, cheapest, durationLabel } = cost;
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(["runway", "seedance25", "wan"]);
   const [catalog, setCatalog] = useState<Catalog | null>(null);
@@ -26,25 +58,15 @@ export function VideoComparison() {
     finally { setLoading(false); }
   }
   useEffect(() => { void refresh(); }, []);
-  const validRate = Number.isFinite(Number(exchange)) && Number(exchange) > 0;
-  const rate = validRate ? Number(exchange) : 1325;
-  const rows = videoCandidates.map(candidate => ({ ...candidate, ...estimateVideoCost(candidate, seconds, rate) })).sort((a, b) => a.won - b.won);
-  const baseline = rows.find(row => row.id === baselineId) ?? rows[0];
-  const cheapest = rows[0];
   const maximum = rows[rows.length - 1].won;
   const shown = rows.filter(row => `${row.name} ${row.family}`.toLowerCase().includes(query.toLowerCase()));
   const details = rows.filter(row => selected.includes(row.id));
-  const durationLabel = seconds < 60 ? `${seconds}초` : `${seconds / 60}분 (${seconds}초)`;
   const ready = !!catalog?.key_configured && !!catalog?.enabled && !!catalog?.worker_online;
   const status = error || (loading ? "확인 중" : !catalog ? "확인 전" : !catalog.key_configured ? "API 키 미설정" : !catalog.enabled ? "영상 생성 꺼짐" : !catalog.worker_online ? "영상 워커 오프라인" : "서버 설정 준비됨");
   function toggle(id: string) { setSelected(previous => previous.includes(id) ? previous.filter(value => value !== id) : previous.length < 3 ? [...previous, id] : previous); }
   return <main className={styles.page}>
     <header className={styles.header}><p className={styles.eyebrow}>VIDEO AI COMPARISON</p><h1>영상 AI 비교</h1><p>얼마나 차이 나는지, 어떤 조건이 유리한지 같은 기준으로 비교하세요.</p><StatusBadge>공급자 선택 전 · 비교용</StatusBadge></header>
-    <section className={styles.controls} aria-label="비용 비교 조건">
-      <label>완성 영상 1편의 목표 길이<select value={seconds} onChange={event => setSeconds(Number(event.target.value))}><option value={30}>30초</option><option value={60}>1분</option><option value={180}>3분</option><option value={300}>5분</option></select></label>
-      <label>차액 비교 기준<select value={baselineId} onChange={event => setBaselineId(event.target.value)}>{videoCandidates.map(model => <option value={model.id} key={model.id}>{model.name}</option>)}</select></label>
-      <label>환산 기준 · 원 / 1달러<input type="number" min="1" step="1" value={exchange} onChange={event => setExchange(event.target.value)} aria-invalid={!validRate} /><small>{validRate ? "실시간 환율 아님 · 비교용으로 조정할 수 있어요" : "양수를 입력하세요. 현재 계산은 1,325원 기준입니다."}</small></label>
-    </section>
+    <VideoCostControls cost={cost} />
     <section className={styles.basis} aria-label="현재 가격 계산 기준" aria-live="polite">
       <h2>아래 가격은 {durationLabel} 영상 1편 기준입니다</h2>
       <p>필요한 클립을 각각 한 번 생성하고 이어 붙이는 경우입니다. 마음에 들지 않아 다시 만드는 비용은 포함하지 않습니다.</p>
@@ -52,11 +74,7 @@ export function VideoComparison() {
       <p className={styles.footnote}>목표 {seconds}초 → {baseline.seconds}초 클립 {baseline.clips}개 → 총 {baseline.generatedSeconds}초 생성. 클립 길이로 나누어떨어지지 않으면 올림 계산하며 남는 부분은 편집합니다. 같은 분량을 전부 한 번 더 생성하면 영상 생성 비용은 약 {money(baseline.won * 2)}입니다.</p>
     </section>
     <div className={styles.notice}><strong>구매 경로가 다른 가격의 참고 비교입니다.</strong><p>Runway는 공식 API 요금, 나머지는 제공하신 힉스필드 가격표입니다. 동일 API 견적이 아니며 할인·구독 조건과 해상도가 다릅니다. 비교 기준을 바꿔도 실제 생성 모델은 변경되지 않습니다.</p></div>
-    <section className={styles.highlights} aria-label="비용 차이 요약">
-      <article><span>비교 기준 · {baseline.name}</span><strong>{money(baseline.won)}</strong><small>{seconds}초 제작 · {baseline.clips}개 클립</small></article>
-      <article className={styles.saving}><span>자료상 최저 예상 비용 · {cheapest.name}</span><strong>{money(cheapest.won)}</strong><small>{durationLabel} 영상 1편 · {cheapest.clips}개 클립<br/>{baseline.won > cheapest.won ? `기준보다 ${money(baseline.won - cheapest.won)} 낮음 · ${Math.round((1 - cheapest.won / baseline.won) * 100)}% 절감` : "현재 비교 기준이 자료상 최저 비용입니다."}</small></article>
-      <article><span>가격 외에 비교할 차이</span><strong className={styles.feature}>10초 vs 15초 클립</strong><small>{seconds}초 기준 {Math.ceil(seconds / 10)}개 vs {Math.ceil(seconds / 15)}개 · 긴 클립은 연결할 구간이 적습니다.</small></article>
-    </section>
+    <VideoCostSummary cost={cost} />
     <section className={styles.panel}>
       <div className={styles.sectionHeading}><div><h2>{durationLabel} 영상 1편 · 예상 생성 비용</h2><p>낮은 가격순 · 각 클립 1회 생성 · 최대 3개를 골라 아래에서 상세 비교</p></div><label className={styles.search}><span className="sr-only">모델 검색</span><input placeholder="모델 검색" value={query} onChange={event => setQuery(event.target.value)} /></label></div>
       <div className={styles.tableScroll}><table className={styles.table}><caption className="sr-only">{seconds}초 영상 비용 및 {baseline.name} 대비 차이</caption><thead><tr><th scope="col">비교</th><th scope="col">모델 / 가격 출처</th><th scope="col">예상 비용 · 원</th><th scope="col">{baseline.name} 대비</th><th scope="col">클립 / 해상도</th></tr></thead><tbody>{shown.map(row => {

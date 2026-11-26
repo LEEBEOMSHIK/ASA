@@ -9,7 +9,8 @@ import { SidebarHome, SidebarToggle, useSidebarCollapse } from "./sidebar-toggle
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { api, ApiError, message, setCsrf, type Tool, type WorkDetail } from "../lib/registry";
 import { AgentRunPreview } from "./agent-run-preview";
-import { AgentIcon, Button, Card, StatusBadge, StudioNavigation } from "./ui";
+import { Button, Card, StatusBadge, StudioNavigation } from "./ui";
+import { WorkspaceAgentCard, WorkspaceStartSteps } from "./workspace-agent-card";
 import { WorkHistory } from "./work-history";
 import { CustomerSidebar } from "./customer-sidebar";
 
@@ -179,7 +180,7 @@ export function CustomerWorkspace() {
     <main id="main" ref={main} tabIndex={-1} className="shell customer-workspace">
       {status === "ready" && view === "history" && historyId ? <WorkHistory key={historyId} initialId={historyId} onDirtyChange={setScriptDirty} onSelect={id=>{updateLocation("request",id);setHistoryId(id);}} onRepeat={work => { updateLocation("repeat",work.id);setSource(work); setSelected(work.agent); setView("new"); requestRef.current = null; }} /> : selected?.input_schema ? <><p className="muted">{source ? "이전 입력으로 새 AI 작업을 만듭니다. 입력을 확인·수정한 뒤 요청하면 별도 작업에 결과가 저장됩니다. 기존 작업은 유지되며, 이전 작업의 지침과 설정을 사용합니다." : "접수할 때 최신 저장 설정을 적용합니다."}</p><AgentRunPreview key={`${selected.id}:${draftId}`} draftKey={`request:${selected.agent_id}:${selected.version}:${draftId}`} customer initialInput={source?.input} onSave={saveRequest} definition={{ icon: selected.icon, name: selected.name, description: selected.description, input_schema: selected.input_schema }} onBack={newRequest} /></> : <>
         <section className="customer-welcome"><p className="eyebrow">LET’S CREATE</p><h1>오늘은 어떤 작업을 맡길까요?</h1><p className="intro">함께할 AI 도우미를 고르고, 필요한 내용을 알려 주세요.</p>
-          <ol className="customer-steps" aria-label="이용 순서"><li><span>1</span>에이전트 선택</li><li><span>2</span>작업 내용 입력</li><li><span>3</span>결과 확인</li></ol></section>
+          <WorkspaceStartSteps /></section>
         {status === "loading" && <p role="status">사용할 수 있는 에이전트를 불러오는 중입니다…</p>}
         {status === "login" && <Card><h2>내 작업 공간에 입장하세요</h2><p>현재는 로컬 개발 단계로, 기존 소유자 로그인으로 등록된 에이전트를 테스트합니다. 고객용 계정 로그인은 추후 연결됩니다.</p><div className="actions">
           {testLogin && <Button disabled={busy} onClick={enterTest}>{busy ? "입장 중…" : "테스트 로그인으로 시작"}</Button>}
@@ -188,7 +189,7 @@ export function CustomerWorkspace() {
         {status === "error" && <Button variant="secondary" onClick={() => setRetry(value => value + 1)}>다시 불러오기</Button>}
         {status === "ready" && <><div className="section-heading"><div><h2>함께할 에이전트</h2><p className="muted">새 작업은 에이전트의 최신 저장 설정으로 시작합니다.</p></div><StatusBadge>{tools.length}개</StatusBadge></div>
           {tools.length === 0 ? <Card><h3>아직 준비된 에이전트가 없어요.</h3><p>관리자 화면에서 에이전트를 만들고 ‘에이전트 등록’하면 여기에 표시됩니다.</p><a href="/agents">관리자 화면으로 이동 →</a></Card> :
-          <AgentGroups items={tools.map(t=>({id:t.agent_id!,name:t.name}))} render={(id,favorite)=>{const tool=tools.find(t=>t.agent_id===id)!;return <Card key={tool.id} className="customer-agent"><div className="card-heading"><AgentIcon icon={tool.icon}/><div className="agent-card-controls"><StatusBadge>실행 가능</StatusBadge>{favorite}</div></div><h3>{tool.name}</h3><p className="muted">{tool.description || "필요한 내용을 입력하고 이 에이전트에게 작업을 맡겨 보세요."}</p><Button variant="secondary" disabled={!tool.input_schema?.type} onClick={() => {updateLocation("agent",tool.agent_id!);setSelected(tool);}} aria-label={`${tool.name} 선택하기`}>이 에이전트 선택 →</Button></Card>;}}/>}
+          <AgentGroups items={tools.map(t=>({id:t.agent_id!,name:t.name}))} render={(id,favorite)=>{const tool=tools.find(t=>t.agent_id===id)!;return <WorkspaceAgentCard key={tool.id} name={tool.name} icon={tool.icon} description={tool.description} available={Boolean(tool.input_schema?.type)} favorite={favorite} onSelect={() => {updateLocation("agent",tool.agent_id!);setSelected(tool);}}/>;}}/>}
           <p className="customer-footnote">저장한 요청은 왼쪽 최근 작업에서 다시 확인할 수 있습니다. 답변 생성은 대기 순서에 따라 실행되며, 결과는 최근 작업에서 확인할 수 있습니다.</p></>}
       </>}
     </main></div>

@@ -58,7 +58,29 @@ function jobLabel(job?:Job) {
   if(["failed","unknown","approved","review"].includes(job.status))return labels[job.status];
   return stages[job.progress_stage??""]??labels[job.status]??"상태 미확인";
 }
-function VideoJobProgress({job,onRetry}:{job:Job;onRetry?:(trigger:HTMLButtonElement)=>void}) {
+
+export function VideoClipSpecs({clip, aspectRatio, modelLabel}: {
+  clip: Pick<Clip, "source_start_seconds" | "source_end_seconds" | "duration_seconds" | "reference_inputs" | "connection_type" | "previous_clip_id">;
+  aspectRatio: string;
+  modelLabel: string;
+}) {
+  const orientation = videoOrientation(aspectRatio);
+  const ratioLabel = orientation === "portrait" ? "세로형" : orientation === "square" ? "정사각형" : "가로형";
+  const start = clip.reference_inputs?.length
+    ? "씬·캐릭터 이미지와 선택 음성·영상을 참고해 생성 · 첫 프레임 고정 안 함"
+    : clip.connection_type === "continue"
+      ? `앞 클립 ${clip.previous_clip_id}의 확정 영상 마지막 장면에서 이어 시작`
+      : "확정된 씬 이미지에서 시작";
+  return <dl className="video-clip-specs" aria-label="클립 시간과 시작 기준">
+    <div><dt>영상 모델</dt><dd>{modelLabel}</dd></div>
+    <div><dt>계획상 구간</dt><dd>{clip.source_start_seconds}–{clip.source_end_seconds}초</dd></div>
+    <div><dt>생성 요청 길이</dt><dd>{clip.duration_seconds}초</dd></div>
+    <div><dt>화면 비율</dt><dd>{ratioLabel} {aspectRatio}</dd></div>
+    <div className="video-clip-start"><dt>시작 기준</dt><dd>{start}</dd></div>
+  </dl>;
+}
+
+export function VideoJobProgress({job,onRetry}:{job:Job;onRetry?:(trigger:HTMLButtonElement)=>void}) {
   const halted=["unknown","failed"].includes(job.status);
   const stage=job.progress_stage || (job.status==="running"?"":job.status);
   const order=Object.keys(stages);
@@ -297,13 +319,8 @@ export function VideoClipManager({plan, requestId, version, approvalDisabled, on
             <VideoJobProgress job={previous}/><VideoSourcePanel requestId={requestId} version={previous.answer_version??version} clipId={previous.clip_id} jobId={previous.id}/>
           </div>
         </section>:<VideoJobProgress key={previous.id} job={previous}/>)}</div></details>}
-      <dl className="video-clip-specs" aria-label="클립 시간과 시작 기준">
-        <div><dt>영상 모델</dt><dd>{data?.model_label??(plan.model_key==="hf-wan3"?"WAN 3 · Higgsfield":plan.model_key)}</dd></div>
-        <div><dt>계획상 구간</dt><dd>{clip.source_start_seconds}–{clip.source_end_seconds}초</dd></div>
-        <div><dt>생성 요청 길이</dt><dd>{clip.duration_seconds}초</dd></div>
-        <div><dt>화면 비율</dt><dd>{videoOrientation(plan.aspect_ratio)==="portrait"?"세로형":videoOrientation(plan.aspect_ratio)==="square"?"정사각형":"가로형"} {plan.aspect_ratio}</dd></div>
-        <div className="video-clip-start"><dt>시작 기준</dt><dd>{clip.reference_inputs?.length ? "씬·캐릭터 이미지와 선택 음성·영상을 참고해 생성 · 첫 프레임 고정 안 함" : clip.connection_type === "continue" ? `앞 클립 ${clip.previous_clip_id}의 확정 영상 마지막 장면에서 이어 시작` : "확정된 씬 이미지에서 시작"}</dd></div>
-      </dl>
+      <VideoClipSpecs clip={clip} aspectRatio={plan.aspect_ratio}
+        modelLabel={data?.model_label??(plan.model_key==="hf-wan3"?"WAN 3 · Higgsfield":plan.model_key)} />
       {(data?.model_provider==="higgsfield"||plan.model_key==="hf-wan3")&&<section className="video-model-guidance" aria-label="Higgsfield 자동 참조 전달">
         <strong>{data?.model_label??"선택한 모델"} · Higgsfield에 전달할 자료</strong>
         <p>기준 이미지 1장 · 캐릭터 이미지 {clip.reference_inputs?.reduce((sum,input)=>sum+input.character_image_ids.length,0)??0}장 · 음성 {clip.reference_inputs?.reduce((sum,input)=>sum+(input.audio?.length??0),0)??0}개 · 영상 {clip.reference_inputs?.reduce((sum,input)=>sum+(input.video?.length??0),0)??0}개</p>

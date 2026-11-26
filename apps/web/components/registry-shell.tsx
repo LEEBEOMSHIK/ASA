@@ -16,8 +16,9 @@ export function useDirtyGuard() { return useContext(DirtyContext); }
 export function RegistryShell({ children, adminOnly=false }: { children: ReactNode; adminOnly?:boolean }) {
   const sidebar = useSidebarCollapse();
   const pathname = usePathname();
-  const active = pathname.startsWith("/video-comparison") ? "/video-comparison" : pathname === "/admin/work-history" ? pathname : pathname.startsWith("/admin/branding") ? "/admin/branding" : pathname.startsWith("/admin/agents") ? "/admin/agents" : pathname.startsWith("/characters") ? "/characters" : pathname.startsWith("/models") ? "/models" : pathname.startsWith("/monitoring") ? "/monitoring" : pathname.startsWith("/automations") ? "/automations" : pathname.startsWith("/agents") ? "/agents" : "/tools";
-  const title = active === "/video-comparison" ? "영상 AI 비교" : active === "/admin/work-history" ? "작업 관리" : active === "/admin/branding" ? "브랜드 설정" : active === "/admin/agents" ? "에이전트 관리" : active === "/characters" ? "보관함" : active === "/models" ? "AI 모델 관리" : active === "/monitoring" ? "AI 사용량·비용" : active === "/automations" ? "자동화 빌더" : active === "/agents" ? "에이전트" : "도구 라이브러리";
+  const active = pathname === "/admin/design-system" ? pathname : pathname.startsWith("/video-comparison") ? "/video-comparison" : pathname === "/admin/work-history" ? pathname : pathname.startsWith("/admin/branding") ? "/admin/branding" : pathname.startsWith("/admin/agents") ? "/admin/agents" : pathname.startsWith("/characters") ? "/characters" : pathname.startsWith("/models") ? "/models" : pathname.startsWith("/monitoring") ? "/monitoring" : pathname.startsWith("/automations") ? "/automations" : pathname.startsWith("/agents") ? "/agents" : "/tools";
+  const isDesignSystem = active === "/admin/design-system";
+  const title = isDesignSystem ? "디자인 시스템" : active === "/video-comparison" ? "영상 AI 비교" : active === "/admin/work-history" ? "작업 관리" : active === "/admin/branding" ? "브랜드 설정" : active === "/admin/agents" ? "에이전트 관리" : active === "/characters" ? "보관함" : active === "/models" ? "AI 모델 관리" : active === "/monitoring" ? "AI 사용량·비용" : active === "/automations" ? "자동화 빌더" : active === "/agents" ? "에이전트" : "도구 라이브러리";
   const [roleLabel, setRoleLabel] = useState("");
   const [admin, setAdmin] = useState(false);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
@@ -56,8 +57,14 @@ export function RegistryShell({ children, adminOnly=false }: { children: ReactNo
         <div className="studio-sidebar-note"><strong>내 작업 공간</strong><p>에이전트를 준비하고<br/>나만의 작업 흐름을 만드세요.</p></div>
         {status === "ready" && <ProfileMenu compact={sidebar.collapsed} disabled={busy} onLogout={()=>logout()}/>}
       </aside>
-      <div className="studio-content"><header className="customer-topbar"><span>스튜디오 <span className="muted"> / {title}</span></span><span className="muted">{roleLabel || "권한 확인 중"}</span></header>
-      <details className="studio-mobile-nav"><summary>스튜디오 메뉴 · {title}</summary><StudioNavigation active={active} includeAdmin={admin}/>{status === "ready" && <ProfileMenu disabled={busy} onLogout={()=>logout()}/>}</details>
+      <div className="studio-content">
+      <header className={isDesignSystem ? "customer-topbar studio-catalog-location" : "customer-topbar"}>
+        {isDesignSystem ? <nav aria-label="현재 위치"><span className="muted">관리자</span>
+          <span className="muted" aria-hidden="true">/</span><strong>{title}</strong></nav>
+          : <span>스튜디오 <span className="muted"> / {status === "loading" ? "작업 공간" : title}</span></span>}
+        <span className="muted">{roleLabel || "권한 확인 중"}</span>
+      </header>
+      <details className="studio-mobile-nav"><summary>{isDesignSystem ? "스튜디오 메뉴" : `스튜디오 메뉴 · ${status === "loading" ? "작업 공간" : title}`}</summary><StudioNavigation active={active} includeAdmin={admin}/>{status === "ready" && <ProfileMenu disabled={busy} onLogout={()=>logout()}/>}</details>
     <main id="main" className="shell registry-shell studio-main">
       {confirmLogout && <section role="alert" className="notice"><p>저장하지 않은 변경이 있습니다. 변경을 버리고 로그아웃할까요?</p>
         <div className="badge-row"><Button variant="secondary" onClick={() => setConfirmLogout(false)}>계속 편집</Button>

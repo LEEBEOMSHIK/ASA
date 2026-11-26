@@ -7,6 +7,18 @@ type Catalog={revision:number;categories:{id:string;name:string}[];assignments:R
 function FavoriteStar({selected}:{selected:boolean}) {
   return <svg width="18" height="18" viewBox="0 0 24 24" fill={selected?"currentColor":"none"} stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" aria-hidden="true"><path d="m12 3 2.8 5.7 6.3.9-4.6 4.5 1.1 6.3-5.6-3-5.6 3 1.1-6.3L3 9.6l6.2-.9Z"/></svg>;
 }
+export function AgentFavoriteButton({ name, selected, disabled, onToggle }: {
+  name: string;
+  selected: boolean;
+  disabled?: boolean;
+  onToggle: () => void;
+}) {
+  return <button type="button" className="agent-star" aria-pressed={selected} disabled={disabled}
+    title={selected ? "즐겨찾기 해제" : "즐겨찾기 추가"} aria-label={name + " 즐겨찾기"} onClick={onToggle}>
+    <FavoriteStar selected={selected} />
+  </button>;
+}
+
 export function CategoryMoveMenu({name,current,groups,disabled,onMove}:{name:string;current:string;groups:{id:string;name:string}[];disabled:boolean;onMove:(id:string)=>void}) {
   const [open,setOpen]=useState(false);
   const root=useRef<HTMLDivElement>(null);
@@ -121,10 +133,8 @@ export function AgentGroups({items,render,manage=false}:{items:{id:string;name:s
           onDragEnd={()=>{setDrag(null);setOver(null);suppressClickUntil.current=Date.now()+300;}}
           onClickCapture={e=>{if(Date.now()<suppressClickUntil.current){e.preventDefault();e.stopPropagation();}}}>
           {admin && <CategoryMoveMenu name={a.name} current={group.id} groups={groups} disabled={busy} onMove={target=>moveAgent(a.id,target)}/>}
-          {render(a.id,manage?null:<button type="button" className="agent-star" aria-pressed={favorites?.includes(a.id)??false} disabled={!favorites || savingFavorite}
-            title={favorites?.includes(a.id)?"즐겨찾기 해제":"즐겨찾기 추가"} aria-label={a.name+" 즐겨찾기"} onClick={()=>void toggleFavorite(a.id)}>
-            <FavoriteStar selected={favorites?.includes(a.id)??false}/>
-          </button>)}
+          {render(a.id,manage?null:<AgentFavoriteButton name={a.name} selected={favorites?.includes(a.id)??false}
+            disabled={!favorites || savingFavorite} onToggle={()=>void toggleFavorite(a.id)} />)}
         </div>)}</div>
         {!members.length && <p className="category-empty">{admin?"이 그룹으로 에이전트를 옮겨 보세요.":"표시할 에이전트가 없습니다."}</p>}
       </section>;

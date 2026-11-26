@@ -19,7 +19,15 @@ export function Modal({title,onClose,children,footer,className=""}:{title:string
   const ref=useRef<HTMLDialogElement>(null);const id=useId();
   const backdropStart=useRef(false);
   function outside(dialog:HTMLDialogElement,x:number,y:number){const box=dialog.getBoundingClientRect();return x<box.left||x>box.right||y<box.top||y>box.bottom;}
-  useEffect(()=>{const dialog=ref.current;dialog?.showModal();return()=>dialog?.close();},[]);
+  useEffect(() => {
+    const dialog = ref.current;
+    const trigger = document.activeElement;
+    dialog?.showModal();
+    return () => {
+      dialog?.close();
+      if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus({ preventScroll: true });
+    };
+  }, []);
   return <dialog className={`image-library-dialog ${className}`} ref={ref} aria-labelledby={id} onCancel={e=>{e.preventDefault();onClose();}} onPointerDown={e=>{backdropStart.current=e.target===e.currentTarget&&outside(e.currentTarget,e.clientX,e.clientY);}} onPointerCancel={()=>{backdropStart.current=false;}} onClick={e=>{const dismiss=backdropStart.current&&e.target===e.currentTarget&&outside(e.currentTarget,e.clientX,e.clientY);backdropStart.current=false;if(dismiss)onClose();}}>
     <header className="image-library-dialog-heading"><h2 id={id}>{title}</h2><Button variant="secondary" className="image-library-icon" aria-label="닫기" onClick={onClose}><CloseIcon/></Button></header>
     <div className="image-library-dialog-body">{children}</div>{footer&&<footer className="image-library-dialog-footer">{footer}</footer>}

@@ -10,6 +10,7 @@ export const navigationItems: {id:string;href:string;label:string;icon:string;ad
   {id:"models",href:"/models",label:"AI 모델 관리",icon:"model",admin:true},
   {id:"monitoring",href:"/monitoring",label:"AI 사용량·비용",icon:"usage",admin:true},
   {id:"branding",href:"/admin/branding",label:"브랜드 설정",icon:"brand",admin:true},
+  {id:"design-system",href:"/admin/design-system",label:"디자인 시스템",icon:"composition",admin:true},
 ];
 export const navigationColors = [
   {id:"red",label:"빨강"},{id:"orange",label:"주황"},{id:"green",label:"초록"},

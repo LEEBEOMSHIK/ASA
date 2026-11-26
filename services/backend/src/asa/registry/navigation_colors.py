@@ -22,6 +22,7 @@ Menu = Literal[
     "models",
     "monitoring",
     "branding",
+    "design-system",
 ]
 Color = (
     Literal["red", "orange", "green", "blue", "purple", "pink"]

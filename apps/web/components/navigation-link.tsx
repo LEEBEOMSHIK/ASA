@@ -7,12 +7,12 @@ import { navigationAccent } from "../lib/navigation-color";
 import { useNavigationPreferences } from "./navigation-preferences";
 
 /** Render names outside the scrollable icon rail without changing its width. */
-export function NavigationLink({ href, label, current, className = "", iconOnly = false, children }: {
-  href: string; label: string; current?: boolean; className?: string; iconOnly?: boolean; children: ReactNode;
+export function NavigationLink({ href, label, current, className = "", iconOnly = false, onSelect, children }: {
+  href: string; label: string; current?: boolean; className?: string; iconOnly?: boolean; onSelect?: (href: string) => void; children: ReactNode;
 }) {
   const id = useId();
   const preferences = useNavigationPreferences();
-  const menu = navigationItems.find(item=>item.href===href)?.id;
+  const menu = onSelect ? undefined : navigationItems.find(item=>item.href===href)?.id;
   const accent = menu ? preferences.items[menu]?.color : null;
   const link = useRef<HTMLAnchorElement>(null);
   const text = useRef<HTMLSpanElement>(null);
@@ -64,11 +64,13 @@ export function NavigationLink({ href, label, current, className = "", iconOnly 
   }, [anchor]);
   return <>
     <a ref={link} href={href} aria-label={label} aria-current={current ? "page" : undefined}
-      {...navigationAccent(accent)} aria-keyshortcuts={preferences.available ? "Shift+F10" : undefined}
+      {...navigationAccent(accent)} aria-keyshortcuts={preferences.available && !onSelect ? "Shift+F10" : undefined}
       className={`studio-nav-item ${className}`} aria-describedby={anchor ? id : undefined}
       onContextMenu={event=>{if(preferences.available&&menu){event.preventDefault();close();link.current?.focus();preferences.open(menu);}}}
       onKeyDown={event=>{if(preferences.available&&menu&&(event.key==="ContextMenu"||(event.shiftKey&&event.key==="F10"))){event.preventDefault();close();preferences.open(menu);}}}
-      onMouseEnter={show} onMouseLeave={leave} onFocus={show} onBlur={blur} onClick={close}>
+      onMouseEnter={show} onMouseLeave={leave} onFocus={show} onBlur={blur}
+      onClick={event=>{close();if(onSelect){event.preventDefault();onSelect(href);}}}
+      onAuxClick={onSelect ? event=>event.preventDefault() : undefined}>
       {children}{!iconOnly && <span ref={text}>{label}</span>}
       {current && <span className="studio-current" aria-hidden="true"/>}
     </a>

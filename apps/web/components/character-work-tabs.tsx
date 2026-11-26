@@ -33,7 +33,7 @@ export function useWorkTabSelection(request:string,preferred:WorkTab,ready:boole
 }
 export function WorkTabBar({prefix,items=workTabItems({})}:{prefix:string;items?:WorkTabItem[]}){
  const tabs=useCharacterWorkTabs()!;
- return <div className="work-task-tabs" role="tablist" aria-label="에이전트 작업 영역">{items.map((item,index)=><Button key={item.id} variant="secondary" role="tab" aria-label={item.label} id={`${prefix}-${item.id}`} aria-selected={tabs.tab===item.id} aria-controls={`${prefix}-panel`} aria-describedby={`${prefix}-${item.id}-description`} tabIndex={tabs.tab===item.id?0:-1} onClick={()=>tabs.select(item.id)} onKeyDown={e=>{
+ return <div className={items.length===2?"work-task-tabs work-task-tabs--pair":"work-task-tabs"} role="tablist" aria-label="에이전트 작업 영역">{items.map((item,index)=><Button key={item.id} variant="secondary" role="tab" aria-label={item.label} id={`${prefix}-${item.id}`} aria-selected={tabs.tab===item.id} aria-controls={`${prefix}-panel`} aria-describedby={`${prefix}-${item.id}-description`} tabIndex={tabs.tab===item.id?0:-1} onClick={()=>tabs.select(item.id)} onKeyDown={e=>{
  if(e.ctrlKey||e.metaKey||e.altKey)return;
  const next=e.key==="Home"?0:e.key==="End"?items.length-1:e.key==="ArrowRight"?(index+1)%items.length:e.key==="ArrowLeft"?(index+items.length-1)%items.length:-1;
  if(next<0)return;e.preventDefault();tabs.select(items[next].id);document.getElementById(`${prefix}-${items[next].id}`)?.focus();
