@@ -39,9 +39,22 @@ class Settings(BaseSettings):
     audio_timing_model_key: str = 'openai-realtime'
     audio_timing_voice: str = 'marin'
     audio_api_key: SecretStr = SecretStr("")
+    audio_typecast_api_key: SecretStr = SecretStr("")
+    audio_transcription_model: str = ""
 
     def audio_key(self) -> SecretStr:
         return self.audio_api_key if self.audio_api_key.get_secret_value() else self.ai_api_key
+
+    def audio_provider_ready(self, provider: str) -> bool:
+        if not self.audio_ai_enabled or not self.audio_key().get_secret_value():
+            return False
+        if provider == "typecast":
+            return bool(
+                self.audio_typecast_api_key.get_secret_value()
+                and self.audio_transcription_model.strip()
+            )
+        return provider == "openai"
+
     audio_model_profiles: dict[str, AudioModel] = Field(
         default_factory=lambda: {"openai-realtime": AudioModel()})
     audio_daily_calls: int = Field(default=50, ge=1, le=1000)

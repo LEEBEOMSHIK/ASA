@@ -32,6 +32,12 @@ class Speaker(Strict):
     sample_job_id: UUID | None = None
 
 
+class VideoSpeechTiming(Strict):
+    review_id: UUID
+    suggestion: int = Field(ge=0, lt=50, strict=True)
+    clip_offset: Time
+
+
 class Cue(Strict):
     id: Identifier
     speaker_id: Identifier
@@ -39,6 +45,9 @@ class Cue(Strict):
     start: Time
     end: Time
     emotion: str = Field(default="", max_length=300)
+    video_timing: VideoSpeechTiming | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class Music(Strict):
@@ -103,6 +112,10 @@ def validate_measured(cue: Cue, seconds: float) -> None:
 
 
 class AudioModel(Strict):
+    # Preserve the stored model snapshot and speech hash for existing Realtime jobs.
+    provider: Literal["openai", "typecast"] = Field(
+        default="openai", exclude_if=lambda provider: provider == "openai"
+    )
     model: str = Field(default="gpt-realtime-2.1-mini", min_length=1, max_length=100)
     label: str = "OpenAI Realtime · 음성"
     voices: list[str] = Field(

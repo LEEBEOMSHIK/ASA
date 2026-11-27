@@ -100,7 +100,7 @@ def monitoring_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
         return account_usage.read(force=refresh)
 
     def repo(principal: Principal = Depends(sessions.principal)) -> MonitoringRepository:
-        if not set(principal.roles).intersection({'owner', 'admin'}):
+        if not principal.can('monitoring.view'):
             raise HTTPException(403, "admin_required")
         return MonitoringRepository(settings.database_url, principal.workspace_id)
 

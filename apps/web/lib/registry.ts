@@ -5,9 +5,14 @@ export type SchemaNode = {
   enum?: (string | number | boolean)[]; default?: string | number | boolean;
   "x-previous-answer"?: boolean;
   "x-video-model"?: boolean;
+  "x-editing-sources"?: boolean;
+  "x-speech-source"?: boolean;
+  "x-editing-brief"?: boolean;
   "x-answer-agent"?: string;
   "x-required-when"?: { field: string; equals: string | number | boolean };
   "x-visible-when"?: { field: string; equals: string | number | boolean };
+  "x-readonly-when"?: { field: string; equals: string | number | boolean; label: string; text: string };
+  "x-help"?: string;
   "x-widget"?: "text" | "textarea" | "radio" | "select" | "slider" | "number";
 };
 export type Definition = {
@@ -69,6 +74,14 @@ export async function api<T>(path: string, method = "GET", body?: unknown, revis
 export function message(error: unknown): string {
   if (!(error instanceof ApiError)) return "서버에 연결할 수 없습니다. 잠시 후 다시 시도하세요.";
   const messages: Record<string, string> = {
+    permission_denied: "이 작업을 수행할 권한이 없습니다. 관리자에게 확인해 주세요.",
+    permission_escalation: "보유한 권한 범위 안에서만 역할을 설정할 수 있습니다.",
+    own_role_protected: "본인 역할은 다른 관리자 또는 소유자에게 변경을 요청하세요.",
+    own_account_protected: "본인 계정은 다른 관리자 또는 소유자에게 변경을 요청하세요.",
+    access_conflict: "다른 곳에서 변경된 내용이 있습니다. 새로고침한 뒤 다시 확인하세요.",
+    username_taken: "이미 사용 중인 로그인 아이디입니다.",
+    password_required: "새 사용자 비밀번호를 입력하세요.",
+    invalid_credentials: "아이디·비밀번호 또는 계정 사용 상태를 확인하세요.",
     video_style_required: "이번 영상에 적용할 영상 스타일을 선택하세요.",
     video_style_instructions_missing: "선택한 스타일의 지침이 아직 없습니다. 에이전트 기본 설정에서 해당 스타일의 추가 지침을 작성하고 저장하세요.",
     common_instructions_admin_required: "공통 지침은 관리자만 수정할 수 있습니다. 최신 설정을 다시 불러와 주세요.",
@@ -160,6 +173,10 @@ export function message(error: unknown): string {
     agent_not_found: "에이전트를 찾을 수 없거나 접근 권한이 없습니다.",
     tool_not_found: "도구를 찾을 수 없거나 접근 권한이 없습니다.",
     work_not_found: "작업을 찾을 수 없거나 접근 권한이 없습니다.",
+    speech_source_unavailable: "발화 시간표가 저장된 씬 구성 답변을 다시 선택해 주세요.",
+    speech_source_dialogue_changed: "씬 구성에서 가져온 대사 원문과 화자는 그대로 사용해 주세요.",
+    speech_retry_unavailable: "이전 발화의 최신 상태를 확인해 주세요. 처리 중이거나 결과가 불확실한 요청은 중복 생성할 수 없습니다.",
+    speech_use_voice_production: "음성 제작 탭에서 발화별로 생성하거나 다시 요청해 주세요.",
     retry_input_required: "최신 에이전트 설정에 필요한 입력이 달라졌습니다. 재요청 입력 확인·수정에서 필수 항목과 값의 형식을 확인하세요.",
     invalid_work_input: "입력 형식이 에이전트 설정과 맞지 않습니다. 필수 항목과 값의 형식을 확인하세요.",
     work_conflict: "이미 저장된 요청과 내용이 다릅니다. 작업 이력을 확인한 후 새 작업을 시작하세요.",

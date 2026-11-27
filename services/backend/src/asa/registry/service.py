@@ -123,11 +123,26 @@ def validate_definition(
             issue("schema_type", path, "지원되는 필드 유형을 선택하세요.")
             return
         form_keys = (
-            {"x-widget", "default", "x-previous-answer", "x-answer-agent", "x-video-model"}
+            {"x-editing-sources", "x-editing-brief", "x-speech-source", "x-widget", "default",
+             "x-previous-answer", "x-answer-agent", "x-video-model"}
             if path.startswith("input_schema") else set()
         )
         if path.startswith("input_schema.properties.") and path.count(".") == 2:
-            form_keys.update({"x-required-when", "x-visible-when"})
+            form_keys.update({"x-required-when", "x-visible-when", "x-readonly-when", "x-help"})
+        if "x-readonly-when" in node:
+            from asa.registry.input_requirements import valid_readonly_condition
+
+            if ("x-readonly-when" not in form_keys
+                    or "x-required-when" in node
+                    or not valid_readonly_condition(path.rsplit(".", 1)[-1],
+                                                    node["x-readonly-when"], draft.input_schema)):
+                issue("input_readonly_when", path + ".x-readonly-when",
+                      "읽기 전용 표시는 선택 입력에 적용하며 조건과 표시 문구가 필요합니다.")
+        if "x-help" in node and (
+            not isinstance(node["x-help"], str) or not 0 < len(node["x-help"].strip()) <= 400
+            or (kind != "boolean" and "enum" not in node) or node.get("x-widget") == "radio"
+        ):
+            issue("input_help", path + ".x-help", "선택 목록 도움말은 400자 이하로 입력하세요.")
         if "x-visible-when" in node:
             from asa.registry.input_requirements import valid_condition
             field = path.rsplit(".", 1)[-1]
@@ -183,6 +198,18 @@ def validate_definition(
                 or (kind in ("number", "integer") and any(not safe_number(v) for v in values))
             ):
                 issue("schema_enum", path, "필드 유형과 일치하는 선택값이 필요합니다.")
+        if "x-editing-sources" in node and (
+            type(node["x-editing-sources"]) is not bool or kind != "string"
+        ):
+            issue("input_editing_sources", path, "편집 자료 선택은 문자열 입력에만 설정합니다.")
+        if "x-editing-brief" in node and (
+            type(node["x-editing-brief"]) is not bool or kind != "string"
+        ):
+            issue("input_editing_brief", path, "편집 요청 가이드는 문자열 입력에만 설정합니다.")
+        if "x-speech-source" in node and (
+            type(node["x-speech-source"]) is not bool or kind != "string" or "enum" in node
+        ):
+            issue("input_speech_source", path, "씬 구성 선택은 문자열 입력으로 설정합니다.")
         if "x-video-model" in node and (
             type(node["x-video-model"]) is not bool or kind != "string"
         ):

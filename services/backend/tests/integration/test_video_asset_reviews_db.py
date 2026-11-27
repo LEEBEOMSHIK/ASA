@@ -191,3 +191,63 @@ def test_review_api_authentication_history_and_no_generation_changes(db, seeded,
         assert len(data['reviews']) == 1 and data['reviews'][0]['status'] == 'queued'
         assert 'definition' not in data['reviews'][0]
         assert client.get(f'/api/v1/video-clips/jobs/{uuid4()}/reviews').status_code == 404
+
+
+def test_preview_media_serves_byte_ranges_without_changing_assets(db, seeded):
+    from fastapi.testclient import TestClient
+    from pydantic import SecretStr
+    from test_registry_db import KEY, login
+
+    from asa.api import create_app
+
+    cfg, _, jid, _ = seeded
+    cfg = cfg.model_copy(update={'owner_access_key': SecretStr(KEY),
+                                 'allowed_origins': ['http://testserver']})
+    audio_id, retained_id, deleted_id = uuid4(), uuid4(), uuid4()
+    with psycopg.connect(db[0]) as conn:
+        conn.execute(
+            "INSERT INTO audio_jobs(workspace_id,id,request_id,answer_version,kind,fingerprint,"
+            "input,status,media) SELECT workspace_id,%s,request_id,answer_version,'speech',"
+            "'preview-audio',%s,'review',%s FROM video_clip_jobs WHERE id=%s",
+            (audio_id, Jsonb({}), b'frozen-audio', jid),
+        )
+        conn.execute(
+            "INSERT INTO work_deletions(workspace_id,request_id,name,actor,summary) "
+            "VALUES (%s,%s,'fixture','fixture',%s)",
+            (db[1], deleted_id, Jsonb({})),
+        )
+        conn.execute(
+            "INSERT INTO retained_work_videos(workspace_id,id,request_id,clip_id,answer_version,"
+            "video) VALUES (%s,%s,%s,'c1',1,%s)",
+            (db[1], retained_id, deleted_id, b'retained-video'),
+        )
+    cases = (
+        (f'/api/v1/video-clips/asset/{jid}/video', b'frozen-video', 'video/mp4'),
+        (f'/api/v1/video-clips/asset/{retained_id}/video', b'retained-video', 'video/mp4'),
+        (f'/api/v1/audio/jobs/{audio_id}/media', b'frozen-audio', 'audio/wav'),
+    )
+    with TestClient(create_app(cfg)) as client:
+        assert client.get(cases[0][0], headers={'Range': 'bytes=0-3'}).status_code == 401
+        assert client.get(cases[2][0], headers={'Range': 'bytes=0-3'}).status_code == 401
+        login(client)
+        for path, source, media_type in cases:
+            for header, start, end in (
+                ('bytes=2-4', 2, 4),
+                ('bytes=3-', 3, len(source) - 1),
+                ('bytes=-3', len(source) - 3, len(source) - 1),
+            ):
+                part = client.get(path, headers={'Range': header})
+                assert part.status_code == 206
+                assert part.headers['content-range'] == f'bytes {start}-{end}/{len(source)}'
+                assert part.headers['content-type'] == media_type
+                assert part.content == source[start:end + 1]
+            invalid = client.get(path, headers={'Range': 'bytes=999-'})
+            assert invalid.status_code == 416
+            assert invalid.headers['content-range'] == f'bytes */{len(source)}'
+            full = client.get(path)
+            assert full.status_code == 200 and full.content == source
+            assert full.headers['accept-ranges'] == 'bytes'
+        missing = client.get(
+            f'/api/v1/video-clips/asset/{uuid4()}/video', headers={'Range': 'bytes=999-'},
+        )
+        assert missing.status_code == 404

@@ -14,6 +14,7 @@ from asa.models import AgentAnswer, Script
 from asa.registry.history import valid_input
 from asa.registry.repository import RegistryRepository
 from asa.registry.schemas import RegistryError
+from asa.speech_production import is_production_output
 from asa.video_prompt_modules import build_prompt_bundle
 
 
@@ -219,6 +220,8 @@ class ScriptRepository(RegistryRepository):
     def save(self, request_id: str, body: SaveScript) -> dict[str, Any]:
         with self._connect() as conn:
             request = self._request(conn, request_id, True)
+            if is_production_output(request["definition"]["output_schema"]):
+                raise RegistryError(422, "speech_use_voice_production")
             request['id'] = request_id
             stage = self._stage(conn, request_id)
             base = body.base_version if body.base_version is not None else stage['head_version']
@@ -362,6 +365,8 @@ class ScriptRepository(RegistryRepository):
                     (f"script-enqueue:{self.workspace_id}",),
                 )
             request = self._request(conn, request_id, True)
+            if is_production_output(request["definition"]["output_schema"]):
+                raise RegistryError(422, "speech_use_voice_production")
             existing = conn.execute(
                 "SELECT * FROM script_attempts WHERE workspace_id=%s AND request_id=%s AND id=%s",
                 (self.workspace_id, request_id, body.id),
@@ -836,6 +841,9 @@ def execute_attempt(
             schema = contract['output_schema']
             if not valid_input(result.value, schema):
                 raise ValueError("invalid_agent_output")
+            if schema.get('properties', {}).get('format', {}).get('enum') == ['asa_edit_plan_v1']:
+                from asa.editing_contracts import validate_answer as validate_editing_answer
+                validate_editing_answer(result.value, contract.get('original_request', {}))
             if 'video_voice_directions' in contract:
                 from asa.voice_directions import apply_snapshot
 

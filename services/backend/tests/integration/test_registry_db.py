@@ -1161,6 +1161,7 @@ def test_test_login_disabled_outside_opted_in_development(db, environment, enabl
         create_app(settings), base_url="http://127.0.0.1:8127", client=("127.0.0.1", 12345)
     ) as c:
         assert c.get("/api/v1/session/options").json() == {"test_login_available": False}
+        assert c.post("/api/v1/session/test-member", json={}).status_code == 404
         assert (
             c.post(
                 "/api/v1/session/test", json={}, headers={"Origin": "http://127.0.0.1:3001"}
@@ -1206,6 +1207,7 @@ def test_development_login_session_csrf_logout_and_network_boundary(db):
         assert c.get("/api/v1/session").status_code == 401
     with TestClient(app, base_url="http://127.0.0.1:8127", client=("192.0.2.1", 12345)) as c:
         assert c.get("/api/v1/session/options").json() == {"test_login_available": False}
+        assert c.post("/api/v1/session/test-member", json={}).status_code == 404
         assert c.post("/api/v1/session/test", json={}, headers=origin).status_code == 404
 
 
@@ -4086,3 +4088,31 @@ def test_video_review_metadata_is_separate_from_plan_and_jobs(client, db):
     with repo._connect() as conn:
         assert conn.execute('SELECT annotations FROM video_review_annotations '
                             'WHERE workspace_id=%s', (uuid4(),)).fetchall() == []
+
+
+def test_member_quick_login_is_scoped_idempotent_and_respects_disable(db):
+    from asa.auth.dev_account import TEST_USER
+    settings = Settings(
+        _env_file=None, database_url=db[0], workspace_id=db[1], owner_access_key=KEY,
+        environment="development", dev_login_enabled=True,
+        allowed_origins=["http://127.0.0.1:3001", "https://external.example"],
+    )
+    app = create_app(settings)
+    origin = {"Origin": "http://127.0.0.1:3001"}
+    with TestClient(app, base_url="http://127.0.0.1:8127", client=("127.0.0.1", 1)) as c:
+        path = "/api/v1/session/test-member"
+        assert c.post(path).status_code == 403
+        assert c.post(path, headers={"Origin": "https://external.example"}).status_code == 403
+        for _ in range(2):
+            assert c.post(path, headers=origin).status_code == 200
+            session = c.get("/api/v1/session").json()
+            assert session["user_id"] == TEST_USER
+            assert "*" not in session["permissions"]
+            assert c.get("/api/v1/agents").status_code == 200
+            assert c.get("/api/v1/admin/access").status_code == 403
+            assert c.get("/api/v1/admin/models").status_code == 403
+        with psycopg.connect(db[0]) as conn:
+            assert conn.execute("SELECT count(*) FROM access_users").fetchone()[0] == 1
+            conn.execute("UPDATE access_users SET enabled=false WHERE id=%s", (TEST_USER,))
+        assert c.post(path, headers=origin).status_code == 403
+        assert c.get("/api/v1/session").status_code == 401

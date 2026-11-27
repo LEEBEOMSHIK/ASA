@@ -117,7 +117,7 @@ def catalog_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
 
     @router.put('')
     def put(body: Catalog, principal: Principal = Depends(sessions.principal)) -> dict[str, Any]:
-        if not {'owner', 'admin'}.intersection(principal.roles):
+        if not principal.can('admin-agents.edit'):
             raise HTTPException(403, 'admin_required')
         return save(RegistryRepository(settings.database_url, principal.workspace_id), body)
 

@@ -5,17 +5,20 @@ import wave
 from typing import Any
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 from psycopg.types.json import Jsonb
 from pydantic import Field, ValidationError
 
 from asa.audio_contracts import AudioSettings, Strict, fingerprint
 from asa.audio_media import normalize_audio
+from asa.auth.permissions import allowed
 from asa.auth.session import OwnerSessions, Principal
 from asa.config import Settings
 from asa.registry import audio_service as service
+from asa.registry.media_response import media_response
 from asa.registry.repository import RegistryRepository
 from asa.registry.schemas import RegistryError
+from asa.speech_production import is_production_answer, require_original_dialogue, source_list
 from asa.voice_directions import DirectionEdit, merge_directions
 
 
@@ -29,6 +32,7 @@ class Generate(Strict):
     revision: int = Field(ge=0, strict=True)
     cue_id: str = Field(default="", max_length=64)
     remove_original: bool = False
+    retry_job_id: UUID | None = None
 
 
 class Upload(Strict):
@@ -47,13 +51,14 @@ def audio_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
     def catalog(p: Principal = Depends(sessions.principal)) -> dict[str, Any]:
         return {
             "models": {
-                key: value.model_dump()
+                key: {**value.model_dump(),
+                      "generation_enabled": settings.audio_provider_ready(value.provider)}
                 for key, value in settings.audio_model_profiles.items()
                 if value.enabled
             },
-            "generation_enabled": bool(
-                settings.audio_ai_enabled and settings.audio_key().get_secret_value()
-            ),
+            "generation_enabled": any(settings.audio_provider_ready(model.provider)
+                                      for model in settings.audio_model_profiles.values()
+                                      if model.enabled),
             "ai_voice_notice": "AI로 생성하는 목소리입니다.",
             "sample_text": service.SAMPLE_TEXT,
         }
@@ -75,6 +80,12 @@ def audio_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
                     (p.workspace_id,),
                 ).fetchall()
             )
+
+    @router.get("/production-sources")
+    def production_sources(q: str = Query("", max_length=120),
+                           p: Principal = Depends(sessions.principal)) -> list[dict[str, Any]]:
+        with repo(p)._connect() as conn:
+            return source_list(conn, p.workspace_id, p.user_id, q.strip())
 
     @router.get(path)
     def get(
@@ -140,6 +151,23 @@ def audio_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
                 conn, settings.model_copy(update={'workspace_id': p.workspace_id}),
                 request_id, version)
 
+    @router.get(path + "/video-timing-sources")
+    def video_timing_sources(
+        request_id: UUID, version: int, cue_id: str = Query(min_length=1, max_length=64),
+        p: Principal = Depends(sessions.principal),
+    ) -> list[dict[str, Any]]:
+        if not allowed(p.permissions or (), "home.view"):
+            raise RegistryError(403, "permission_denied")
+        with repo(p)._connect() as conn:
+            current = service.load(conn, p.workspace_id, request_id, version)
+            if not is_production_answer(current["answer"]):
+                raise RegistryError(422, "speech_video_timing_unavailable")
+            data = current["settings"]
+            cue = next((cue for cue in data.cues if cue.id == cue_id), None)
+            if cue is None:
+                raise RegistryError(422, "audio_cue_missing")
+            return service.video_timing_sources(conn, p.workspace_id, data, cue)
+
     @router.put(path)
     def save(
         request_id: UUID, version: int, body: Edit, p: Principal = Depends(sessions.principal)
@@ -148,6 +176,13 @@ def audio_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
             current = service.load(conn, p.workspace_id, request_id, version, lock=True)
             if current["revision"] != body.revision:
                 raise RegistryError(409, "audio_settings_changed")
+            if is_production_answer(current["answer"]):
+                require_original_dialogue(current["settings"], body.settings)
+                service.validate_video_timing_changes(
+                    conn, p.workspace_id, current["settings"], body.settings
+                )
+            elif any(cue.video_timing for cue in body.settings.cues):
+                raise RegistryError(422, "speech_video_timing_unavailable")
             service.validate_assets(conn, p.workspace_id, body.settings)
             for speaker in body.settings.speakers:
                 model = settings.audio_model_profiles.get(speaker.voice.model_key)
@@ -266,17 +301,23 @@ def audio_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
     ) -> dict[str, Any]:
         with repo(p)._connect() as conn:
             current = service.load(conn, p.workspace_id, request_id, version, lock=True)
+            production = is_production_answer(current["answer"])
             if current["revision"] != body.revision:
                 raise RegistryError(409, "audio_settings_changed")
+            if production and kind == "compose":
+                raise RegistryError(422, "speech_use_video_editor")
+            if body.retry_job_id and not (production and kind in ("sample", "speech")):
+                raise RegistryError(422, "speech_retry_unavailable")
             if kind != "sample" and not current["settings"].enabled:
                 raise RegistryError(409, "audio_disabled")
             if kind in ("speech", "sample"):
-                if not settings.audio_ai_enabled or not settings.audio_key().get_secret_value():
-                    raise RegistryError(409, "audio_generation_disabled")
                 if kind == 'sample':
                     if current['revision'] == 0:
                         raise RegistryError(409, 'audio_settings_changed')
-                    if not isinstance(current['answer'].get('characters'), list):
+                    if not production and not (
+                        isinstance(current["answer"], dict)
+                        and isinstance(current["answer"].get("characters"), list)
+                    ):
                         raise RegistryError(409, 'audio_character_work_required')
                     spec = service.sample_spec(settings, current['settings'], body.cue_id)
                     kind = 'speech'
@@ -287,6 +328,10 @@ def audio_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
                         service.require_selected_voice(conn, settings.model_copy(
                             update={'workspace_id': p.workspace_id}), current['settings'],
                             spec['cue']['speaker_id'])
+                if body.retry_job_id:
+                    spec["retry_of"] = str(body.retry_job_id)
+                if not settings.audio_provider_ready(spec["model"].get("provider", "openai")):
+                    raise RegistryError(409, "audio_generation_disabled")
                 key = service.speech_key(spec)
             else:
                 try:
@@ -316,6 +361,42 @@ def audio_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
                 raise RegistryError(409, "audio_operation_conflict")
             if prior:
                 return {"id": prior["id"], "status": prior["status"]}
+            if production and kind == "speech":
+                purpose = spec["purpose"]
+                last = conn.execute(
+                    "SELECT id,status FROM audio_jobs "
+                    "WHERE workspace_id=%s AND request_id=%s AND answer_version=%s "
+                    "AND kind='speech' AND cue_id=%s AND input->>'purpose'=%s "
+                    "ORDER BY created_at DESC,id LIMIT 1",
+                    (p.workspace_id, request_id, version, body.cue_id, purpose),
+                ).fetchone()
+                if body.retry_job_id:
+                    if not last or last["status"] in ("queued", "running", "unknown"):
+                        raise RegistryError(409, "speech_retry_unavailable")
+                    current_take = conn.execute(
+                        "SELECT id,status,fingerprint,input,cue_id,error_code FROM audio_jobs "
+                        "WHERE workspace_id=%s AND request_id=%s AND answer_version=%s "
+                        "AND kind='speech' AND cue_id=%s AND input->>'purpose'=%s "
+                        "AND input#>'{speaker,voice}'=%s AND input->'model'=%s "
+                        "AND input#>>'{cue,emotion}'=%s ORDER BY created_at DESC,id LIMIT 1",
+                        (p.workspace_id, request_id, version, body.cue_id, purpose,
+                         Jsonb(spec["speaker"]["voice"]), Jsonb(spec["model"]),
+                         spec["cue"]["emotion"]),
+                    ).fetchone()
+                    if (not current_take or current_take["id"] != body.retry_job_id
+                            or current_take["status"] not in ("review", "approved", "failed")
+                            or (purpose == "sample" and current_take["status"] != "failed"
+                                and not current_take["error_code"])
+                            or current_take["fingerprint"] != service.speech_key(
+                                service.job_speech_spec(
+                                    settings, current["settings"], current_take,
+                                ),
+                            )):
+                        raise RegistryError(409, "speech_retry_unavailable")
+                elif last and last["status"] in ("queued", "running"):
+                    return {"id": last["id"], "status": last["status"]}
+                elif last and last["status"] == "unknown":
+                    raise RegistryError(409, "speech_retry_unavailable")
             conn.execute(
                 "INSERT INTO audio_jobs(workspace_id,id,request_id,answer_version,kind,"
                 "cue_id,fingerprint,input,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'queued') "
@@ -353,11 +434,12 @@ def audio_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
             job = conn.execute('SELECT * FROM audio_jobs WHERE workspace_id=%s AND id=%s '
                                'AND request_id=%s AND answer_version=%s',
                                (p.workspace_id, body.id, request_id, version)).fetchone()
-            spec = service.sample_spec(settings, current['settings'], body.cue_id)
             if (not job or job['input'].get('purpose') != 'sample'
-                    or job['fingerprint'] != service.speech_key(spec)
+                    or job['cue_id'] != body.cue_id
                     or job['status'] not in ('review', 'approved')
-                    or not job['media'] or job['error_code']):
+                    or not job['media'] or job['error_code']
+                    or job['fingerprint'] != service.speech_key(
+                        service.job_speech_spec(settings, current['settings'], job))):
                 raise RegistryError(409, 'audio_sample_not_ready')
             speaker = next(s for s in current['settings'].speakers if s.id == body.cue_id)
             speaker.sample_job_id = body.id
@@ -417,19 +499,19 @@ def audio_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
         return {"status": "approved"}
 
     @router.get("/jobs/{job_id}/media")
-    def media(job_id: UUID, p: Principal = Depends(sessions.principal)) -> Response:
+    def media(
+        job_id: UUID, request: Request, p: Principal = Depends(sessions.principal)
+    ) -> Response:
         with repo(p)._connect() as conn:
-            row = conn.execute(
-                "SELECT kind,media FROM audio_jobs WHERE workspace_id=%s AND id=%s "
+            response = media_response(
+                conn, "SELECT media,CASE WHEN kind='compose' THEN 'video/mp4' "
+                "ELSE 'audio/wav' END AS media_type "
+                "FROM audio_jobs WHERE workspace_id=%s AND id=%s "
                 "AND status IN ('review','approved')",
-                (p.workspace_id, job_id),
-            ).fetchone()
-        if not row or not row["media"]:
+                (p.workspace_id, job_id), request.headers.get("range", ""), "audio_job_missing",
+            )
+        if response is None:
             raise RegistryError(404, "audio_job_missing")
-        return Response(
-            bytes(row["media"]),
-            media_type=("video/mp4" if row["kind"] == "compose" else "audio/wav"),
-            headers={"Cache-Control": "no-store"},
-        )
+        return response
 
     return router

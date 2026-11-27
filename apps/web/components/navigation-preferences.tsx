@@ -1,5 +1,6 @@
 "use client";
 
+import {useAccess} from "./access-provider";
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { api, ApiError, message } from "../lib/registry";
 import { navigationColors, navigationItems, type NavigationColor, type NavigationColorItems, type NavigationColorValue } from "../lib/navigation";
@@ -20,7 +21,8 @@ export function NavigationPreferences({ready,admin,children}:{ready:boolean;admi
   const dialog = useRef<HTMLDialogElement>(null),trigger = useRef<HTMLElement|null>(null);
   const editorGeneration = useRef(0), accountGeneration = useRef(0);
   const id = useId();
-  const options = navigationItems.filter(item=>!item.admin||admin);
+  const access=useAccess();
+  const options = navigationItems.filter(item=>access.can(item.id+".view"));
   const normalizedHex=normalizeNavigationHex(customHex);
   const invalidHex=color==="custom"&&!normalizedHex;
   const selectedColor=color==="custom"?normalizedHex:color;

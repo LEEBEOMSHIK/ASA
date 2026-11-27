@@ -628,3 +628,50 @@ CREATE TABLE IF NOT EXISTS video_retry_confirmations (
 );
 
 ALTER TABLE video_retry_confirmations ADD COLUMN IF NOT EXISTS target_fingerprint text;
+-- Account grants are resolved per request; existing owner sessions stay usable.
+CREATE TABLE IF NOT EXISTS access_roles (
+ workspace_id uuid NOT NULL REFERENCES registry_workspaces(id), id uuid NOT NULL,
+ name text NOT NULL, enabled boolean NOT NULL DEFAULT true,
+ permissions jsonb NOT NULL DEFAULT '[]', revision integer NOT NULL DEFAULT 1,
+ PRIMARY KEY(workspace_id,id)
+);
+CREATE TABLE IF NOT EXISTS access_users (
+ workspace_id uuid NOT NULL REFERENCES registry_workspaces(id), id uuid NOT NULL,
+ username text NOT NULL, display_name text NOT NULL, role_id uuid NOT NULL,
+ enabled boolean NOT NULL DEFAULT true, password_hash text NOT NULL,
+ revision integer NOT NULL DEFAULT 1, PRIMARY KEY(workspace_id,id), UNIQUE(workspace_id,username),
+ FOREIGN KEY(workspace_id,role_id) REFERENCES access_roles(workspace_id,id)
+);
+CREATE TABLE IF NOT EXISTS access_audit (
+ id bigserial PRIMARY KEY, workspace_id uuid NOT NULL REFERENCES registry_workspaces(id),
+ actor text NOT NULL, event text NOT NULL, target text NOT NULL,
+ created_at timestamptz NOT NULL DEFAULT now()
+);
+
+
+ALTER TABLE registry_sessions ADD COLUMN IF NOT EXISTS user_id text NOT NULL DEFAULT 'local-owner';
+
+ALTER TABLE user_navigation_colors DROP CONSTRAINT IF EXISTS user_navigation_colors_menu_check;
+ALTER TABLE user_navigation_colors ADD CONSTRAINT user_navigation_colors_menu_check
+ CHECK (menu IN ('home','automations','agents','characters','tools','video-comparison',
+ 'admin-agents','work-history','models','monitoring','branding','access','workers','video-management'));
+
+CREATE INDEX IF NOT EXISTS access_audit_workspace_id_idx ON access_audit(workspace_id,id DESC);
+
+-- Immutable render inputs and independently reviewed outputs. Source media are never edited.
+CREATE TABLE IF NOT EXISTS editing_jobs (
+ workspace_id uuid NOT NULL REFERENCES registry_workspaces(id), id uuid NOT NULL,
+ request_id uuid NOT NULL, answer_version integer NOT NULL, plan jsonb NOT NULL,
+ status text NOT NULL CHECK(status IN ('queued','running','review','approved','failed')),
+ error_code text, media bytea, created_at timestamptz NOT NULL DEFAULT now(),
+ started_at timestamptz, finished_at timestamptz, PRIMARY KEY(workspace_id,id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS editing_one_output ON editing_jobs
+ (workspace_id,request_id,answer_version) WHERE status<>'failed';
+CREATE TABLE IF NOT EXISTS editing_job_assets (
+ workspace_id uuid NOT NULL, job_id uuid NOT NULL, source_id text NOT NULL,
+ metadata jsonb NOT NULL, data bytea NOT NULL,
+ PRIMARY KEY(workspace_id,job_id,source_id),
+ FOREIGN KEY(workspace_id,job_id) REFERENCES editing_jobs(workspace_id,id) ON DELETE CASCADE
+);
+ALTER TABLE video_references ADD COLUMN IF NOT EXISTS duration_seconds double precision;

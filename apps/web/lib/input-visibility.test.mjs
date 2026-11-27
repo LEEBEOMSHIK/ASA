@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {inputEntries,isInputVisible,isInputRequired} from './input-requirements.ts';
+import {inputEntries,isInputVisible,isInputRequired,readonlyInput} from './input-requirements.ts';
 import {retryValues,retryPayload} from './input-requirements.ts';
 
 test('retry keeps original values and parses only current visible input fields',()=>{
@@ -35,4 +35,16 @@ test('video detail survives retry values and payload without leaking into other 
  const other={type:'object',properties:{video_style:{type:'string'}}};
  assert.equal(retryValues(input,other).video_art_style,undefined);
  assert.equal(retryPayload(input,other).video_art_style,undefined);
+});
+
+test('a conditionally read-only input displays fixed guidance and preserves the editable value', () => {
+  const rule = { field: 'format', equals: 'VS', label: 'VS 길이', text: 'A 15초 + B 15초' };
+  const duration = { type: 'string', 'x-readonly-when': rule };
+  const schema = { type: 'object', properties: { format: { type: 'string' }, duration } };
+  const selected = { format: 'VS', duration: '60초' };
+  assert.deepEqual(readonlyInput(duration, selected), rule);
+  assert.deepEqual(retryPayload(selected, schema), { format: 'VS' });
+  assert.deepEqual(retryPayload({ ...selected, format: '단편' }, schema), {
+    format: '단편', duration: '60초',
+  });
 });

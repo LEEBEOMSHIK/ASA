@@ -26,6 +26,11 @@ export function isInputVisible(node: SchemaNode, values: Record<string, string>)
   return !rule || values[rule.field] === String(rule.equals);
 }
 
+export function readonlyInput(node: SchemaNode, values?: Record<string, string>) {
+  const rule = node["x-readonly-when"];
+  return rule && values?.[rule.field] === String(rule.equals) ? rule : undefined;
+}
+
 export function conditionChoices(node?: SchemaNode): (string | number | boolean)[] {
   if (!node || !["string", "number", "integer", "boolean"].includes(node.type)) return [];
   return node.enum || (node.type === "boolean" ? [true, false] : []);
@@ -65,7 +70,7 @@ export function retryValues(input: unknown, schema: SchemaNode): Record<string, 
 export function retryPayload(values: Record<string, string>, schema: SchemaNode): unknown {
   const result: Record<string, unknown> = {};
   for (const [key, node] of inputEntries(schema)) {
-    if (!isInputVisible(node, values)) continue;
+    if (!isInputVisible(node, values) || readonlyInput(node, values)) continue;
     const value = values[key];
     if (value === undefined || value === "") continue;
     result[key] = node.type === "string" ? value

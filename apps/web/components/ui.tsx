@@ -1,4 +1,5 @@
 "use client";
+import {useAccess} from "./access-provider";
 import { agentIcons } from "../lib/agent-icons";
 import { Fragment, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { HelpText } from "./help-text";
@@ -19,7 +20,8 @@ export function ExternalLink({ href, children }: { href: string; children: React
 }
 
 export function StudioNavigation({ active, includeHome = true, includeAdmin = false, label = "스튜디오 메뉴", onSelect }: { active: string; includeHome?: boolean; includeAdmin?: boolean; label?: string; onSelect?: (href: string) => void }) {
-  const items = navigationItems.filter(item => !item.admin || includeAdmin);
+  const access = useAccess();
+  const items = navigationItems.filter(item => access.can(item.id+".view"));
   return <nav className="studio-navigation" aria-label={label}>
     <p className="studio-nav-label">{includeAdmin ? "사용자" : "스튜디오"}</p>
     {items.filter(item => includeHome || item.href !== "/").map(item => <Fragment key={item.href}>{item.href === "/admin/agents" && <p className="studio-nav-label studio-admin-label">관리자</p>}<NavigationLink href={item.href} label={item.label} current={active === item.href} onSelect={onSelect}>
@@ -53,8 +55,8 @@ export function DraftNotice({message,hint,actionLabel,disabled,onReset,compact=f
   return <div className={`preview-banner draft-notice${compact?" draft-notice--compact":""}`}><div className="draft-notice-copy"><p role="status">{message}</p>{hint&&<p className="helper-text">{hint}</p>}</div><Button variant="secondary" disabled={disabled} onClick={onReset}>{compact&&<ActionIcon kind="undo"/>}{actionLabel}</Button></div>;
 }
 
-export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <div className={`card ${className}`}>{children}</div>;
+export function Card({ children, className = "", naturalHeight=false }: { children: ReactNode; className?: string; naturalHeight?:boolean }) {
+  return <div className={`card ${naturalHeight?"card--content":""} ${className}`}>{children}</div>;
 }
 
 export function StatusBadge({ children, tone = "neutral" }: {
@@ -74,7 +76,7 @@ export function Field({ id, label, required, hint, help, annotation, error, labe
   const description = [hint ? `${id}-hint` : "", error ? `${id}-error` : ""].filter(Boolean).join(" ");
   const title = <label htmlFor={id}>{label}{required !== undefined && <InputRequirement required={required} />}</label>;
   return <div className="field">
-    {labelAction ? <div className="field-title-actions">{title}{labelAction}</div> : help || annotation ? <div className="help-row">{title}{annotation?.includes("AI") ? <HelpText ai label={`${label} · ${annotation}`}><strong>{annotation}</strong>{help && <div>{help}</div>}</HelpText> : <>{annotation ? <HelpText kind={annotation === "관리용" ? "management" : "settings"} label={`${label} · ${annotation}`}><strong>{annotation}</strong><div>{help || (annotation === "관리용" ? "에이전트를 구분하기 위한 정보입니다. 현재 AI 생성 프롬프트에는 포함되지 않습니다." : "AI 호출에 적용되는 설정입니다.")}</div></HelpText> : help && <HelpText label={label}>{help}</HelpText>}</>}</div> : title}
+    {labelAction ? <div className="field-title-actions">{title}{help && <HelpText label={label}>{help}</HelpText>}{labelAction}</div> : help || annotation ? <div className="help-row">{title}{annotation?.includes("AI") ? <HelpText ai label={`${label} · ${annotation}`}><strong>{annotation}</strong>{help && <div>{help}</div>}</HelpText> : <>{annotation ? <HelpText kind={annotation === "관리용" ? "management" : "settings"} label={`${label} · ${annotation}`}><strong>{annotation}</strong><div>{help || (annotation === "관리용" ? "에이전트를 구분하기 위한 정보입니다. 현재 AI 생성 프롬프트에는 포함되지 않습니다." : "AI 호출에 적용되는 설정입니다.")}</div></HelpText> : help && <HelpText label={label}>{help}</HelpText>}</>}</div> : title}
     {children({ id, "aria-describedby": description || undefined, "aria-invalid": Boolean(error) })}
     {hint && <p id={`${id}-hint`} className="muted">{hint}</p>}
     {error && <p id={`${id}-error`} className="field-error" role="alert">{error}</p>}

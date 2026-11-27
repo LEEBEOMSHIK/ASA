@@ -1,22 +1,36 @@
-import type {Tool} from './registry';
+import type {SchemaNode,Tool} from './registry';
 import type {WorkTab} from './work-tabs';
 import type {WorkProgress} from './work-progress';
 
 export type WorkTabItem = {id:WorkTab;label:string;description:string};
+
+export function isEditingOutput(schema?: SchemaNode) {
+  return schema?.properties?.format?.enum?.includes("asa_edit_plan_v1") === true;
+}
+
+export function isSpeechProductionOutput(schema?: SchemaNode) {
+  return schema?.properties?.format?.enum?.includes("asa_speech_production_v1") === true;
+}
+
 export function workTabItems(agent:Partial<Tool>):WorkTabItem[] {
   const p=agent.output_schema?.properties || {};
   const characters=p.characters?.type==='array', scenes=p.shots?.type==='array';
+  const editing=isEditingOutput(agent.output_schema);
+  const speech=isSpeechProductionOutput(agent.output_schema);
   const result:WorkTabItem=characters
     ? {id:'images',label:'캐릭터 설정·이미지',description:'외형·목소리 설정과 이미지 생성·확정'}
     : scenes ? {id:'images',label:'씬 설정·이미지',description:'씬별 이미지 생성·수정·확정'}
     : agent.after_tasks?.scene_timing ? {id:'images',label:'장면 구성·시간 확인',description:'장면 구성과 시간 배분, 전체 미리듣기'}
     : p.clips?.type==='array' && p.model_key ? {id:'images',label:'클립·영상 생성',description:'클립 연결과 영상 생성·확정'}
+    : editing ? {id:'images',label:'합성 결과',description:'영상 상태·재생 및 편집 계획 확인'}
+    : speech ? {id:'images',label:'음성 제작',description:'목소리 선택과 발화별 생성·확정'}
     : p.narration || p.script || p['대본'] ? {id:'images',label:'대본 확인',description:'대본 내용을 확인하고 필요한 답변 확정'}
     : {id:'images',label:'결과 확인',description:'에이전트 결과와 후속 작업 확인'};
   return [
     ...(characters ? [{id:'common' as const,label:'화풍·나레이션',description:'작품 전체에 적용할 영상 유형과 표현 설정'}] : []),
     result,
-    {id:'history',label:'AI 답변·수정 요청',description:'원문·이력 확인, AI 수정 요청과 새 작업'},
+    speech ? {id:'history',label:'원본 씬 구성',description:'가져온 답변과 작업 정보 확인'} :
+      {id:'history',label:editing?'AI 요청·이력':'AI 답변·수정 요청',description:'원문·이력 확인, AI 수정 요청과 새 작업'},
   ];
 }
 

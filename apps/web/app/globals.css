@@ -113,6 +113,7 @@ p { margin: 0 0 var(--space-4); }
 .steps span { color: var(--primary); font-weight: 750; }
 .grid { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: var(--space-6); }
 .card { background: var(--surface); padding: var(--space-8); border: 1px solid var(--border); border-radius: var(--radius-lg); height: 100%; }
+.card--content { height:auto; }
 .card-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
 .badge { display: inline-flex; align-items: center; padding: var(--space-1) var(--space-3); border-radius: var(--radius-sm); font-size: var(--font-small); font-weight: 650; white-space: nowrap; }
 .badge--neutral { background: var(--neutral-bg); color: var(--neutral-fg); }
@@ -1807,10 +1808,20 @@ article.flow-library-card { display:flex; flex-direction:column; gap:0; padding:
 
 .video-reference-support,.video-cost-calculator-body { display:grid; gap:var(--space-3); min-width:0; }
 .video-reference-support p,.video-cost-calculator-body p,.video-cost-calculator-body > .field { margin:0; }
-.video-reference-support-list { display:flex; flex-wrap:wrap; gap:var(--space-3); }
-.video-reference-support-list > span { display:inline-flex; align-items:center; gap:var(--space-2); }
-.video-cost-calculator > summary { min-height:var(--control-height); display:flex; align-items:center; cursor:pointer; }
-.video-cost-calculator[open] .video-cost-calculator-body { padding-top:var(--space-3); }
+.video-reference-support-list { display:flex; flex-wrap:wrap; gap:var(--space-2); }
+.video-reference-support-list > span { display:inline-flex; align-items:center; gap:var(--space-2); padding:var(--space-2) var(--space-3); border:1px solid var(--border); border-radius:var(--radius-sm); font-size:var(--font-small); background:var(--surface-subtle); }
+.video-cost-summary { display:grid; gap:var(--space-3); min-width:0; border-top:1px solid var(--border); padding-top:var(--space-4); }
+.video-cost-summary > p { margin:0; }
+.video-cost-rates { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:var(--space-3); margin:0; }
+.video-cost-rates dt { color:var(--muted); font-size:var(--font-small); }
+.video-cost-rates dd { margin:var(--space-1) 0 0; font-weight:600; overflow-wrap:anywhere; }
+/* Keep native details closed behavior; guidance's grid padding creates excess closed space. */
+.video-cost-calculator { display:block; min-width:0; border:1px solid var(--border); border-radius:var(--radius-md); background:var(--surface); }
+.video-cost-calculator > .disclosure-summary { min-height:var(--control-height); padding:var(--space-2) var(--space-3); font-size:var(--font-body); font-weight:600; }
+.video-cost-calculator[open] > .disclosure-summary { border-bottom:1px solid var(--border); }
+.video-cost-calculator[open] > .video-cost-calculator-body { padding:var(--space-3); }
+.video-cost-calculator:not([open]) > .video-cost-calculator-body { display:none; }
+@media(max-width:600px) { .video-cost-rates { grid-template-columns:minmax(0,1fr); } }
 
 /* Compact filters have plain labels; inputs retain their 44px touch targets. */
 .compact-filter-fields .field > label { min-height:var(--space-6); }

@@ -14,6 +14,7 @@ from asa.auth.session import OwnerSessions, Principal
 from asa.config import Settings
 from asa.database import connection
 from asa.registry.schemas import RegistryError
+from asa.speech_production import is_production_output
 
 
 class DeleteWork(BaseModel):
@@ -25,7 +26,8 @@ class DeleteWork(BaseModel):
 def impact(conn: Any, workspace: UUID, request: UUID, assets: bool) -> dict[str, Any]:
     args = (workspace, request)
     row = conn.execute(
-        "SELECT r.status, r.updated_at, v.definition->>'name' AS name "
+        "SELECT r.status, r.updated_at, v.definition->>'name' AS name,"
+        "v.definition->'output_schema' AS output_schema "
         "FROM customer_requests r JOIN registry_versions v USING(workspace_id,agent_id,version) "
         "WHERE r.workspace_id=%s AND r.id=%s",
         args,
@@ -45,6 +47,11 @@ def impact(conn: Any, workspace: UUID, request: UUID, assets: bool) -> dict[str,
         "WHERE workspace_id=%s AND request_id=%s ORDER BY id",
         args,
     ).fetchall()
+    edits = conn.execute(
+        "SELECT id::text,status,plan->>'title' AS label,answer_version AS version,"
+        "(media IS NOT NULL) AS generated FROM editing_jobs "
+        "WHERE workspace_id=%s AND request_id=%s ORDER BY id", args,
+    ).fetchall()
     versions = conn.execute(
         "SELECT version FROM script_versions WHERE workspace_id=%s AND "
         "request_id=%s ORDER BY version",
@@ -54,7 +61,7 @@ def impact(conn: Any, workspace: UUID, request: UUID, assets: bool) -> dict[str,
     active = {"queued", "running", "submitting"}
     if (
         row["status"] in active
-        or any(j["status"] in active for j in jobs + clips)
+        or any(j["status"] in active for j in jobs + clips + edits)
         or conn.execute(
             "SELECT 1 FROM script_attempts WHERE workspace_id=%s AND request_id=%s "
             "AND status IN ('queued','running') UNION ALL SELECT 1 FROM asset_reviews a "
@@ -69,6 +76,14 @@ def impact(conn: Any, workspace: UUID, request: UUID, assets: bool) -> dict[str,
         "SELECT 1 FROM customer_requests WHERE workspace_id=%s AND source_id=%s LIMIT 1", args
     ).fetchone():
         reasons.append("이 요청으로 다시 시작한 작업이 원본을 참조하고 있습니다.")
+    if is_production_output(row["output_schema"]) and conn.execute(
+        "SELECT 1 FROM audio_jobs WHERE workspace_id=%s AND request_id=%s "
+        "AND (media IS NOT NULL OR status IN ('queued','running','unknown')) LIMIT 1",
+        args,
+    ).fetchone():
+        reasons.append(
+            "생성했거나 확인 중인 음성이 있습니다. 음성 기록을 보존하려면 작업을 숨기세요."
+        )
     references = []
     if jobs or clips:
         ids = [j["id"] for j in jobs + clips]
@@ -115,11 +130,11 @@ def impact(conn: Any, workspace: UUID, request: UUID, assets: bool) -> dict[str,
         "requests": 1,
         "answers": len(versions),
         "images": sum(j["generated"] for j in jobs),
-        "videos": sum(j["generated"] for j in clips),
+        "videos": sum(j["generated"] for j in clips + edits),
         "delete_assets": assets,
     }
     stamp = json.dumps(
-        [str(request), str(row["updated_at"]), versions, jobs, clips, counts, reasons],
+        [str(request), str(row["updated_at"]), versions, jobs, clips, edits, counts, reasons],
         sort_keys=True,
     )
     return {
@@ -135,7 +150,7 @@ def management_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
     router = APIRouter(prefix="/api/v1/admin/work-history")
 
     def admin(p: Principal = Depends(sessions.principal)) -> Principal:
-        if not {"owner", "admin"}.intersection(p.roles):
+        if not p.can('work-history.view'):
             raise RegistryError(403, "admin_required")
         return p
 
@@ -201,7 +216,7 @@ def management_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
                 conn.execute(
                     "LOCK TABLE customer_requests,script_stages,script_versions,"
                     "script_attempts,character_projects,character_image_jobs,asset_reviews,"
-                    "video_clip_jobs,automation_drafts,automation_runs,automation_schedules,"
+                    "video_clip_jobs,editing_jobs,editing_job_assets,automation_drafts,automation_runs,automation_schedules,"
                     "registry_versions,registry_agents IN SHARE ROW EXCLUSIVE MODE"
                 )
                 plan = impact(conn, *args, body.delete_assets)
@@ -235,6 +250,11 @@ def management_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
                 else:
                     conn.execute(
                         "INSERT INTO retained_work_videos SELECT workspace_id,id,"
+                        "request_id,plan->>'title',answer_version,media FROM editing_jobs "
+                        "WHERE workspace_id=%s AND request_id=%s AND media IS NOT NULL", args,
+                    )
+                    conn.execute(
+                        "INSERT INTO retained_work_videos SELECT workspace_id,id,"
                         "request_id,clip_id,answer_version,video FROM video_clip_jobs "
                         "WHERE workspace_id=%s AND request_id=%s AND video IS NOT NULL",
                         args,
@@ -251,6 +271,7 @@ def management_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
                         args,
                     )
                 for table in (
+                    "editing_jobs",
                     "video_clip_jobs",
                     "script_attempts",
                     "script_versions",

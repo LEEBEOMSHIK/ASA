@@ -59,7 +59,7 @@ def video_management_router(settings: Settings, sessions: OwnerSessions) -> APIR
     def can_manage(p: Principal) -> bool:
         return bool(settings.environment == "development" and
                     p.workspace_id == settings.workspace_id and
-                    {"owner", "admin"}.intersection(p.roles))
+                    p.can('video-management.edit'))
 
     def authorize(p: Principal) -> None:
         if not can_manage(p):

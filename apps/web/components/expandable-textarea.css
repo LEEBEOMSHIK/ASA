@@ -23,3 +23,9 @@
   width: min(100%, 76ch);
   margin-inline: auto;
 }
+
+/* Inline help stays beside the label; its expanded content follows all header actions. */
+.expandable-textarea .field-title-actions > .help-content { order:2; }
+
+/* Compact inline forms keep the normal readable text size and manual resizing. */
+.field textarea.textarea--compact { font-size:var(--font-body); line-height:1.6; padding:var(--space-3); }

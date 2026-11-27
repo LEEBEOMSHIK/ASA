@@ -4,13 +4,14 @@ import subprocess
 from typing import Any
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Request, Response
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field, ValidationError
 
 from asa.auth.session import OwnerSessions, Principal
 from asa.config import Settings
 from asa.registry import video_inheritance, video_plan_approvals
+from asa.registry.media_response import media_response
 from asa.registry.repository import RegistryRepository
 from asa.registry.schemas import RegistryError
 from asa.registry.video_planning import catalog_estimate, prepare
@@ -509,22 +510,28 @@ def video_job_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
         return {"approved": len(selected)}
 
     @router.get("/asset/{job_id}/video")
-    def asset(job_id: UUID, principal: Principal = Depends(sessions.principal)) -> Response:
+    def asset(
+        job_id: UUID, request: Request, principal: Principal = Depends(sessions.principal)
+    ) -> Response:
         repo = RegistryRepository(settings.database_url, principal.workspace_id)
+        keys = (repo.workspace_id, job_id)
+        range_header = request.headers.get("range", "")
         with repo._connect() as conn:
-            row = conn.execute(
-                "SELECT video FROM video_clip_jobs WHERE workspace_id=%s "
+            response = media_response(
+                conn, "SELECT video AS media,'video/mp4' AS media_type "
+                "FROM video_clip_jobs WHERE workspace_id=%s "
                 "AND id=%s AND status IN ('review','approved')",
-                (repo.workspace_id, job_id),
-            ).fetchone()
-            if not row:
-                row = conn.execute(
-                    "SELECT video FROM retained_work_videos WHERE workspace_id=%s AND id=%s",
-                    (repo.workspace_id, job_id),
-                ).fetchone()
-        if not row or not row["video"]:
+                keys, range_header, "video_asset_missing",
+            )
+            if response is None:
+                response = media_response(
+                    conn, "SELECT video AS media,'video/mp4' AS media_type "
+                    "FROM retained_work_videos WHERE workspace_id=%s AND id=%s",
+                    keys, range_header, "video_asset_missing",
+                )
+        if response is None:
             raise RegistryError(404, "video_asset_missing")
-        return Response(content=bytes(row["video"]), media_type="video/mp4")
+        return response
 
     @router.get("/asset/{job_id}/last-frame")
     def frame(job_id: UUID, principal: Principal = Depends(sessions.principal)) -> Response:

@@ -6,6 +6,7 @@ from langchain.chat_models import init_chat_model
 from langchain_core.messages import HumanMessage
 
 from asa.config import Settings
+from asa.editing_brief import model_contract
 from asa.models import AgentAnswer, Script
 from asa.registry.history import valid_input
 from asa.telemetry import call_config
@@ -53,7 +54,7 @@ def make_agent_generator(
     if not settings.ai_model or not settings.key_for(settings.ai_provider).get_secret_value():
         raise ValueError("model_not_configured")
     def generate(prompt: str) -> AgentAnswer:
-        contract = json.loads(prompt)
+        contract = model_contract(json.loads(prompt))
         from asa.registry.video_planning import planner_constraints
 
         video_constraints = planner_constraints(settings, contract)

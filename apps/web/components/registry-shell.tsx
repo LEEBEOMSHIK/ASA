@@ -1,4 +1,6 @@
 "use client";
+import {navigationItems} from "../lib/navigation";
+import { useAccess } from "./access-provider";
 import { StudioBrand } from "./studio-brand";
 import { SidebarHome, SidebarToggle, useSidebarCollapse } from "./sidebar-toggle";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
@@ -14,11 +16,13 @@ export function useRegistryAdmin() { return useContext(AdminContext); }
 export function useDirtyGuard() { return useContext(DirtyContext); }
 
 export function RegistryShell({ children, adminOnly=false }: { children: ReactNode; adminOnly?:boolean }) {
+  const access=useAccess();
   const sidebar = useSidebarCollapse();
   const pathname = usePathname();
-  const active = pathname === "/admin/design-system" ? pathname : pathname.startsWith("/video-comparison") ? "/video-comparison" : pathname === "/admin/work-history" ? pathname : pathname.startsWith("/admin/branding") ? "/admin/branding" : pathname.startsWith("/admin/agents") ? "/admin/agents" : pathname.startsWith("/characters") ? "/characters" : pathname.startsWith("/models") ? "/models" : pathname.startsWith("/monitoring") ? "/monitoring" : pathname.startsWith("/automations") ? "/automations" : pathname.startsWith("/agents") ? "/agents" : "/tools";
-  const isDesignSystem = active === "/admin/design-system";
-  const title = isDesignSystem ? "디자인 시스템" : active === "/video-comparison" ? "영상 AI 비교" : active === "/admin/work-history" ? "작업 관리" : active === "/admin/branding" ? "브랜드 설정" : active === "/admin/agents" ? "에이전트 관리" : active === "/characters" ? "보관함" : active === "/models" ? "AI 모델 관리" : active === "/monitoring" ? "AI 사용량·비용" : active === "/automations" ? "자동화 빌더" : active === "/agents" ? "에이전트" : "도구 라이브러리";
+  const active = pathname === "/admin/design-system" ? pathname : pathname.startsWith("/admin/workers") ? "/admin/workers" : pathname.startsWith("/admin/video") ? "/admin/video" : pathname.startsWith("/admin/access") ? "/admin/access" : pathname.startsWith("/video-comparison") ? "/video-comparison" : pathname === "/admin/work-history" ? pathname : pathname.startsWith("/admin/branding") ? "/admin/branding" : pathname.startsWith("/admin/agents") ? "/admin/agents" : pathname.startsWith("/characters") ? "/characters" : pathname.startsWith("/models") ? "/models" : pathname.startsWith("/monitoring") ? "/monitoring" : pathname.startsWith("/automations") ? "/automations" : pathname.startsWith("/agents") ? "/agents" : "/tools";
+  const currentMenu = navigationItems.find(item => item.href === active);
+  const title = currentMenu?.label ?? "도구 라이브러리";
+  const isDesignSystem = currentMenu?.id === "design-system";
   const [roleLabel, setRoleLabel] = useState("");
   const [admin, setAdmin] = useState(false);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
@@ -48,7 +52,7 @@ export function RegistryShell({ children, adminOnly=false }: { children: ReactNo
     }
     catch (e) { setError(message(e)); } finally { setBusy(false); }
   }
-  return <AdminContext.Provider value={admin}><NavigationPreferences ready={status === "ready"} admin={admin}><DirtyContext.Provider value={setUnsaved}>
+  return <AdminContext.Provider value={access.can("admin-agents.edit")}><NavigationPreferences ready={status === "ready"} admin={admin}><DirtyContext.Provider value={setUnsaved}>
     <a className="skip-link" href="#main">본문으로 건너뛰기</a>
     <div className={`studio-app ${sidebar.collapsed ? "is-sidebar-collapsed" : ""}`}>
       <aside id="studio-navigation" className="studio-sidebar" aria-label="작업 탐색"><SidebarToggle collapsed={sidebar.collapsed} toggle={sidebar.toggle} controls="studio-navigation"/>
@@ -71,7 +75,7 @@ export function RegistryShell({ children, adminOnly=false }: { children: ReactNo
           <Button disabled={busy} onClick={() => logout(true)}>변경을 버리고 로그아웃</Button></div></section>}
       {status === "loading" ? <p role="status">작업 공간을 여는 중입니다…</p> : status === "error" ?
         <><p role="alert">{error}</p><Button onClick={() => window.location.reload()}>다시 시도</Button></> :
-        <>{error && <p role="alert">{error}</p>}{adminOnly && !admin ? <p role="alert">관리자만 접근할 수 있는 화면입니다.</p> : children}</>}
+        <>{error && <p role="alert">{error}</p>}{adminOnly && !access.can((currentMenu?.id ?? "admin-agents") + ".view") ? <p role="alert">관리자만 접근할 수 있는 화면입니다.</p> : children}</>}
     </main>
     </div></div>
   </DirtyContext.Provider></NavigationPreferences></AdminContext.Provider>;

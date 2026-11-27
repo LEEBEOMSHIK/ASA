@@ -4,9 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { api, message, type Definition, type SchemaNode } from "../lib/registry";
 import { pendingVideoUrl, videoLinkLabel } from "../lib/video-link";
 import { isVideoReference } from "./video-input";
-import { AgentIcon, Button, DraftNotice, Card, StatusBadge } from "./ui";
+import { ActionIcon, AgentIcon, Button, DraftNotice, Card, StatusBadge } from "./ui";
 
-import { inputEntries as entries, isInputRequired, inputConditionHint, isInputVisible } from "../lib/input-requirements";
+import { inputEntries as entries, isInputRequired, inputConditionHint, isInputVisible, readonlyInput } from "../lib/input-requirements";
 import {isVideoStyleField} from "../lib/video-prompt-settings";
 import { AgentInput } from "./agent-input";
 
@@ -28,10 +28,13 @@ export function AgentRunPreview({ definition, onBack, customer = false, initialI
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => { heading.current?.focus(); }, []);
   const input = entries(definition.input_schema).filter(([, node]) => isInputVisible(node, values));
+  const speech = input.some(([, node]) => node["x-speech-source"]);
   async function checkInput(event: React.FormEvent) {
     event.preventDefault(); setError("");
     if (savingRef.current) return;
-    for (const [key, node] of input) {
+    if(input.some(([key,node])=>node["x-editing-sources"]&&values[key]?.includes('"upload:pending"'))){setError("영상 업로드가 끝난 뒤 요청해 주세요.");return;}
+    const editableInput = input.filter(([, node]) => !readonlyInput(node, values));
+    for (const [key, node] of editableInput) {
       const required = isInputRequired(definition.input_schema, key, values);
       if (!required && (values[key] === undefined || values[key] === "")) continue;
       if (isVideoReference(node)) {
@@ -66,7 +69,7 @@ export function AgentRunPreview({ definition, onBack, customer = false, initialI
     }
     if (onSave) {
       const payload: Record<string, unknown> = {};
-      for (const [key, node] of input) {
+      for (const [key, node] of editableInput) {
         const value = values[key];
         if (value === undefined || value === "") continue;
         payload[key] = node.type === "string" ? value : ["integer", "number"].includes(node.type) ? Number(value) : JSON.parse(value);
@@ -96,7 +99,10 @@ export function AgentRunPreview({ definition, onBack, customer = false, initialI
   return <section className="run-preview-screen">
     <Button variant="secondary" disabled={saving} onClick={onBack}>{customer ? "← 다른 에이전트 선택" : "← 설정 편집으로 돌아가기"}</Button>
     <div className="page-heading"><div><h1 className="agent-title" ref={heading} tabIndex={-1}><AgentIcon icon={definition.icon}/>{definition.name || "새 에이전트"}</h1><p className="muted">{definition.description || "정보를 입력하고 이 에이전트에게 작업을 맡기는 화면입니다."}</p></div>{!customer && <StatusBadge tone="neutral">미리보기 · 실제 AI 호출 없음</StatusBadge>}</div>
-    <p className="preview-banner">{customer ? "실행 후 진행 상태와 답변은 최근 작업에서 확인할 수 있습니다. AI 실행 시 API 이용 비용이 발생합니다." : "현재 편집 중인 설정의 미리보기입니다. 입력 내용은 저장되지 않으며 AI를 호출하지 않습니다."}</p>
+    <p className="preview-banner">{customer ? speech
+      ? "씬 구성에서 화자와 발화 시간표를 가져와 새 작업을 엽니다. 음성은 제작 화면에서 생성 버튼을 누를 때 요청합니다."
+      : "실행 후 진행 상태와 답변은 최근 작업에서 확인할 수 있습니다. AI 실행 시 API 이용 비용이 발생합니다."
+      : "현재 편집 중인 설정의 미리보기입니다. 입력 내용은 저장되지 않으며 AI를 호출하지 않습니다."}</p>
     {draft.notice&&<DraftNotice message={draft.notice} actionLabel="임시 입력 지우기" disabled={saving} onReset={()=>{draft.clear();setValues(originalValues.current);}}/>}
     <div className="run-input-layout"><Card><header className="run-form-heading"><h2>요청 내용</h2><p className="muted">{customer ? "이 에이전트가 작업하는 데 필요한 내용을 입력해 주세요." : "실행할 때 사용자가 입력할 내용을 확인해 보세요."}</p></header>
       <form onSubmit={checkInput}>
@@ -112,12 +118,19 @@ export function AgentRunPreview({ definition, onBack, customer = false, initialI
         })}
         {input.length === 0 && <p>입력 없이 실행하도록 설정된 에이전트입니다.</p>}
         {error && <p role="alert" className="field-error">{error}</p>}
-        <div className="actions"><Button type="submit">{saving ? "요청 접수 중…" : onSave ? input.some(([, node]) => isVideoReference(node)) ? "분석 시작" : "답변 생성 실행" : "입력 확인하기"}</Button>{!customer && <Button disabled aria-describedby="run-preview-unavailable">미리보기 · 실제 실행 없음</Button>}</div>
-        <p id="run-preview-unavailable" className="helper-text">{onSave ? "등록된 에이전트 지침과 모델로 실행합니다. 도구를 연결한 에이전트의 실행은 아직 지원하지 않습니다." : "입력 확인은 이 화면에서만 수행합니다. 세부 형식 검증과 실제 AI 실행은 이 미리보기에서 제공하지 않습니다."}</p>
+        <div className="actions"><Button type="submit">{speech && onSave && <ActionIcon kind="add"/>}
+          {saving ? "요청 접수 중…" : onSave ? speech ? "음성 제작 작업 열기" : input.some(([, node]) => isVideoReference(node)) ? "분석 시작" : "답변 생성 실행" : "입력 확인하기"}</Button>{!customer && <Button disabled aria-describedby="run-preview-unavailable">미리보기 · 실제 실행 없음</Button>}</div>
+        <p id="run-preview-unavailable" className="helper-text">{onSave ? speech
+          ? "가져온 씬의 대사와 화자는 원본 그대로 유지됩니다."
+          : "등록된 에이전트 지침과 모델로 실행합니다. 도구를 연결한 에이전트의 실행은 아직 지원하지 않습니다."
+          : "입력 확인은 이 화면에서만 수행합니다. 세부 형식 검증과 실제 AI 실행은 이 미리보기에서 제공하지 않습니다."}</p>
         </fieldset>
       </form>
       {checked && <div role="status" className="notice"><strong>입력 내용을 확인했어요.</strong><p>실제 실행은 하지 않았습니다. 아래에서 입력한 내용을 확인할 수 있어요.</p>
-        <dl>{input.map(([key, node], i) => <div key={key}><dt>{node.description || `입력 항목 ${i + 1}`}</dt><dd className="run-entered-value">{values[key] || "입력 없음"}</dd></div>)}</dl></div>}
+        <dl>{input.map(([key, node], i) => {
+          const fixed = readonlyInput(node, values);
+          return <div key={key}><dt>{fixed?.label || node.description || `입력 항목 ${i + 1}`}</dt><dd className="run-entered-value">{fixed?.text || values[key] || "입력 없음"}</dd></div>;
+        })}</dl></div>}
     </Card>{!customer && <details className="advanced"><summary>에이전트 지침</summary><p className="run-entered-value">{definition.instructions || "아직 지침을 작성하지 않았어요."}</p></details>}</div>
   </section>;
 }

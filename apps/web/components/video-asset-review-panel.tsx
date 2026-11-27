@@ -1,11 +1,13 @@
 "use client";
 import { useEffect, useId, useRef, useState } from "react";
 import { api, message } from "../lib/registry";
+import { type SpeechVideoSource } from "../lib/speech-video-timing";
 import { Modal } from "./character-library";
 import { ActionIcon, Button, StatusBadge } from "./ui";
 import "./video-asset-review-panel.css";
 
-type ReviewResult = {summary:string;checks:{category:string;verdict:"pass"|"issue"|"unverified";expected:string;observed:string;timestamp_seconds:number|null}[];limitations:string[]};
+type SpeechSuggestion = Pick<SpeechVideoSource,"start_seconds"|"end_seconds"|"observed"|"delivery"|"basis"> & {text:string};
+type ReviewResult = {summary:string;checks:{category:string;verdict:"pass"|"issue"|"unverified";expected:string;observed:string;timestamp_seconds:number|null}[];limitations:string[];speech_suggestions?:SpeechSuggestion[]};
 type Review = {id:string;status:string;result:ReviewResult|null;error_code:string|null;created_at:string;started_at:string|null;finished_at:string|null;agent_ref:string};
 type Snapshot = {configured:boolean;available:boolean;reason:string|null;worker_online:boolean;reviews:Review[]};
 const states:Record<string,string> = {queued:"검수 대기",running:"검수 중",succeeded:"검수 의견 도착",failed:"검수 실패",unknown:"호출 확인 필요"};
@@ -16,6 +18,16 @@ const verdicts = {pass:"확인됨",issue:"문제 발견",unverified:"미검증"}
 function ReviewAnswer({result}:{result:ReviewResult}) {
   return <div className="video-asset-review-result"><p>{result.summary}</p>
     <p className="helper-text">샘플 프레임에서 관찰한 의견입니다. ‘확인됨’은 영상 전체의 품질 보증이나 사용자 확정을 뜻하지 않습니다.</p>
+    {!!result.speech_suggestions?.length&&<section className="video-asset-review-check">
+      <h4>음성 제작에 참고할 발화</h4>
+      <p className="helper-text">음성 제작에서 원문이 같은 발화에 이 검수를 연결할 수 있습니다.</p>
+      <dl>{result.speech_suggestions.map((suggestion,index)=><div key={index}>
+        <dt>{suggestion.text}</dt>
+        <dd>영상 내 약 {suggestion.start_seconds}–{suggestion.end_seconds}초 · {suggestion.basis==="mouth"?"입 모양 표본":"장면 변화 표본"}</dd>
+        <dd>{suggestion.observed}</dd>
+        <dd><strong>권장 연출</strong> {suggestion.delivery}</dd>
+      </div>)}</dl>
+    </section>}
     {result.checks.map((check,index)=><section key={index} className="video-asset-review-check">
       <div className="video-asset-review-heading"><h4>{categories[check.category]??"검토 항목"}</h4><StatusBadge tone={check.verdict==="pass"?"success":"warning"}>{verdicts[check.verdict]}</StatusBadge></div>
       {check.timestamp_seconds!=null&&<p className="helper-text">관찰 시점 · {check.timestamp_seconds}초</p>}
@@ -65,7 +77,7 @@ export function VideoAssetReviewPanel({jobId,title,onClose}:{jobId:string;title:
   const reason=!data?"검수 연결 상태를 확인하고 있습니다.":!data.configured?"이 작업에는 영상 검수 에이전트가 연결되어 있지 않습니다. 에이전트 설정의 ‘답변 이후 작업’에서 연결하고 저장하면 이 영상의 다음 검수 요청부터 적용됩니다.":!data.available?(unavailableReasons[data.reason??""]??"영상 검수 연결을 사용할 수 없습니다. 관리자에게 검수 에이전트의 모델·이미지 입력 지원·연결 설정 확인을 요청해 주세요."):!data.worker_online?"영상 검수 워커가 오프라인입니다. 연결된 뒤 요청할 수 있습니다.":active?"이미 진행 중인 검수가 있습니다. 완료 후 새 검수를 요청할 수 있습니다.":"검수는 아래 요청 버튼을 눌렀을 때만 실행됩니다.";
   return <Modal title={`${title} · AI 영상 검수`} onClose={onClose} className="video-asset-review-modal"><div className="video-asset-review-panel">
     <p id={helpId} role="status">{reason}</p>
-    <p className="helper-text">생성 당시 제작 지시와 영상의 샘플 프레임을 함께 검토합니다. 별도 AI 비용이 발생하며 정확한 금액은 실행 전 확인되지 않습니다. 오디오·대사·음색·립싱크 및 샘플 사이 움직임은 미검증이므로 영상을 직접 재생해 확인하세요.</p>
+    <p className="helper-text">생성 당시 제작 지시와 발화 원문을 영상의 샘플 프레임과 비교합니다. 별도 AI 비용이 발생하며 정확한 금액은 실행 전 확인되지 않습니다. 실제 발화·음색·립싱크와 샘플 사이 움직임은 영상을 직접 재생해 확인하세요.</p>
     <Button disabled={!available||busy||!!active||!!error} aria-describedby={helpId} onClick={()=>void request()}><ActionIcon kind="ai"/>{busy?"검수 접수 중…":active?"검수 진행 중":"AI 영상 검수 요청"}</Button>
     <p className="helper-text">AI 의견만 기록합니다. 영상 재생성·사용자 확정·자동 재시도는 하지 않습니다.</p>
     {error&&<div role="alert"><p>{error}</p><Button variant="secondary" disabled={busy} onClick={()=>setRetry(n=>n+1)}><ActionIcon kind="refresh"/>상태 다시 확인</Button></div>}

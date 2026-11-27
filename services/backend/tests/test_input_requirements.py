@@ -43,6 +43,23 @@ def test_conditional_visibility_preserves_required_validation():
     assert any(i.code == "input_visible_when" for i in validate_definition(definition(value), {}))
 
 
+def test_readonly_presentation_has_a_valid_condition_and_copy():
+    value = schema()
+    value["properties"]["mode"]["x-help"] = "형식을 선택합니다."
+    value["properties"]["duration"] = {
+        "type": "string",
+        "enum": ["15초", "60초"],
+        "x-readonly-when": {
+            "field": "mode", "equals": "image", "label": "고정 길이", "text": "15초",
+        },
+    }
+    assert validate_definition(definition(value), {}) == []
+    assert valid_input({"mode": "draft", "duration": "60초"}, normalize_schema(value))
+    assert valid_input({"mode": "image", "reference": "example"}, normalize_schema(value))
+    value["properties"]["duration"]["x-readonly-when"]["field"] = "missing"
+    assert any(i.code == "input_readonly_when" for i in validate_definition(definition(value), {}))
+
+
 @pytest.mark.parametrize("check", [valid_input, accepts])
 @pytest.mark.parametrize(("value", "expected"), [
     ({"mode": "draft"}, True),

@@ -118,7 +118,9 @@ class HistoryRepository(RegistryRepository):
             attach_titles(conn, self.workspace_id, self.requested_by, rows[:20])
             return {"items": rows[:20], "has_more": len(rows) > 20}
 
-    def save(self, body: WorkRequest) -> dict[str, Any]:
+    def save(self, body: WorkRequest, settings: Settings | None = None) -> dict[str, Any]:
+        from asa.speech_production import is_production_output
+
         with self._connect() as conn:
             conn.execute("SELECT id FROM registry_workspaces WHERE id=%s FOR UPDATE",
                          (self.workspace_id,))
@@ -159,6 +161,27 @@ class HistoryRepository(RegistryRepository):
             effective_input = art_styles.video_inputs(definition, body.input, style)
             if not valid_input(effective_input, definition["input_schema"]):
                 raise RegistryError(422, "invalid_work_input")
+            production = is_production_output(definition["output_schema"])
+            new_request = existing is None
+            if production and new_request:
+                from asa.speech_production import FORMAT, load_source, production_settings
+
+                reference = (effective_input.get("scene_source")
+                             if isinstance(effective_input, dict) else None)
+                if settings is None or not isinstance(reference, str):
+                    raise RegistryError(422, "speech_source_unavailable")
+                timing, title = load_source(conn, self.workspace_id, self.requested_by, reference)
+                title = title[:150]
+                profile = next(
+                    ((key, model.voices) for key, model in settings.audio_model_profiles.items()
+                     if model.enabled),
+                    ("openai-realtime", ["marin"]),
+                )
+                prepared = production_settings(timing, *profile)
+                answer = {"format": FORMAT, "title": title,
+                          "speaker_count": len(prepared.speakers), "cue_count": len(prepared.cues)}
+                if not valid_input(answer, definition["output_schema"]):
+                    raise RegistryError(422, "invalid_work_input")
             if body.source_id:
                 source = conn.execute(
                     "SELECT agent_id,version FROM customer_requests "
@@ -184,6 +207,17 @@ class HistoryRepository(RegistryRepository):
                     or existing["is_test"] != body.is_test
                     or existing["input"] != body.input or existing["source_id"] != body.source_id):
                 raise RegistryError(409, "work_conflict")
+            if production and new_request:
+                from asa.registry.script_stage import ScriptRepository
+
+                script = ScriptRepository(self.dsn, self.workspace_id)
+                version_number = script._add_version(
+                    conn, str(body.id), script._stage(conn, str(body.id)), body.id,
+                    title, "", "manual", 0, "", answer, body.version,
+                )
+                conn.execute("INSERT INTO audio_settings VALUES (%s,%s,%s,1,%s)",
+                             (self.workspace_id, body.id, version_number,
+                              Jsonb(prepared.model_dump(mode="json"))))
         return self.detail(body.id)
 
 
@@ -274,6 +308,6 @@ def history_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
     @router.post("", status_code=201)
     def save(body: WorkRequest,
              repository: HistoryRepository = Depends(repo)) -> dict[str, Any]:
-        return repository.save(body)
+        return repository.save(body, settings)
 
     return router

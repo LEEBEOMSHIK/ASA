@@ -23,6 +23,15 @@ def migrate(dsn: str, workspace_id: UUID) -> None:
             "INSERT INTO registry_workspaces(id) VALUES (%s) ON CONFLICT DO NOTHING",
             (workspace_id,),
         )
+        from asa.auth.permissions import ALL_PERMISSIONS, MEMBER_PERMISSIONS
+        for role_id, name, permissions in [
+            ('c458f4cc-8fe0-4e68-b9c2-eeb208edb501', '관리자', sorted(ALL_PERMISSIONS)),
+            ('c458f4cc-8fe0-4e68-b9c2-eeb208edb502', '제작자', MEMBER_PERMISSIONS),
+            ('c458f4cc-8fe0-4e68-b9c2-eeb208edb503', '열람자', ['home.view', 'characters.view']),
+        ]:
+            conn.execute('INSERT INTO access_roles(workspace_id,id,name,permissions) '
+                         'VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING',
+                         (workspace_id, role_id, name, Jsonb(permissions)))
 
 
 class RegistryRepository:

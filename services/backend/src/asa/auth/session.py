@@ -10,6 +10,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, SecretStr
 
+from asa.auth.permissions import allowed, can_request
 from asa.config import Settings
 from asa.database import connection
 
@@ -21,11 +22,23 @@ class Principal:
     user_id: str
     workspace_id: UUID
     roles: tuple[str, ...] = ("owner",)
+    permissions: tuple[str, ...] | None = None
+
+    def can(self, permission: str) -> bool:
+        if self.permissions is None:
+            return bool({"owner", "admin"}.intersection(self.roles))
+        return allowed(self.permissions, permission)
 
 
 class Login(BaseModel):
     model_config = ConfigDict(extra="forbid")
     access_key: SecretStr
+
+
+class UserLogin(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    username: str
+    password: SecretStr
 
 
 class OwnerSessions:
@@ -63,7 +76,7 @@ class OwnerSessions:
             raise HTTPException(503, "registry_unconfigured")
         with connection(self.settings.database_url) as conn:
             row = conn.execute(
-                "SELECT workspace_id FROM registry_sessions "
+                "SELECT workspace_id,user_id FROM registry_sessions "
                 "WHERE token_hash=%s AND expires_at>now()",
                 (hashlib.sha256(token.encode()).hexdigest(),),
             ).fetchone()
@@ -73,7 +86,26 @@ class OwnerSessions:
             self.require_origin(request)
             if not hmac.compare_digest(request.headers.get("x-csrf-token", ""), self.csrf(token)):
                 raise HTTPException(403, "csrf_invalid")
-        return Principal(user_id="local-owner", workspace_id=row[0])
+        if row[1] == "local-owner":
+            return Principal(user_id="local-owner", workspace_id=row[0], permissions=("*",))
+        with connection(self.settings.database_url) as conn:
+            account = conn.execute(
+                "SELECT r.id,r.permissions FROM access_users u JOIN access_roles r "
+                "ON r.workspace_id=u.workspace_id AND r.id=u.role_id "
+                "WHERE u.workspace_id=%s AND u.id::text=%s AND u.enabled AND r.enabled",
+                (row[0], row[1]),
+            ).fetchone()
+        if not account:
+            raise HTTPException(401, "login_required")
+        principal = Principal(
+            user_id=row[1],
+            workspace_id=row[0],
+            roles=(str(account[0]),),
+            permissions=tuple(account[1]),
+        )
+        if not can_request(principal.permissions or (), request.method, request.url.path):
+            raise HTTPException(403, "permission_denied")
+        return principal
 
     def router(self) -> APIRouter:
         router = APIRouter(prefix="/api/v1")
@@ -95,7 +127,23 @@ class OwnerSessions:
                 raise HTTPException(403, "origin_not_allowed")
             return issue_session(request, response)
 
-        def issue_session(request: Request, response: Response) -> dict[str, str]:
+        @router.post("/session/test-member")
+        def test_member_login(request: Request, response: Response) -> dict[str, str]:
+            if not self.test_login_available(request):
+                raise HTTPException(404, "not_found")
+            self.require_origin(request)
+            if urlsplit(request.headers.get("origin", "")).hostname not in {
+                "127.0.0.1", "::1", "localhost",
+            }:
+                raise HTTPException(403, "origin_not_allowed")
+            from asa.auth.dev_account import ensure_test_member
+
+            user_id = ensure_test_member(self.settings)
+            return issue_session(request, response, user_id)
+
+        def issue_session(
+            request: Request, response: Response, user_id: str = "local-owner"
+        ) -> dict[str, str]:
             if (
                 len(self.settings.owner_access_key.get_secret_value()) < 32
                 or not self.settings.database_url
@@ -111,8 +159,13 @@ class OwnerSessions:
                         (hashlib.sha256(old.encode()).hexdigest(),),
                     )
                 conn.execute(
-                    "INSERT INTO registry_sessions VALUES (%s,%s,now()+interval '8 hours')",
-                    (hashlib.sha256(token.encode()).hexdigest(), self.settings.workspace_id),
+                    "INSERT INTO registry_sessions(token_hash,workspace_id,expires_at,user_id) "
+                    "VALUES (%s,%s,now()+interval '8 hours',%s)",
+                    (
+                        hashlib.sha256(token.encode()).hexdigest(),
+                        self.settings.workspace_id,
+                        user_id,
+                    ),
                 )
             response.set_cookie(
                 COOKIE,
@@ -124,6 +177,35 @@ class OwnerSessions:
                 path="/api/v1",
             )
             return {"csrf_token": self.csrf(token), "workspace_id": str(self.settings.workspace_id)}
+
+        @router.post("/session/user")
+        def user_login(body: UserLogin, request: Request, response: Response) -> dict[str, str]:
+            from asa.auth.access import password_matches
+
+            self.require_origin(request)
+            # Bounded input and shared throttling with owner login; no username disclosure.
+            with self.lock:
+                now = time.monotonic()
+                self.failed_attempts = [t for t in self.failed_attempts if now - t < 60]
+                if len(self.failed_attempts) >= 5:
+                    raise HTTPException(429, "login_rate_limited")
+                if len(body.username) > 64 or len(body.password.get_secret_value()) > 128:
+                    raise HTTPException(401, "invalid_credentials")
+                with connection(self.settings.database_url) as conn:
+                    account = conn.execute(
+                        "SELECT u.id,u.password_hash,u.enabled,r.enabled "
+                        "FROM access_users u JOIN access_roles r "
+                        "ON r.workspace_id=u.workspace_id AND r.id=u.role_id "
+                        "WHERE u.workspace_id=%s AND u.username=%s",
+                        (self.settings.workspace_id, body.username.strip().lower()),
+                    ).fetchone()
+                # Equal-cost hash for an unknown username.
+                digest = account[1] if account else "0" * 32 + ":" + "0" * 128
+                valid = password_matches(body.password.get_secret_value(), digest)
+                if not valid or not account or not account[2] or not account[3]:
+                    self.failed_attempts.append(now)
+                    raise HTTPException(401, "invalid_credentials")
+            return issue_session(request, response, str(account[0]))
 
         @router.post("/session")
         def login(body: Login, request: Request, response: Response) -> dict[str, str]:
@@ -150,6 +232,7 @@ class OwnerSessions:
                 "workspace_id": str(principal.workspace_id),
                 "roles": principal.roles,
                 "user_id": principal.user_id,
+                "permissions": principal.permissions or (),
             }
 
         @router.delete("/session", status_code=204)

@@ -1,25 +1,27 @@
 "use client";
 
 import { useId, useRef, useState } from "react";
-import { message } from "../lib/registry";
+import { api, message } from "../lib/registry";
 import { ActionIcon, Button } from "./ui";
-export type EditSource = {
-  id: string;
-  title: string;
-  kind: string;
-  duration?: number | null;
-  media_url?: string;
-  work_name?: string;
-  source_name?: string;
-};
+import type { EditSource } from "./editing-source-input";
 
-export function EditingUpload({ selectedCount, remaining, onAdd, onBusy, onBrowse, uploadFile }: {
+async function uploadEditingFile(file: File) {
+  const data = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1]);
+    reader.onerror = () => reject(new Error("파일을 읽지 못했습니다."));
+    reader.readAsDataURL(file);
+  });
+  return api<EditSource>("/editing/uploads", "POST", { data, filename: file.name });
+}
+
+export function EditingUpload({ selectedCount, remaining, onAdd, onBusy, onBrowse, uploadFile = uploadEditingFile }: {
   selectedCount: number;
   remaining: number;
   onAdd: (item: EditSource) => void;
   onBusy: (busy: boolean) => void;
   onBrowse: () => void;
-  uploadFile: (file: File) => Promise<EditSource>;
+  uploadFile?: (file: File) => Promise<EditSource>;
 }) {
   const id = useId();
   const input = useRef<HTMLInputElement>(null);

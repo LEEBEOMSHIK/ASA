@@ -16,7 +16,7 @@ def registry_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
 
     def repo(principal: Principal = Depends(sessions.principal)) -> RegistryRepository:
         return RegistryRepository(settings.database_url, principal.workspace_id,
-                                  can_edit_common=bool({"owner", "admin"} & set(principal.roles)))
+                                  can_edit_common=principal.can('admin-agents.edit'))
 
     def revision(if_match: str | None = Header(default=None)) -> int:
         if if_match is None:

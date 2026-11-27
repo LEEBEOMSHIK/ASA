@@ -112,7 +112,7 @@ def model_catalog_router(settings: Settings, sessions: OwnerSessions) -> APIRout
     router = APIRouter(prefix="/api/v1/admin/models")
 
     def scoped(principal: Principal = Depends(sessions.principal)) -> Settings:
-        if not {"owner", "admin"}.intersection(principal.roles):
+        if not principal.can('models.view'):
             raise HTTPException(403, "admin_required")
         return settings.model_copy(update={"workspace_id": principal.workspace_id})
 

@@ -251,6 +251,12 @@ def index(repo: RegistryRepository, user_id: str) -> dict[str, Any]:
                 (wid, wid, wid, wid),
             ).fetchall()
         )
+        items.extend(conn.execute(
+            "SELECT 'edit:'||id id,request_id::text,answer_version,1 version,created_at::text,"
+            "plan->>'title' title,status,'edited' subtype,'video' kind,"
+            "'/api/v1/editing/jobs/'||id||'/media' media_url FROM editing_jobs "
+            "WHERE workspace_id=%s AND status IN ('review','approved') AND media IS NOT NULL",
+            (wid,)).fetchall())
         works = conn.execute(
             "SELECT id::text,name,revision FROM library_works "
             "WHERE workspace_id=%s ORDER BY name,id",

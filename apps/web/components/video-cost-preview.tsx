@@ -19,8 +19,10 @@ export function VideoCostPreview({modelKey,revision,durations,modelLabel,support
     return()=>{live=false;};
   },[modelKey,revision,seconds,video,supportsVideoReference]);
   return <section className="video-cost-summary" aria-label="예상 요금">
-    <p className="helper-text">공개 요금 · 출력 1초당 {rate==null?"미확인":`$${rate} USD`}{supportsVideoReference&&` · 영상 참조 포함 ${videoRate==null?"미확인":`$${videoRate} USD/초`}`} · 실제 청구액과 다를 수 있음</p>
-    <details className="video-model-guidance video-cost-calculator">
+    <strong>예상 요금</strong>
+    <dl className="video-cost-rates"><div><dt>기본 생성</dt><dd>{rate==null?"미확인":`$${rate} USD/초`}</dd></div>{supportsVideoReference&&<div><dt>영상 참조 포함</dt><dd>{videoRate==null?"미확인":`$${videoRate} USD/초`}</dd></div>}</dl>
+    <p className="helper-text">공개 단가 기준이며 실제 청구액과 다를 수 있습니다.</p>
+    <details className="video-cost-calculator">
     <DisclosureSummary>{modelLabel} 요금 계산기</DisclosureSummary><div className="video-cost-calculator-body">
     <p className="helper-text">실제 클립 길이는 적용된 길이 설정에 따라 계획합니다. 자동 판단을 선택하면 AI가 대본·씬과 모델 지원 범위를 바탕으로 정합니다. 생성 전에 클립 계획의 길이와 예상 비용을 확인하고 확정하세요. 길이를 바꾸려면 클립 계획 수정에서 요청할 수 있습니다.</p>
     <Field id={`${id}-duration`} label="계산 예시 길이" hint="계산 예시이며 실제 영상 계획이나 저장된 설정을 변경하지 않습니다.">{props=><select {...props} value={seconds} onChange={event=>setSeconds(Number(event.target.value))}>{durations.map(duration=><option key={duration} value={duration}>{duration}초</option>)}</select>}</Field>

@@ -51,10 +51,10 @@ export const productionEntries: CatalogEntry[] = [
 ];
 
 export const adminEntries: CatalogEntry[] = [
-  { title: "백그라운드 상태", preview: <WorkerStatusPreview />, wide: true, href: "/", parts: "전체 상태·작업별 실행 여부", usage: "일부 작업만 멈췄는지 확인할 때", screen: "백그라운드 작업 관리" },
-  { title: "모델 참조 지원표", href: "/video-comparison", parts: "모델 상태·참조 유형별 지원", usage: "선택 모델이 받을 수 있는 자료를 확인할 때", screen: "영상 생성 관리·모델 비교" },
+  { title: "백그라운드 상태", preview: <WorkerStatusPreview />, wide: true, href: "/admin/workers", parts: "전체 상태·작업별 실행 여부", usage: "일부 작업만 멈췄는지 확인할 때", screen: "백그라운드 작업 관리" },
+  { title: "모델 참조 지원표", href: "/admin/video", parts: "모델 상태·참조 유형별 지원", usage: "선택 모델이 받을 수 있는 자료를 확인할 때", screen: "영상 생성 관리·모델 비교" },
   { title: "비용 차이 요약", preview: <VideoCostPreview />, wide: true, href: "/video-comparison", parts: "기준 모델·최저 예상 비용·클립 조건", usage: "모델별 비용 차이를 한눈에 볼 때", screen: "영상 AI 비교·비용 표" },
-  { title: "음성 비교 미리듣기", parts: "화자 이름·말투·재생 제어", usage: "같은 대사를 여러 목소리로 비교할 때", screen: "음성 AI 비교" },
-  { title: "권한 체크 매트릭스", preview: <PermissionMatrixPreview />, wide: true, parts: "메뉴·권한 열·사용 불가 상태", usage: "역할별로 여러 메뉴의 권한을 설정할 때", screen: "사용자·권한 관리 → 역할·메뉴" },
+  { title: "음성 비교 미리듣기", href: "/video-comparison/audio", parts: "화자 이름·말투·재생 제어", usage: "같은 대사를 여러 목소리로 비교할 때", screen: "음성 AI 비교" },
+  { title: "권한 체크 매트릭스", preview: <PermissionMatrixPreview />, wide: true, href: "/admin/access", parts: "메뉴·권한 열·사용 불가 상태", usage: "역할별로 여러 메뉴의 권한을 설정할 때", screen: "사용자·권한 관리 → 역할·메뉴" },
   { title: "브랜드 적용 미리보기", href: "/admin/branding", parts: "로고·브랜드 이름·적용 위치", usage: "브랜드 설정이 노출되는 위치를 확인할 때", screen: "브랜드 설정·로그인" },
 ];

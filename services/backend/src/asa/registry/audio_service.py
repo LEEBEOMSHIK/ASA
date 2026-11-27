@@ -1,9 +1,19 @@
 """Audio business rules and immutable work snapshots; no external calls here."""
 
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
-from asa.audio_contracts import AudioSettings, Cue, fingerprint, validate_measured
+from pydantic import Field, ValidationError
+
+from asa.audio_contracts import (
+    AudioSettings,
+    Cue,
+    Strict,
+    Time,
+    VideoSpeechTiming,
+    fingerprint,
+    validate_measured,
+)
 from asa.config import Settings
 from asa.registry.schemas import RegistryError
 from asa.video_continuity import source_video
@@ -76,6 +86,91 @@ def validate_assets(conn: Any, workspace: UUID, data: AudioSettings) -> None:
             raise RegistryError(422, "audio_music_timing")
 
 
+class VideoTimingSuggestion(Strict):
+    text: str = Field(min_length=1, max_length=1500, strict=True)
+    start_seconds: Time = Field(strict=True)
+    end_seconds: Time = Field(strict=True)
+    observed: str = Field(min_length=1, max_length=2000, strict=True)
+    delivery: str = Field(min_length=1, max_length=300, strict=True)
+    basis: Literal["mouth", "event"]
+
+
+_VIDEO_TIMING_SOURCES = """
+    SELECT r.id AS review_id,evidence.position-1 AS suggestion,j.id AS job_id,
+           j.clip_id,j.request_id,j.answer_version,v.title,c.timeline_start,evidence.item
+    FROM video_asset_reviews r
+    JOIN video_clip_jobs j ON (j.workspace_id,j.id)=(r.workspace_id,r.job_id)
+    JOIN script_versions v ON (v.workspace_id,v.request_id,v.version)=
+                             (j.workspace_id,j.request_id,j.answer_version)
+    LEFT JOIN LATERAL (
+        SELECT entry.clip->'source_start_seconds' AS timeline_start
+        FROM jsonb_array_elements(
+            CASE WHEN jsonb_typeof(v.answer->'clips')='array'
+                 THEN v.answer->'clips' ELSE '[]'::jsonb END
+        ) AS entry(clip)
+        WHERE entry.clip->>'clip_id'=j.clip_id LIMIT 1
+    ) AS c ON true
+    CROSS JOIN LATERAL jsonb_array_elements(
+        CASE WHEN jsonb_typeof(r.result->'speech_suggestions')='array'
+             THEN r.result->'speech_suggestions' ELSE '[]'::jsonb END
+    ) WITH ORDINALITY AS evidence(item,position)
+    WHERE r.workspace_id=%s AND r.status='succeeded' AND r.finished_at IS NOT NULL
+      AND j.status IN ('review','approved') AND octet_length(j.video)>0
+      AND evidence.position<=50 AND evidence.item->>'text'=%s
+      AND (evidence.item->>'basis'='event' OR %s)
+"""
+
+
+def video_timing_sources(
+    conn: Any, workspace: UUID, data: AudioSettings, cue: Cue,
+    *, select: VideoSpeechTiming | None = None,
+) -> list[dict[str, Any]]:
+    speaker = next(s for s in data.speakers if s.id == cue.speaker_id)
+    params = (workspace, cue.text, speaker.role == "character")
+    if select:
+        rows = conn.execute(
+            _VIDEO_TIMING_SOURCES + " AND r.id=%s AND evidence.position=%s",
+            (*params, select.review_id, select.suggestion + 1),
+        ).fetchall()
+    else:
+        applied = cue.video_timing
+        rows = conn.execute(
+            _VIDEO_TIMING_SOURCES
+            + " ORDER BY (r.id=%s AND evidence.position=%s) DESC NULLS LAST,"
+              " r.finished_at DESC,r.id,evidence.position LIMIT 24",
+            (*params, applied.review_id if applied else None,
+             applied.suggestion + 1 if applied else None),
+        ).fetchall()
+    sources = []
+    for row in rows:
+        try:
+            suggestion = VideoTimingSuggestion.model_validate(row["item"])
+        except ValidationError:
+            continue
+        if suggestion.start_seconds < suggestion.end_seconds:
+            start = row["timeline_start"]
+            sources.append({
+                **{key: value for key, value in row.items() if key != "item"},
+                "timeline_start": start if type(start) in (int, float) and 0 <= start <= 3600
+                else None,
+                **suggestion.model_dump(exclude={"text"}),
+            })
+    return sources
+
+
+def validate_video_timing_changes(
+    conn: Any, workspace: UUID, current: AudioSettings, edited: AudioSettings,
+) -> None:
+    previous = {cue.id: cue.video_timing for cue in current.cues}
+    for cue in edited.cues:
+        ref = cue.video_timing
+        if ref is None or ref == previous.get(cue.id):
+            continue
+        sources = video_timing_sources(conn, workspace, edited, cue, select=ref)
+        if not sources or ref.clip_offset + sources[0]["end_seconds"] > 3600:
+            raise RegistryError(422, "speech_video_timing_unavailable")
+
+
 def speech_spec(settings: Settings, data: AudioSettings, cue_id: str) -> dict[str, Any]:
     cue = next((c for c in data.cues if c.id == cue_id), None)
     if not cue:
@@ -84,7 +179,7 @@ def speech_spec(settings: Settings, data: AudioSettings, cue_id: str) -> dict[st
     model = settings.audio_model_profiles.get(speaker.voice.model_key)
     if not model or not model.enabled or speaker.voice.voice not in model.voices:
         raise RegistryError(422, "audio_voice_unavailable")
-    return {"cue": cue.model_dump(), "speaker": speaker.model_dump(mode="json"),
+    return {"cue": cue.model_dump(mode="json"), "speaker": speaker.model_dump(mode="json"),
             "model": model.model_dump()}
 
 
@@ -104,10 +199,13 @@ def sample_spec(settings: Settings, data: AudioSettings, speaker_id: str) -> dic
 
 def job_speech_spec(settings: Settings, data: AudioSettings, job: dict[str, Any]) -> dict[str, Any]:
     if job['input'].get('purpose') == 'sample':
-        return sample_spec(settings, data, job['cue_id'])
-    spec = speech_spec(settings, data, job['cue_id'])
-    if 'purpose' in job['input']:
-        spec['purpose'] = job['input']['purpose']
+        spec = sample_spec(settings, data, job['cue_id'])
+    else:
+        spec = speech_spec(settings, data, job['cue_id'])
+        if 'purpose' in job['input']:
+            spec['purpose'] = job['input']['purpose']
+    if 'retry_of' in job['input']:
+        spec['retry_of'] = job['input']['retry_of']
     return spec
 
 
@@ -119,7 +217,9 @@ def require_selected_voice(conn: Any, settings: Settings, data: AudioSettings,
                        (settings.workspace_id, speaker.sample_job_id)).fetchone()
     if (not row or row['input'].get('purpose') != 'sample' or row['status'] != 'approved'
             or not row['media'] or row['error_code']
-            or row['fingerprint'] != speech_key(sample_spec(settings, data, speaker_id))):
+            or row['fingerprint'] != speech_key(job_speech_spec(
+                settings, data, {'input': row['input'], 'cue_id': speaker_id},
+            ))):
         raise RegistryError(409, 'audio_voice_selection_required')
 
 
@@ -127,6 +227,7 @@ def speech_key(spec: dict[str, Any]) -> str:
     return fingerprint(
         {
             **({"purpose": spec["purpose"]} if "purpose" in spec else {}),
+            **({"retry_of": spec["retry_of"]} if "retry_of" in spec else {}),
             "cue_id": spec["cue"]["id"],
             "text": spec["cue"]["text"],
             "emotion": spec["cue"]["emotion"],

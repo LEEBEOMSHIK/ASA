@@ -17,7 +17,7 @@ def worker_router(settings: Settings, sessions: OwnerSessions) -> APIRouter:
     def can_manage(p: Principal) -> bool:
         return bool(settings.environment == "development" and
                     p.workspace_id == settings.workspace_id and
-                    {"owner", "admin"}.intersection(p.roles))
+                    p.can('workers.edit'))
 
     @router.get("/status")
     def status(p: Principal = Depends(sessions.principal)) -> dict[str, Any]:

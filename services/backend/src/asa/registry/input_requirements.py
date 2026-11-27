@@ -54,3 +54,15 @@ def valid_condition(field: str, rule: Any, schema: dict[str, Any]) -> bool:
         and rule["equals"] != ""
         and any(same_value(rule["equals"], choice) for choice in choices)
     )
+
+
+def valid_readonly_condition(field: str, rule: Any, schema: dict[str, Any]) -> bool:
+    if not isinstance(rule, dict) or rule.keys() != {"field", "equals", "label", "text"}:
+        return False
+    if any(not isinstance(rule[key], str) or not 0 < len(rule[key].strip()) <= 200
+           for key in ("label", "text")):
+        return False
+    if not valid_condition(field, {"field": rule["field"], "equals": rule["equals"]}, schema):
+        return False
+    source = schema["properties"][rule["field"]]
+    return "x-readonly-when" not in source and "x-visible-when" not in source

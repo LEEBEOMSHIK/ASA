@@ -1,3 +1,6 @@
+import { EditingSourceInput } from "./editing-source-input";
+import { EditingBriefInput } from "./editing-brief-input";
+import { SpeechSourceInput } from "./speech-source-input";
 import { ExpandableTextarea } from "./expandable-textarea";
 import { SceneImageInput, isSceneReference } from "./scene-image-input";
 import { VideoModelInput } from "./video-model-input";
@@ -7,10 +10,18 @@ import { VideoInput, isVideoReference } from "./video-input";
 import type { ReactNode } from "react";
 import { PreviousAnswerInput } from "./previous-answer-input";
 import type { SchemaNode } from "../lib/registry";
+import { readonlyInput } from "../lib/input-requirements";
 import { Button, Field, InputRequirement } from "./ui";
 import { CharacterImageInput, isCharacterReference } from "./character-library";
 
 export function AgentInput({ node, id, label, required, value, onChange, videoStyle = "", inputs, onDetailChange, onDurationChange, defaultsReady=true }: { node: SchemaNode; id: string; label: string; required: boolean; value: string; onChange: (v: string) => void; videoStyle?:string;inputs?:Record<string,string>;onDetailChange?:(v:string)=>void;onDurationChange?:(v:string)=>void;defaultsReady?:boolean }) {
+  const fixed = readonlyInput(node, inputs);
+  if (fixed) return <Field id={id} label={fixed.label}>
+    {props => <input {...props} type="text" readOnly value={fixed.text} />}
+  </Field>;
+  if (node["x-editing-sources"]) return <EditingSourceInput {...{id,label,value,onChange}}/>;
+  if (node["x-speech-source"]) return <SpeechSourceInput {...{id,label,value,required,onChange}}/>;
+  if (node["x-editing-brief"]) return <EditingBriefInput {...{id,label,required,value,onChange}} maxLength={node.maxLength}/>;
   if (node["x-video-model"]) return <VideoModelInput {...{node,id,label,required,value,onChange,videoStyle,onDurationChange}} duration={inputs?.video_duration_seconds??'0'}/>;
   if (isVideoReference(node)) return <VideoInput multiple={node.type === "array"} id={id} label={label} required={required} value={value} onChange={onChange}/>;
   if (isSceneReference(node)) return <SceneImageInput id={id} label={label} required={required} value={value} onChange={onChange}/>;
@@ -26,7 +37,7 @@ export function AgentInput({ node, id, label, required, value, onChange, videoSt
   };
   const isRatio = node.type === "string" && !!node.enum?.length && node.enum.every(v => typeof v === "string" && v in ratioLabels);
   const hint = isRatio
-    ? `가로:세로 비율입니다. 쇼츠용 장면은 9:16 세로형을 선택하세요. 장면의 구도와 제작 지침에 적용되며, 기존 캐릭터 기준 이미지는 변경되지 않습니다.`
+    ? label === "완성 영상 화면 비율" ? "완성 영상의 가로:세로 비율입니다. 원본 비율이 다르면 잘라내지 않고 여백으로 맞춥니다." : `가로:세로 비율입니다. 쇼츠용 장면은 9:16 세로형을 선택하세요. 장면의 구도와 제작 지침에 적용되며, 기존 캐릭터 기준 이미지는 변경되지 않습니다.`
     : label.trim() === "이야기 길이"
       ? "선택한 길이는 완성 영상의 목표 시간입니다. 실제 길이는 대사 속도·행동·편집에 따라 짧거나 길어질 수 있으며, 씬 구성과 음성 측정 후 확인합니다. 목표와 차이가 크면 대본이나 구성을 보완해야 합니다."
       : undefined;
@@ -45,7 +56,7 @@ export function AgentInput({ node, id, label, required, value, onChange, videoSt
           maxLength={node.maxLength || 65536} onChange={onChange}>{renderLongText}</PreviousAnswerInput>
       : renderLongText();
   }
-  const renderInput = (action?:ReactNode, receipt?:ReactNode) => <div><Field id={id} label={label} required={required} hint={hint} labelAction={action}>{p => widget === "slider" ? <div className="input-slider">
+  const renderInput = (action?:ReactNode, receipt?:ReactNode) => <div><Field id={id} label={label} required={required} hint={hint} help={node["x-help"]} labelAction={action}>{p => widget === "slider" ? <div className="input-slider">
     <output htmlFor={id} aria-live="polite">{value === "" ? "아직 선택하지 않았습니다" : `${value}단계`}</output>
     <input {...p} type="range" min={node.minimum} max={node.maximum} step={1} value={value || node.minimum || 0} onChange={e => onChange(e.target.value)} />
     <div className="input-range-labels"><span>최소 {node.minimum}</span><span>최대 {node.maximum}</span></div>

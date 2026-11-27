@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from asa.auth.access import access_router
 from asa.auth.session import OwnerSessions
 from asa.config import Settings
 from asa.database import close_database, connection
@@ -16,6 +17,7 @@ from asa.registry.automations import automation_router
 from asa.registry.branding import branding_router
 from asa.registry.categories import category_router
 from asa.registry.characters import character_router
+from asa.registry.editing import editing_router
 from asa.registry.history import history_router
 from asa.registry.library_routes import library_router
 from asa.registry.model_catalog import model_catalog_router
@@ -48,6 +50,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(worker_router(settings, sessions))
 
     app.include_router(sessions.router())
+    app.include_router(access_router(settings, sessions))
     app.include_router(profile_router(settings, sessions))
     app.include_router(navigation_colors_router(settings, sessions))
     app.include_router(registry_router(settings, sessions))
@@ -70,6 +73,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(video_review_router(settings, sessions))
     app.include_router(video_management_router(settings, sessions))
     app.include_router(audio_router(settings, sessions))
+    app.include_router(editing_router(settings, sessions))
     app.include_router(library_router(settings, sessions))
 
     @app.middleware("http")

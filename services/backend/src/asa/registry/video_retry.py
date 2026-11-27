@@ -31,7 +31,7 @@ class RetryConfirmation(BaseModel):
 
 
 def require_admin(principal: Principal) -> None:
-    if not {'owner', 'admin'}.intersection(principal.roles):
+    if not principal.can('video-management.edit'):
         raise RegistryError(403, 'video_management_forbidden')
 
 

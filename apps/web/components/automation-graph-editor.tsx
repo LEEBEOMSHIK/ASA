@@ -14,6 +14,7 @@ const parse = (s: string): unknown => {try{return JSON.parse(s);}catch{return s;
 const coordinate = (n: number) => Number.isFinite(n) ? Math.max(16,Math.min(100000,Math.round(n))) : 16;
 const fields = (s?: SchemaNode): [string,SchemaNode][] => !s ? [] : s.type === "object" ? Object.entries(s.properties || {}) : [["$",s]];
 type ModelCatalog = {models: {id:string;label:string;provider:string;web_search:boolean}[];default_model:string|null;default_provider:string;configured:boolean;providers:{id:string;label:string;configured:boolean;web_search_available:boolean}[]};
+const fetchModelCatalog = () => api<ModelCatalog>("/ai-models");
 
 const connectionLabel = (port:GraphEdge["port"]) => ({next:"출력",yes:"조건 충족",no:"그 외",item:"각 항목",done:"반복 완료"})[port];
 const nodeWidth=(n:GraphNode)=>cardSize(n.kind).width;
@@ -33,11 +34,11 @@ function BindingEditor({tools=[],label,binding,onChange,nodes,id,literalType}: {
  </div>;
 }
 type PreviewResult = {id:string;node_id?:string;label?:string;kind:string;status?:string;input:unknown;output?:unknown;message?:string;iteration?:number};
-export function GraphEditor({draft,change,tools,busy,testOpen,closeTest}: {draft:AutomationDraft;change:(d:AutomationDraft)=>void;tools:Tool[];busy:boolean;testOpen:boolean;closeTest:()=>void}) {
+export function GraphEditor({draft,change,tools,busy,testOpen,closeTest,loadCatalog=fetchModelCatalog,initialZoom=1,collapsiblePalette=false}: {draft:AutomationDraft;change:(d:AutomationDraft)=>void;tools:Tool[];busy:boolean;testOpen:boolean;closeTest:()=>void;loadCatalog?:()=>Promise<ModelCatalog>;initialZoom?:number;collapsiblePalette?:boolean}) {
  const graph=draft.graph!;
  const [deleted,setDeleted]=useState<{graph:typeof graph;label:string}|null>(null);
  const inspector=useRef<HTMLElement>(null);
- const [selected,setSelected]=useState(""); const [zoom,setZoom]=useState(1); const [search,setSearch]=useState("");
+ const [selected,setSelected]=useState(""); const [zoom,setZoom]=useState(initialZoom); const [search,setSearch]=useState("");
  const [tracedEdge,setTracedEdge]=useState("");
  const [isolate,setIsolate]=useState(false);
  const [traceSearch,setTraceSearch]=useState("");
@@ -61,7 +62,7 @@ export function GraphEditor({draft,change,tools,busy,testOpen,closeTest}: {draft
  const [modelLoading,setModelLoading]=useState(true);
  async function loadModels() {
   setModelLoading(true);setModelError("");
-  try {setCatalog(await api<ModelCatalog>("/ai-models"));} catch(e) {setModelError(message(e));} finally {setModelLoading(false);}
+  try {setCatalog(await loadCatalog());} catch(e) {setModelError(message(e));} finally {setModelLoading(false);}
  }
  useEffect(()=>{void loadModels();},[]);
  useEffect(()=>{
@@ -118,6 +119,20 @@ export function GraphEditor({draft,change,tools,busy,testOpen,closeTest}: {draft
  const width=Math.max(1000,originX+32+Math.max(0,...graph.nodes.map(n=>n.x+nodeWidth(n)+48),...routePoints.map(p=>p.x)));
  const height=Math.max(640,originY+32+Math.max(0,...graph.nodes.map(n=>n.y+nodeHeight(n)+32),...routePoints.map(p=>p.y)));
  const blockedRoutes=moving?[]:routes.filter(r=>r.blocked);
+ const palette=<aside className="graph-palette" aria-label="블록 추가">
+  <h2>직접 AI 구성</h2>
+  <button className="graph-palette-item" disabled={busy||graph.nodes.length>=50} onClick={()=>add("ai")}><span aria-hidden="true">✦</span>AI에게 요청<span aria-hidden="true">＋</span></button>
+  <Field id="graph-tool-search" label="등록된 작업 찾기">{p=><input {...p} value={search} onChange={e=>setSearch(e.target.value)} placeholder="이름 검색"/>}</Field>
+  {(["asa","agent"] as const).map(kind=>{
+   const matches=latestAgentTools(tools).filter(t=>t.kind===kind&&t.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
+   return <details key={kind} className="graph-tool-picker"><summary>{kind==="asa"?"ASA 기본 도구":"내 에이전트"}</summary>
+    {matches.length?matches.map(t=><div key={t.id}><button className="graph-palette-item" disabled={busy||!t.available||graph.nodes.length>=50} onClick={()=>add("tool",t)}>{t.name}<span aria-hidden="true">＋</span></button>{!t.available&&<p className="muted graph-small">{t.unavailable_reason||"현재 사용할 수 없습니다."}</p>}</div>):<p className="muted graph-small">{search?"일치하는 작업이 없습니다.":kind==="agent"?"등록된 에이전트가 없습니다.":"등록된 도구가 없습니다."}</p>}
+   </details>;
+  })}
+  <h2>흐름 제어</h2>
+  {(["condition","repeat","map"] as const).map(kind=><button key={kind} className="graph-palette-item" disabled={busy||graph.nodes.length>=50} onClick={()=>add(kind)}>{nodeKinds[kind]}<span aria-hidden="true">＋</span></button>)}
+  <p className="muted graph-small">최종 결과는 기본 블록 하나를 사용합니다. 분기는 한 경로만 실행하며 중첩 반복과 병렬 실행은 지원하지 않습니다.</p>
+ </aside>;
  return <div className="graph-editor">
  <details className="graph-node-list"><summary>전체 블록 · {graph.nodes.length}개</summary><div>{graph.nodes.map(n=><button key={n.id} onClick={()=>{setSelected(n.id);closeTest();}} aria-pressed={selected===n.id}>{n.label}</button>)}</div></details><div className="graph-topline"><div><strong>자유롭게 연결하는 작업 흐름</strong><p className="muted">출력점을 입력점으로 끌어 연결하세요. 점을 하나씩 눌러도 연결할 수 있습니다.</p></div><div className="badge-row"><Button variant="secondary" disabled={busy||moving||!!pending} onClick={()=>mutate({...graph,nodes:spaceCards(graph.nodes)})}>카드 간격 정리</Button><Button variant="secondary" onClick={()=>setZoom(z=>Math.max(.4,Math.round((z-.1)*10)/10))} aria-label="캔버스 축소">−</Button><button className="graph-zoom" onClick={()=>setZoom(1)} aria-label="확대 비율 초기화">{Math.round(zoom*100)}%</button><Button variant="secondary" onClick={()=>setZoom(z=>Math.min(1.5,Math.round((z+.1)*10)/10))} aria-label="캔버스 확대">＋</Button></div></div>
  <details className="graph-trace-controls" onKeyDown={e=>{if(e.key==="Escape"){setTracedEdge("");setIsolate(false);}}}>
@@ -140,20 +155,10 @@ export function GraphEditor({draft,change,tools,busy,testOpen,closeTest}: {draft
  {blockedRoutes.length>0&&<div className="graph-repair-notice" role="status"><p>블록이 겹쳐 연결선을 안전하게 표시할 수 없는 경로가 있습니다. 블록 사이를 띄워 주세요. 연결 관계는 유지됩니다.</p>{blockedRoutes.map(r=><p key={r.edge.id}>{r.source.label} → {r.target.label} · 배치 확인 필요</p>)}</div>}
  {deleted&&<div className="graph-delete-notice" role="status"><span>‘{deleted.label}’ 블록과 연결선을 삭제했습니다. 이 결과를 참조한 입력은 확인해 주세요.</span><Button variant="secondary" disabled={busy} onClick={()=>mutate(deleted.graph)}>삭제 취소</Button><small>다음 편집 전까지 되돌릴 수 있습니다.</small></div>}
  <div className={`graph-layout ${node||testOpen?"graph-has-panel":""}`}>
- <aside className="graph-palette" aria-label="블록 추가">
-  <h2>직접 AI 구성</h2>
-  <button className="graph-palette-item" disabled={busy||graph.nodes.length>=50} onClick={()=>add("ai")}><span aria-hidden="true">✦</span>AI에게 요청<span aria-hidden="true">＋</span></button>
-  <Field id="graph-tool-search" label="등록된 작업 찾기">{p=><input {...p} value={search} onChange={e=>setSearch(e.target.value)} placeholder="이름 검색"/>}</Field>
-  {(["asa","agent"] as const).map(kind=>{
-   const matches=latestAgentTools(tools).filter(t=>t.kind===kind&&t.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
-   return <details key={kind} className="graph-tool-picker"><summary>{kind==="asa"?"ASA 기본 도구":"내 에이전트"}</summary>
-    {matches.length?matches.map(t=><div key={t.id}><button className="graph-palette-item" disabled={busy||!t.available||graph.nodes.length>=50} onClick={()=>add("tool",t)}>{t.name}<span aria-hidden="true">＋</span></button>{!t.available&&<p className="muted graph-small">{t.unavailable_reason||"현재 사용할 수 없습니다."}</p>}</div>):<p className="muted graph-small">{search?"일치하는 작업이 없습니다.":kind==="agent"?"등록된 에이전트가 없습니다.":"등록된 도구가 없습니다."}</p>}
-   </details>;
-  })}
-  <h2>흐름 제어</h2>
-  {(["condition","repeat","map"] as const).map(kind=><button key={kind} className="graph-palette-item" disabled={busy||graph.nodes.length>=50} onClick={()=>add(kind)}>{nodeKinds[kind]}<span aria-hidden="true">＋</span></button>)}
-  <p className="muted graph-small">최종 결과는 기본 블록 하나를 사용합니다. 분기는 한 경로만 실행하며 중첩 반복과 병렬 실행은 지원하지 않습니다.</p>
- </aside>
+ {collapsiblePalette
+  ? <details className="graph-palette-details"><summary>블록 추가</summary>{palette}</details>
+  : palette}
+
  <section className="graph-viewport" aria-label="자유 배치 그래프 캔버스" onPointerMove={e=>{
   if(!pending||!plane.current)return;const rect=plane.current.getBoundingClientRect();setPointer({x:(e.clientX-rect.left)/zoom-originX,y:(e.clientY-rect.top)/zoom-originY});
  }} onClick={e=>{if(skipPortClick.current){skipPortClick.current=false;return;}if(!(e.target as HTMLElement).closest(".graph-node")&&!quickAdd){setPending(null);setPointer(null);}}}>

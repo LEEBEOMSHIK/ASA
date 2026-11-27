@@ -1,4 +1,5 @@
 "use client";
+import {useAccess} from "./access-provider";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { VideoGenerationManager } from "./video-generation-manager";
 import { api } from "../lib/registry";
@@ -15,6 +16,7 @@ const labels: Record<string, string> = {
 };
 
 export function AgentWorkerStatus() {
+  const access=useAccess();
   const [status, setStatus] = useState<WorkerStatus | null>(null);
   const [pending, setPending] = useState<Kind | "all" | null>(null);
   const [error, setError] = useState("");
@@ -22,6 +24,7 @@ export function AgentWorkerStatus() {
   const generation = useRef(0);
   const changing = useRef(false);
   useEffect(() => {
+    if(!access.can("workers.view")) return;
     let live = true, fetching = false;
     async function update() {
       if (fetching || changing.current || document.hidden) return;
@@ -37,7 +40,7 @@ export function AgentWorkerStatus() {
     const timer = window.setInterval(update, 3000);
     document.addEventListener("visibilitychange", update);
     return () => { live = false; clearInterval(timer); document.removeEventListener("visibilitychange", update); };
-  }, []);
+  }, [access.permissions.join(",")]);
   async function change(kind: Kind, action: "start" | "stop") {
     if (changing.current) return;
     changing.current = true;
@@ -64,9 +67,10 @@ export function AgentWorkerStatus() {
     } catch {setError("최신 상태를 확인하지 못했습니다. 상태를 확인한 뒤 다시 시도해 주세요.");}
     finally {generation.current++;changing.current=false;setPending(null);}
   }
+  if(!access.can("workers.view"))return null;
   return <WorkerManagementPanel status={status} pending={pending} error={error} unavailable={unavailable}
     onChange={change} onChangeAll={changeAll}>
-    {status?.can_manage&&<VideoGenerationManager/>}
+    {access.can("video-management.view")&&<VideoGenerationManager/>}
   </WorkerManagementPanel>;
 }
 

@@ -4,9 +4,10 @@ import argparse
 from typing import Any
 from uuid import UUID
 
+from asa import editing_worker
 from asa.audio_contracts import Music, fingerprint
 from asa.audio_media import compose, wav_duration
-from asa.audio_provider import synthesize, transcript_matches
+from asa.audio_provider import synthesize, synthesize_typecast, transcript_matches
 from asa.config import Settings
 from asa.database import connection
 from asa.registry import audio_service as service
@@ -28,24 +29,31 @@ class AudioWorker:
                     "updated_at=now() WHERE workspace_id=%s AND status='running'",
                     (workspace,),
                 )
+                editing_worker.recover(settings)
                 self.recovered = True
             if not accepting_work(conn, workspace, "audio"):
                 return False
+        if editing_worker.tick(settings):
+            return True
+        with connection(settings.database_url, dictionary=True) as conn:
+            if not accepting_work(conn, workspace, "audio"):
+                return False
             count = conn.execute(
-                "SELECT count(*) AS n FROM audio_jobs WHERE workspace_id=%s "
+                "SELECT count(*) + count(*) FILTER (WHERE input #>> '{model,provider}' "
+                "= 'typecast') AS n FROM audio_jobs WHERE workspace_id=%s "
                 "AND kind='speech' AND started_at>=date_trunc('day',now())",
                 (workspace,),
             ).fetchone()
-            can_speak = bool(
-                settings.audio_ai_enabled
-                and settings.audio_key().get_secret_value()
-                and count
-                and count["n"] < settings.audio_daily_calls
-            )
+            remaining = settings.audio_daily_calls - count["n"] if count else 0
+            providers = [
+                provider for provider, calls in (("openai", 1), ("typecast", 2))
+                if remaining >= calls and settings.audio_provider_ready(provider)
+            ]
             job = conn.execute(
                 "SELECT * FROM audio_jobs WHERE workspace_id=%s AND status='queued' "
-                "AND (kind='compose' OR %s) ORDER BY created_at,id LIMIT 1 FOR UPDATE SKIP LOCKED",
-                (workspace, can_speak),
+                "AND (kind='compose' OR COALESCE(input #>> '{model,provider}', 'openai') "
+                "= ANY(%s)) ORDER BY created_at,id LIMIT 1 FOR UPDATE SKIP LOCKED",
+                (workspace, providers),
             ).fetchone()
             if not job:
                 return False
@@ -95,11 +103,20 @@ class AudioWorker:
             error = None
             transcript = ""
             if job["kind"] == "speech":
-                media, transcript = synthesize(
-                    settings.audio_key().get_secret_value(), job["input"]
-                )
+                key = settings.audio_key().get_secret_value()
+                if spec["model"].get("provider") == "typecast":
+                    media, verified_text = synthesize_typecast(
+                        settings.audio_typecast_api_key.get_secret_value(), key,
+                        settings.audio_transcription_model, spec, settings.ffmpeg_path,
+                    )
+                    if verified_text is None:
+                        error = "audio_transcript_unverified"
+                    else:
+                        transcript = verified_text
+                else:
+                    media, transcript = synthesize(key, job["input"])
                 seconds = wav_duration(media)
-                if not transcript_matches(job["input"]["cue"]["text"], transcript):
+                if error is None and not transcript_matches(spec["cue"]["text"], transcript):
                     error = "audio_transcript_mismatch"
             else:
                 media = compose(

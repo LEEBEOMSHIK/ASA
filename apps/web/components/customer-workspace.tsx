@@ -1,5 +1,6 @@
 "use client";
 import {workHref,workRoute} from "../lib/work-route";
+import {isSpeechProductionOutput} from "../lib/work-layout";
 import { DraftScope } from "../lib/work-draft";
 import { ProfileMenu } from "./profile-menu";
 import { NavigationPreferences } from "./navigation-preferences";
@@ -10,9 +11,10 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { api, ApiError, message, setCsrf, type Tool, type WorkDetail } from "../lib/registry";
 import { AgentRunPreview } from "./agent-run-preview";
 import { Button, Card, StatusBadge, StudioNavigation } from "./ui";
-import { WorkspaceAgentCard, WorkspaceStartSteps } from "./workspace-agent-card";
 import { WorkHistory } from "./work-history";
 import { CustomerSidebar } from "./customer-sidebar";
+
+import { WorkspaceAgentCard, WorkspaceStartSteps } from "./workspace-agent-card";
 
 export function CustomerWorkspace() {
   const menu = useSidebarCollapse();
@@ -142,7 +144,9 @@ export function CustomerWorkspace() {
       const session = await api<{ csrf_token: string }>("/session");
       setCsrf(session.csrf_token);
       const saved = await api<WorkDetail>("/work-requests", "POST", { ...body, id: requestRef.current.id });
-      await api(`/work-requests/${saved.id}/script/start`, "POST", {});
+      if (!isSpeechProductionOutput(saved.agent.output_schema)) {
+        await api(`/work-requests/${saved.id}/script/start`, "POST", {});
+      }
       updateLocation("request",saved.id); setHistoryId(saved.id); setSelected(null); setSource(null); setView("history"); requestRef.current = null; setSidebarRefresh(value => value + 1);
     } finally { setSaving(false); }
   }
@@ -182,9 +186,9 @@ export function CustomerWorkspace() {
         <section className="customer-welcome"><p className="eyebrow">LET’S CREATE</p><h1>오늘은 어떤 작업을 맡길까요?</h1><p className="intro">함께할 AI 도우미를 고르고, 필요한 내용을 알려 주세요.</p>
           <WorkspaceStartSteps /></section>
         {status === "loading" && <p role="status">사용할 수 있는 에이전트를 불러오는 중입니다…</p>}
-        {status === "login" && <Card><h2>내 작업 공간에 입장하세요</h2><p>현재는 로컬 개발 단계로, 기존 소유자 로그인으로 등록된 에이전트를 테스트합니다. 고객용 계정 로그인은 추후 연결됩니다.</p><div className="actions">
+        {status === "login" && <Card><h2>내 작업 공간에 입장하세요</h2><p>관리자가 등록한 사용자 계정 또는 기존 소유자 계정으로 로그인하세요.</p><div className="actions">
           {testLogin && <Button disabled={busy} onClick={enterTest}>{busy ? "입장 중…" : "테스트 로그인으로 시작"}</Button>}
-          <a href={"/login?next="+encodeURIComponent(typeof window!=="undefined"?window.location.pathname+window.location.search:"/")}>소유자 로그인</a></div>{testLogin && <p className="muted">개발 전용 로그인입니다. 현재 로컬 작업 공간의 에이전트를 불러옵니다.</p>}</Card>}
+          <a href={"/login?next="+encodeURIComponent(typeof window!=="undefined"?window.location.pathname+window.location.search:"/")}>로그인</a></div>{testLogin && <p className="muted">개발 전용 로그인입니다. 현재 로컬 작업 공간의 에이전트를 불러옵니다.</p>}</Card>}
         {error && <p role="alert" className="field-error">{error}</p>}
         {status === "error" && <Button variant="secondary" onClick={() => setRetry(value => value + 1)}>다시 불러오기</Button>}
         {status === "ready" && <><div className="section-heading"><div><h2>함께할 에이전트</h2><p className="muted">새 작업은 에이전트의 최신 저장 설정으로 시작합니다.</p></div><StatusBadge>{tools.length}개</StatusBadge></div>

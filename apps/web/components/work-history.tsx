@@ -3,7 +3,7 @@ import { useCallback, useEffect, useId, useState } from "react";
 import { api, message, type Tool, type WorkDetail } from "../lib/registry";
 import { ActionIcon, Button, Card, DisclosureSummary, DisclosureIcon, StatusBadge } from "./ui";
 import { ScriptStage } from "./script-stage";
-import {workTabItems,workNextStep} from "../lib/work-layout";
+import {isEditingOutput,isSpeechProductionOutput,workTabItems,workNextStep} from "../lib/work-layout";
 
 import {CharacterWorkTabsContext,WorkTabBar,WorkTabPart,useWorkTabSelection} from "./character-work-tabs";
 import {entryWorkTab} from "../lib/work-tabs";
@@ -44,10 +44,15 @@ export function WorkHistory({ initialId, onRepeat, onSelect, onDirtyChange }: { 
   }, [id]);
   const [layout,setLayout]=useState<{id:string;profile:Partial<Tool>}|null>(null);
   const handleLayout=useCallback((profile:Partial<Tool>)=>setLayout({id,profile}),[id]);
-  const items=workTabItems(layout?.id===id?layout.profile:detail?.agent || {});
-  const preferred=["running","queued"].includes(detail?.status || "")?"images":entryWorkTab(detail?.status || "",detail?.work_progress);
+  const profile=layout?.id===id?layout.profile:detail?.agent || {};
+  const items=workTabItems(profile);
+  const showEditingResult=isEditingOutput(profile.output_schema) && detail?.status==="succeeded";
+  const speech=isSpeechProductionOutput(profile.output_schema);
+  const preferred=showEditingResult || speech || ["running","queued"].includes(detail?.status || "")?"images":entryWorkTab(detail?.status || "",detail?.work_progress);
   const tabState=useWorkTabSelection(id,preferred,!!detail && detail.id===id,items.some(i=>i.id==="common"));
-  const nextStep=workNextStep(detail?.status || "",detail?.work_progress);
+  const nextStep=showEditingResult || speech
+    ? {label:speech?"음성 제작 보기":"합성 결과 보기",tone:"neutral",tab:"images"} as const
+    : workNextStep(detail?.status || "",detail?.work_progress);
   return <CharacterWorkTabsContext.Provider value={tabState}><section className="agent-task-layout">
     {loading ? <p role="status">작업을 불러오는 중입니다…</p> : error ? <p role="alert">{error}</p> : detail ? <div className="tool-detail-stack history-detail">
       {<header className="work-task-summary" aria-label="현재 작업"><div className="work-task-identity"><h1>{detail.agent.name}</h1><p className="muted">{detail.display_title||detail.custom_name||detail.name||"제목 없는 작업"}</p></div><Button variant="secondary" className={`work-status-action work-status-action--${nextStep!.tone}`} disabled={dirty} aria-label={`${nextStep!.label} · ${detail.status==="failed"?"실패 원인 보기":"작업 영역으로 이동"}`} title={dirty?"답변 수정을 저장하거나 취소한 뒤 이동하세요.":detail.status==="failed"?"실패 원인 보기":"작업 영역으로 이동"} onClick={()=>{if(detail.status==="failed"){setErrorRequest(n=>n+1);return;}tabState.select(nextStep!.tab);if(nextStep!.tab==="images"&&detail.work_progress){window.dispatchEvent(new CustomEvent("asa-resume-work",{detail:{requestId:id,version:detail.work_progress!.source_version,anchor:detail.work_progress!.resume_anchor}}));}else{requestAnimationFrame(()=>{const panel=document.getElementById(`${tabPrefix}-panel`);if(panel){panel.style.scrollMarginTop=`${(document.querySelector('[aria-label="워커 상태 및 제어"]')?.getBoundingClientRect().height||0)+24}px`;panel.focus({preventScroll:true});panel.scrollIntoView({block:"start",behavior:window.matchMedia("(prefers-reduced-motion: reduce)").matches?"instant":"smooth"});}});}}}><span>{nextStep!.label}</span><DisclosureIcon/></Button></header>}
@@ -55,14 +60,14 @@ export function WorkHistory({ initialId, onRepeat, onSelect, onDirtyChange }: { 
       {<WorkTabBar prefix={tabPrefix} items={items}/>}
       {tabState.warning&&<p role="status">{tabState.warning}</p>}
       <div className="work-task-content" role="tabpanel" id={`${tabPrefix}-panel`} aria-labelledby={`${tabPrefix}-${tabState.tab}`} tabIndex={0}>
-      <WorkTabPart tab="history">
+      {!speech && <WorkTabPart tab="history">
         {<Card className="work-task-details"><div className="card-heading"><div><h2>{detail.display_title||detail.custom_name||detail.name||"제목 없는 작업"}</h2><p className="muted">{detail.agent.name} · {detail.status==="succeeded"?"AI 답변 완료":status(detail.status)}</p></div><Button variant="secondary" disabled={loading||dirty} onClick={()=>setRefresh(v=>v+1)}><ActionIcon kind="refresh"/>새로고침</Button></div>
         <details className="work-task-info"><DisclosureSummary>작업 정보</DisclosureSummary><div className="work-task-info-body"><p className="muted">에이전트 버전 {detail.version} · 보낸 시각 {date(detail.created_at)}</p><p className="muted">마지막 상태 변경 {date(detail.updated_at)}</p>{detail.source_id&&<Button variant="secondary" onClick={()=>navigate(detail.source_id!)}>원래 작업 보기</Button>}</div></details>
         <details key={detail.id} className="request-disclosure"><summary><span className="sent-request-label"><span className="sent-request-title">내가 보낸 요청</span>{detail.is_test && <StatusBadge>테스트 요청</StatusBadge>}</span><span className="request-toggle-label"><span className="when-closed">내용 펼치기</span><span className="when-open">내용 접기</span></span></summary><div className="request-disclosure-body">
         {detail.agent.input_schema?.type === "object" ? <dl className="sent-request-summary">{Object.entries(detail.input as Record<string, unknown>).map(([key, value]) => <div key={key}><dt>{detail.agent.input_schema?.properties?.[key]?.description || key}</dt><dd>{content(value)}</dd></div>)}</dl> : <p className="sent-request-text">{content(detail.input)}</p>}
         </div></details>
       </Card>}
-      </WorkTabPart>
+      </WorkTabPart>}
       {detail.error && <p role="alert">{detail.error}</p>}
       <ScriptStage key={id} requestId={id} errorRequest={errorRequest} onLayout={handleLayout} onDirtyChange={handleDirty} onNewWork={()=>{if(canLeave())onRepeat(detail);}} />
       </div>
